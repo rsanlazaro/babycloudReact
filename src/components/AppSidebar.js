@@ -10,10 +10,13 @@ import {
   CSidebarToggler,
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
+import { Link } from 'react-router-dom'
 
 import { AppSidebarNav } from './AppSidebarNav'
+import SidebarCalendar from './SideBarCalendar'
+import SidebarAnalogClock from './SidebarAnalogClock'
 
-import { logo } from 'src/assets/brand/logo'
+import logo from 'src/assets/brand/babySite.png'
 import { sygnet } from 'src/assets/brand/sygnet'
 
 // sidebar nav config
@@ -26,7 +29,7 @@ const AppSidebar = () => {
 
   return (
     <CSidebar
-      className="border-end"
+      className="app-sidebar"
       colorScheme="dark"
       position="fixed"
       unfoldable={unfoldable}
@@ -35,9 +38,14 @@ const AppSidebar = () => {
         dispatch({ type: 'set', sidebarShow: visible })
       }}
     >
-      <CSidebarHeader className="border-bottom">
-        <CSidebarBrand to="/">
-          <CIcon customClassName="sidebar-brand-full" icon={logo} height={32} />
+      <CSidebarHeader>
+        <CSidebarBrand as={Link} to="/">
+          <img
+            src={logo}
+            alt="Example"
+            className="img-fluid rounded"
+            style={{ maxWidth: '200px' }}
+          />
           <CIcon customClassName="sidebar-brand-narrow" icon={sygnet} height={32} />
         </CSidebarBrand>
         <CCloseButton
@@ -46,11 +54,10 @@ const AppSidebar = () => {
           onClick={() => dispatch({ type: 'set', sidebarShow: false })}
         />
       </CSidebarHeader>
-      <AppSidebarNav items={navigation} />
-      <CSidebarFooter className="border-top d-none d-lg-flex">
-        <CSidebarToggler
-          onClick={() => dispatch({ type: 'set', sidebarUnfoldable: !unfoldable })}
-        />
+      <SidebarAnalogClock />
+      <AppSidebarNav items={navigation} className="app-sidebar-content" />
+      <SidebarCalendar />
+      <CSidebarFooter className="d-none d-lg-flex">
       </CSidebarFooter>
     </CSidebar>
   )

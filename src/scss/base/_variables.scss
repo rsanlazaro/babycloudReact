@@ -1,0 +1,33 @@
+// Tipography
+
+$main_font: var(--bs-body-font-family);
+
+// Colors
+
+$white: #ffffff; 
+$darkWhite: darken($white,20%);
+$clearWhite: lighten($white,15%);
+$gray: #f5f5f5;
+$black: #212121;
+$primary: #eb6c9c;
+$primaryDark: darken($primary,10%);
+$primaryLight: lighten($primary,25%);
+
+// Media Queries Sizes
+
+$phoneSM: 320px;
+$phone: 576px;
+$tablet: 768px;
+$desktop: 992px;
+$desktopXL: 1200px;
+$desktopXXL: 1400px;
+
+// Padding and margins
+
+$lateral_header_padding: 3rem;
+$lateral_header_padding_lg: 8rem;
+$lateral_footer_padding: 2rem;
+$lateral_footer_padding_lg: 7.5%;
+$lateral_footer_padding_xl: 15%;
+$lateral_body_padding: 2rem;
+$lateral_body_padding_lg: 10rem;
