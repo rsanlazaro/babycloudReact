@@ -1,5 +1,7 @@
 // src/views/pages/profile/Profile.js
 import React, { useState, useEffect } from 'react';
+import { useUser } from '../../../context/UserContext';
+
 import {
   CCard,
   CCardBody,
@@ -39,6 +41,9 @@ const getUploadSignature = async () => {
 };
 
 const Profile = () => {
+
+  const { setUser } = useUser();
+  
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -49,10 +54,11 @@ const Profile = () => {
     phone: '',
     role: '',
     photo: null,
-    photoUrl: '' // Store the Cloudinary URL
+    photoUrl: '',
+    photoVersion: null, // Store the Cloudinary URL
   });
 
-  const [photoPreview, setPhotoPreview] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState('/images/default-avatar.png');
   const [showAlert, setShowAlert] = useState(false);
   const [alertType, setAlertType] = useState('success');
   const [alertMessage, setAlertMessage] = useState('');
@@ -69,6 +75,29 @@ const Profile = () => {
   // Simulate loading existing user data
   useEffect(() => {
     fetchUserProfile();
+  }, []);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const res = await axios.get(
+          'http://localhost:4000/api/users/me',
+          { withCredentials: true }
+        );
+
+        console.log('USER DATA', res.data);
+
+        const imageUrl =
+          res.data.profileImage?.url ??
+          '/images/default-avatar.png';
+
+        setPhotoPreview(imageUrl);
+      } catch (err) {
+        console.error('USER LOAD ERROR', err);
+      }
+    };
+
+    loadUser();
   }, []);
 
   const fetchUserProfile = async () => {
@@ -88,11 +117,12 @@ const Profile = () => {
         phone: '+1 (555) 123-4567',
         role: 'user',
         photo: null,
-        photoUrl: null // This would come from your database
+        photoUrl: 'user_1',
+        photoVersion: 1766630000 // from DB
       };
 
       setFormData(userData);
-      setPhotoPreview(userData.photoUrl);
+      // setPhotoPreview(userData.photoUrl);
     } catch (error) {
       showNotification('error', 'Hubo un error al cargar el perfil del usuario.');
     } finally {
@@ -260,6 +290,7 @@ const Profile = () => {
     cloudinaryFormData.append('signature', signature);
     cloudinaryFormData.append('public_id', publicId);
     cloudinaryFormData.append('overwrite', 'true');
+    cloudinaryFormData.append('transformation', 'c_fill,w_300,h_300,g_face');
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -281,7 +312,16 @@ const Profile = () => {
         const response = JSON.parse(xhr.responseText);
         setUploadingPhoto(false);
         setUploadProgress(0);
-        resolve(response.secure_url);
+        const { public_id, version } = response;
+
+        const versionedUrl = `https://res.cloudinary.com/${cloudName}/image/upload/v${version}/${public_id}.jpg`;
+
+        resolve({
+          publicId: public_id,
+          version,
+          url: versionedUrl,
+        });
+
       };
 
       xhr.onerror = () => {
@@ -346,17 +386,43 @@ const Profile = () => {
       setLoading(true);
 
       let photoUrl = formData.photoUrl;
+      let photoVersion = formData.photoVersion;
 
       // Upload photo to Cloudinary if a new photo was selected
       if (formData.photo) {
         try {
-          photoUrl = await uploadToCloudinary();
+          const uploadResult = await uploadToCloudinary();
+
+          photoUrl = uploadResult.url;
+          photoVersion = uploadResult.version;
+
+          // 1️⃣ Save image info in session (backend)
+          await axios.put(
+            'http://localhost:4000/api/users/profile-image',
+            {
+              publicId: uploadResult.publicId,
+              version: uploadResult.version,
+            },
+            { withCredentials: true }
+          );
+
+          // 2️⃣ Refresh global user (for header, breadcrumb, etc.)
+          const me = await axios.get(
+            'http://localhost:4000/api/users/me',
+            { withCredentials: true }
+          );
+
+          // 3️⃣ Update global context (if using UserContext)
+          setUser(me.data);
+
         } catch (error) {
+          console.error(error);
           showNotification('error', 'Hubo un error al cargar la foto. Intente de nuevo');
           setLoading(false);
           return;
         }
       }
+
 
       // Prepare data for API call
       const dataToSubmit = {
@@ -390,6 +456,14 @@ const Profile = () => {
       </CContainer>
     );
   }
+
+  const profileImageSrc =
+    photoPreview
+      ? photoPreview
+      : formData.photoUrl && formData.photoVersion
+        ? `https://res.cloudinary.com/dyund4efw/image/upload/v${formData.photoVersion}/${formData.photoUrl}.jpg`
+        : null;
+
 
   return (
     <CContainer lg>
@@ -430,7 +504,7 @@ const Profile = () => {
                       {photoPreview ? (
                         <>
                           <CImage
-                            src={photoPreview}
+                            src={profileImageSrc}
                             style={{
                               maxHeight: '200px',
                               maxWidth: '200px',

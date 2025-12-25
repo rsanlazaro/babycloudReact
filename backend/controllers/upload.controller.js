@@ -12,6 +12,7 @@ exports.getUploadSignature = async (req, res) => {
         timestamp,
         public_id: publicId,
         overwrite: true,
+        transformation: 'c_fill,w_300,h_300,g_face',
       },
       process.env.CLOUDINARY_API_SECRET
     );
