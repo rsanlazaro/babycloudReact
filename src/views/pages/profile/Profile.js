@@ -22,18 +22,21 @@ import {
   CImage
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { 
-  cilUser, 
-  cilEnvelopeOpen, 
-  cilLockLocked, 
+import {
+  cilUser,
+  cilEnvelopeOpen,
+  cilLockLocked,
   cilPhone,
   cilCamera,
   cilPeople
 } from '@coreui/icons';
 
-// Cloudinary configuration
-const CLOUD_NAME = 'dyund4efw';
-const UPLOAD_PRESET = 'babycloud';
+import axios from 'axios';
+
+const getUploadSignature = async () => {
+  const res = await axios.get('http://localhost:4000/api/upload/cloudinary-signature');
+  return res.data;
+};
 
 const Profile = () => {
   const [formData, setFormData] = useState({
@@ -57,7 +60,7 @@ const Profile = () => {
   const [loadingData, setLoadingData] = useState(true);
   const [errors, setErrors] = useState({});
   const [touched, setTouched] = useState({});
-  
+
   // Photo upload states
   const [isDragging, setIsDragging] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
@@ -73,7 +76,7 @@ const Profile = () => {
       setLoadingData(true);
       // Simulate API call
       await new Promise(resolve => setTimeout(resolve, 1000));
-      
+
       // Set mock data - replace with actual API call
       const userData = {
         firstName: 'John',
@@ -87,7 +90,7 @@ const Profile = () => {
         photo: null,
         photoUrl: null // This would come from your database
       };
-      
+
       setFormData(userData);
       setPhotoPreview(userData.photoUrl);
     } catch (error) {
@@ -109,7 +112,7 @@ const Profile = () => {
           error = 'Debe contener al menos 2 caracteres';
         }
         break;
-      
+
       case 'username':
         if (!value.trim()) {
           error = 'El nombre de usuario es obligatorio';
@@ -119,7 +122,7 @@ const Profile = () => {
           error = 'El nombre de usuario solo puede contener letras, números y guiones bajos';
         }
         break;
-      
+
       case 'email':
         if (!value.trim()) {
           error = 'El correo electrónico es obligatorio';
@@ -127,7 +130,7 @@ const Profile = () => {
           error = 'Ingresa una dirección de correo electrónico válida';
         }
         break;
-      
+
       case 'password':
         if (value && value.length < 6) {
           error = 'La contraseña debe tener al menos 6 caracteres';
@@ -135,19 +138,19 @@ const Profile = () => {
           error = 'La contraseña debe contener una letra mayúscula, otra minúscula y un número';
         }
         break;
-      
+
       case 'confirmPassword':
         if (value && value !== formData.password) {
           error = 'Las contraseñas no coinciden';
         }
         break;
-      
+
       case 'phone':
         if (value && !/^[\d\s()+-]+$/.test(value)) {
           error = 'Ingresa un número de teléfono válido';
         }
         break;
-      
+
       case 'role':
         if (!value) {
           error = 'Seleccionar un rol';
@@ -206,7 +209,7 @@ const Profile = () => {
       ...prevState,
       photo: file
     }));
-    
+
     const reader = new FileReader();
     reader.onloadend = () => {
       setPhotoPreview(reader.result);
@@ -238,16 +241,35 @@ const Profile = () => {
     setUploadingPhoto(true);
     setUploadProgress(0);
 
+    const signatureResponse = await getUploadSignature();
+
+    console.log('SIGNATURE RESPONSE:', signatureResponse);
+
+    const {
+      timestamp,
+      signature,
+      publicId,
+      cloudName,
+      apiKey,
+    } = signatureResponse;
+
     const cloudinaryFormData = new FormData();
     cloudinaryFormData.append('file', formData.photo);
-    cloudinaryFormData.append('upload_preset', UPLOAD_PRESET);
+    cloudinaryFormData.append('api_key', apiKey);
+    cloudinaryFormData.append('timestamp', timestamp);
+    cloudinaryFormData.append('signature', signature);
+    cloudinaryFormData.append('public_id', publicId);
+    cloudinaryFormData.append('overwrite', 'true');
 
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
+
       xhr.open(
         'POST',
-        `https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`
+        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`
       );
+
+      console.log('USING CLOUD NAME:', cloudName);
 
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable) {
@@ -272,11 +294,13 @@ const Profile = () => {
     });
   };
 
+
+
   const showNotification = (type, message) => {
     setAlertType(type);
     setAlertMessage(message);
     setShowAlert(true);
-    
+
     setTimeout(() => {
       setShowAlert(false);
     }, 5000);
@@ -285,7 +309,7 @@ const Profile = () => {
   const validateForm = () => {
     const newErrors = {};
     const requiredFields = ['firstName', 'lastName', 'username', 'email', 'role'];
-    
+
     requiredFields.forEach(field => {
       const error = validateField(field, formData[field]);
       if (error) newErrors[field] = error;
@@ -294,7 +318,7 @@ const Profile = () => {
     if (formData.password) {
       const passwordError = validateField('password', formData.password);
       if (passwordError) newErrors.password = passwordError;
-      
+
       const confirmError = validateField('confirmPassword', formData.confirmPassword);
       if (confirmError) newErrors.confirmPassword = confirmError;
     }
@@ -305,7 +329,7 @@ const Profile = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    
+
     // Mark all fields as touched
     const touchedFields = {};
     Object.keys(formData).forEach(key => {
@@ -320,9 +344,9 @@ const Profile = () => {
 
     try {
       setLoading(true);
-      
+
       let photoUrl = formData.photoUrl;
-      
+
       // Upload photo to Cloudinary if a new photo was selected
       if (formData.photo) {
         try {
@@ -333,24 +357,24 @@ const Profile = () => {
           return;
         }
       }
-      
+
       // Prepare data for API call
       const dataToSubmit = {
         ...formData,
         photoUrl,
         photo: undefined // Don't send the file object to your backend
       };
-      
+
       // Simulate API call - replace with your actual API call
       await new Promise(resolve => setTimeout(resolve, 2000));
-      
+
       // Update local state with new photo URL
       setFormData(prev => ({
         ...prev,
         photoUrl,
         photo: null
       }));
-      
+
       showNotification('success', 'Foto cargada exitosamente!');
     } catch (error) {
       showNotification('error', 'Hubo un error al cargar la foto. Intente de nuevo');
@@ -376,7 +400,7 @@ const Profile = () => {
               {alertMessage}
             </CAlert>
           )}
-          
+
           <CCard className="mb-4">
             <CCardHeader>
               <strong>Perfil del usuario</strong>
@@ -407,8 +431,8 @@ const Profile = () => {
                         <>
                           <CImage
                             src={photoPreview}
-                            style={{ 
-                              maxHeight: '200px', 
+                            style={{
+                              maxHeight: '200px',
                               maxWidth: '200px',
                               borderRadius: '10px',
                               marginBottom: '10px'
@@ -460,7 +484,7 @@ const Profile = () => {
                         disabled={loading || uploadingPhoto}
                       />
                     </div>
-                    
+
                     <div className="small text-muted mt-2 text-center">
                       Tamaño máximo: 5MB. Formatos: JPG, PNG, GIF
                     </div>
@@ -543,7 +567,7 @@ const Profile = () => {
                       <CFormFeedback invalid>{errors.username}</CFormFeedback>
                     </CInputGroup>
                   </CCol>
-                  
+
                   <CCol md={6}>
                     <CFormLabel htmlFor="role">Rol *</CFormLabel>
                     <CInputGroup className="has-validation">
@@ -670,17 +694,17 @@ const Profile = () => {
                 {/* Submit Buttons */}
                 <CRow className="mt-4">
                   <CCol xs={12} className="text-end">
-                    <CButton 
-                      color="secondary" 
+                    <CButton
+                      color="secondary"
                       className="me-2"
                       disabled={loading || uploadingPhoto}
                       onClick={() => window.history.back()}
                     >
                       Cancelar
                     </CButton>
-                    <CButton 
+                    <CButton
                       className='app-button'
-                      color="primary" 
+                      color="primary"
                       type="submit"
                       disabled={loading || uploadingPhoto}
                     >
