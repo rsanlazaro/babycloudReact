@@ -34,16 +34,17 @@ import {
 } from '@coreui/icons';
 
 import axios from 'axios';
+import api from '../../../../../backend/services/api';
 
 const getUploadSignature = async () => {
-  const res = await axios.get('http://localhost:4000/api/upload/cloudinary-signature');
+  const res = await api.get('http://localhost:4000/api/upload/cloudinary-signature');
   return res.data;
 };
 
 const Profile = () => {
 
   const { setUser } = useUser();
-  
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -58,7 +59,7 @@ const Profile = () => {
     photoVersion: null, // Store the Cloudinary URL
   });
 
-  const [photoPreview, setPhotoPreview] = useState('/images/default-avatar.png');
+  const [photoPreview, setPhotoPreview] = useState('https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=150');
   const [showAlert, setShowAlert] = useState(false);
   const [alertType, setAlertType] = useState('success');
   const [alertMessage, setAlertMessage] = useState('');
@@ -80,7 +81,7 @@ const Profile = () => {
   useEffect(() => {
     const loadUser = async () => {
       try {
-        const res = await axios.get(
+        const res = await api.get(
           'http://localhost:4000/api/users/me',
           { withCredentials: true }
         );
@@ -89,7 +90,7 @@ const Profile = () => {
 
         const imageUrl =
           res.data.profileImage?.url ??
-          '/images/default-avatar.png';
+          'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=150';
 
         setPhotoPreview(imageUrl);
       } catch (err) {
@@ -309,17 +310,21 @@ const Profile = () => {
       };
 
       xhr.onload = () => {
+        if (xhr.status !== 200) {
+          reject(new Error(`Cloudinary upload failed: ${xhr.responseText}`));
+          return;
+        }
         const response = JSON.parse(xhr.responseText);
         setUploadingPhoto(false);
         setUploadProgress(0);
-        const { public_id, version } = response;
+        const { public_id, version, secure_url } = response;
 
-        const versionedUrl = `https://res.cloudinary.com/${cloudName}/image/upload/v${version}/${public_id}.jpg`;
+        // const versionedUrl = `https://res.cloudinary.com/${cloudName}/image/upload/v${version}/${public_id}.jpg`;
 
         resolve({
           publicId: public_id,
           version,
-          url: versionedUrl,
+          url: secure_url,
         });
 
       };
@@ -396,18 +401,21 @@ const Profile = () => {
           photoUrl = uploadResult.url;
           photoVersion = uploadResult.version;
 
+          console.log('UPLOAD RESULT:', uploadResult);
+
           // 1️⃣ Save image info in session (backend)
-          await axios.put(
+          await api.put(
             'http://localhost:4000/api/users/profile-image',
             {
               publicId: uploadResult.publicId,
               version: uploadResult.version,
+              profileUrl: uploadResult.url,
             },
             { withCredentials: true }
           );
 
           // 2️⃣ Refresh global user (for header, breadcrumb, etc.)
-          const me = await axios.get(
+          const me = await api.get(
             'http://localhost:4000/api/users/me',
             { withCredentials: true }
           );

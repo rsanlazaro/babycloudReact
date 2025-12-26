@@ -27,11 +27,11 @@ import CIcon from '@coreui/icons-react'
 
 const AppHeaderDropdown = () => {
 
-  const { user, setUser } = useUser();
+  const { user, setUser } = useUser();  
 
   const avatar =
     user?.profileImage?.url ??
-    '/default-avatar.png';
+    'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=150';
 
   const loadUser = async () => {
     try {
