@@ -37,7 +37,7 @@ import axios from 'axios';
 import api from '../../../services/api';
 
 const getUploadSignature = async () => {
-  const res = await api.get('https://babycloud.netlify.app/api/upload/cloudinary-signature');
+  const res = await api.get('https://babycloudreact-backend.onrender.com/api/upload/cloudinary-signature');
   return res.data;
 };
 
@@ -82,7 +82,7 @@ const Profile = () => {
     const loadUser = async () => {
       try {
         const res = await api.get(
-          'https://babycloud.netlify.app/api/users/me',
+          'https://babycloudreact-backend.onrender.com/api/users/me',
           { withCredentials: true }
         );
 
@@ -405,7 +405,7 @@ const Profile = () => {
 
           // 1️⃣ Save image info in session (backend)
           await api.put(
-            'https://babycloud.netlify.app/api/users/profile-image',
+            'https://babycloudreact-backend.onrender.com/api/users/profile-image',
             {
               publicId: uploadResult.publicId,
               version: uploadResult.version,
@@ -416,7 +416,7 @@ const Profile = () => {
 
           // 2️⃣ Refresh global user (for header, breadcrumb, etc.)
           const me = await api.get(
-            'https://babycloud.netlify.app/api/users/me',
+            'https://babycloudreact-backend.onrender.com/api/users/me',
             { withCredentials: true }
           );
 

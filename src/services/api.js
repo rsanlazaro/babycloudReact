@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'https://babycloud.netlify.app',
+  baseURL: 'https://babycloudreact-backend.onrender.com',
   withCredentials: true,
 });
 

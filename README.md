@@ -83,18 +83,18 @@ $ yarn install
 ### Basic usage
 
 ``` bash
-# dev server with hot reload at https://babycloud.netlify.app
+# dev server with hot reload at https://babycloudreact-backend.onrender.com
 $ npm start 
 ```
 
 or 
 
 ``` bash
-# dev server with hot reload at https://babycloud.netlify.app
+# dev server with hot reload at https://babycloudreact-backend.onrender.com
 $ yarn start
 ```
 
-Navigate to [https://babycloud.netlify.app](https://babycloud.netlify.app). The app will automatically reload if you change any of the source files.
+Navigate to [https://babycloudreact-backend.onrender.com](https://babycloudreact-backend.onrender.com). The app will automatically reload if you change any of the source files.
 
 #### Build
 
