@@ -18,7 +18,7 @@ import {
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
 import { cilLockLocked, cilUser } from '@coreui/icons'
-import api from '../../../../../backend/services/api';
+import api from '../../../services/api';
 
 const Login = () => {
 
