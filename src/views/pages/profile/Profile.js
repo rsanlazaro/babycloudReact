@@ -34,7 +34,7 @@ import {
 } from '@coreui/icons';
 
 import axios from 'axios';
-import api from '../../../../../backend/services/api';
+import api from '../../../services/api';
 
 const getUploadSignature = async () => {
   const res = await api.get('http://babycloud.netlify.app/api/upload/cloudinary-signature');
