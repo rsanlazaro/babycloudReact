@@ -28,25 +28,24 @@ const Login = () => {
   const [loading, setLoading] = useState(false)
 
   const handleSubmit = async (e) => {
-    e.preventDefault()
-    setError(null)
-    setLoading(true)
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
 
     try {
-      await api.post(
-        'https://babycloudreact-backend.onrender.com/api/auth/login',
-        { username, password },
-        { withCredentials: true }
-      )
+      await api.post('/api/auth/login', {
+        username,
+        password,
+      });
 
       // redirect after successful login
-      window.location.href = '/dashboard'
+      window.location.href = '/dashboard';
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed')
+      setError(err.response?.data?.message || 'Login failed');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="bg-body-tertiary min-vh-100 d-flex flex-row align-items-center">

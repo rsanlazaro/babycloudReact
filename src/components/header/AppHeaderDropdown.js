@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useUser } from '../../context/UserContext';
+import api from '../../services/api';
 
 import {
   CAvatar,
@@ -35,10 +36,7 @@ const AppHeaderDropdown = () => {
 
   const loadUser = async () => {
     try {
-      const res = await axios.get(
-        'https://babycloudreact-backend.onrender.com/api/users/me',
-        { withCredentials: true }
-      );
+      const res = await api.get('/api/users/me');
 
       console.log('USER DATA:', res.data);
 

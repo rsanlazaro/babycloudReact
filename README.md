@@ -83,18 +83,18 @@ $ yarn install
 ### Basic usage
 
 ``` bash
-# dev server with hot reload at https://babycloudreact-backend.onrender.com
+# dev server with hot reload
 $ npm start 
 ```
 
 or 
 
 ``` bash
-# dev server with hot reload at https://babycloudreact-backend.onrender.com
+# dev server with hot reload
 $ yarn start
 ```
 
-Navigate to [https://babycloudreact-backend.onrender.com](https://babycloudreact-backend.onrender.com). The app will automatically reload if you change any of the source files.
+The app will automatically reload if you change any of the source files.
 
 #### Build
 
