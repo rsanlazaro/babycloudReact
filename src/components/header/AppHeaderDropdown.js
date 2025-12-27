@@ -36,7 +36,7 @@ const AppHeaderDropdown = () => {
   const loadUser = async () => {
     try {
       const res = await axios.get(
-        'http://babycloud.netlify.app/api/users/me',
+        'https://babycloud.netlify.app/api/users/me',
         { withCredentials: true }
       );
 

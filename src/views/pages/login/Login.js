@@ -34,7 +34,7 @@ const Login = () => {
 
     try {
       await api.post(
-        'http://babycloud.netlify.app/api/auth/login',
+        'https://babycloud.netlify.app/api/auth/login',
         { username, password },
         { withCredentials: true }
       )
