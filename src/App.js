@@ -1,7 +1,8 @@
 import React, { Suspense, useEffect } from 'react'
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Route, Routes, UNSAFE_getPatchRoutesOnNavigationFunction } from 'react-router-dom'
 import { useSelector } from 'react-redux'
 import { UserProvider } from './context/UserContext';
+import { Navigate, Outlet } from 'react-router-dom';
 
 import { CSpinner, useColorModes } from '@coreui/react'
 import './scss/style.scss'
@@ -18,6 +19,8 @@ const Register = React.lazy(() => import('./views/pages/register/Register'))
 const Page404 = React.lazy(() => import('./views/pages/page404/Page404'))
 const Page500 = React.lazy(() => import('./views/pages/page500/Page500'))
 const UploadImage = React.lazy(() => import('./views/pages/uploadImage/UploadImage'))
+const ProtectedRoute = React.lazy(() => import('./components/ProtectedRoute'))
+const PublicOnlyRoute = React.lazy(() => import('./components/PublicOnlyRoute'))
 
 const App = () => {
   const { isColorModeSet, setColorMode } = useColorModes('coreui-free-react-admin-template-theme')
@@ -48,13 +51,38 @@ const App = () => {
           }
         >
           <Routes>
-            <Route exact path="/login" name="Login Page" element={<Login />} />
-            <Route exact path="/register" name="Register Page" element={<Register />} />
-            <Route exact path="/404" name="Page 404" element={<Page404 />} />
-            <Route exact path="/500" name="Page 500" element={<Page500 />} />
-            <Route exact path="/uploadImage" name="Upload Image" element={<UploadImage />} />
-            <Route path="*" name="Home" element={<DefaultLayout />} />
+
+            {/* Public */}
+            <Route
+              path="/login"
+              element={
+                <PublicOnlyRoute>
+                  <Login />
+                </PublicOnlyRoute>
+              }
+            />
+
+            {/* Protected */}
+            <Route element={<ProtectedRoute />}>
+
+              {/* Layout wrapper */}
+              <Route element={<DefaultLayout />}>
+
+                {/* "/" */}
+                <Route index />
+
+                {/* "/dashboard" */}
+                <Route path="dashboard" />
+
+                {/* "/profile" */}
+                <Route path="profile" />
+
+              </Route>
+
+            </Route>
+
           </Routes>
+
         </Suspense>
       </BrowserRouter>
     </UserProvider>

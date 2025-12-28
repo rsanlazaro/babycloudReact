@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useUser } from '../../context/UserContext';
+import { useNavigate } from 'react-router-dom'
 import api from '../../services/api';
 
 import {
@@ -25,10 +26,12 @@ import {
   cilUser,
 } from '@coreui/icons'
 import CIcon from '@coreui/icons-react'
+import { cilAccountLogout } from '@coreui/icons'
 
 const AppHeaderDropdown = () => {
 
-  const { user, setUser } = useUser();  
+  const { user, setUser } = useUser()
+  const navigate = useNavigate()
 
   const avatar =
     user?.profileImage?.url ??
@@ -47,6 +50,15 @@ const AppHeaderDropdown = () => {
     }
   };
 
+  const handleLogout = async () => {
+    try {
+      await api.post('/api/auth/logout')
+      setUser(null)
+      navigate('/login')
+    } catch (err) {
+      console.error('Logout failed', err)
+    }
+  }
 
   useEffect(() => {
     loadUser();
@@ -111,9 +123,17 @@ const AppHeaderDropdown = () => {
           </CBadge>
         </CDropdownItem>
         <CDropdownDivider />
-        <CDropdownItem href="#">
-          <CIcon icon={cilLockLocked} className="me-2" />
-          Lock Account
+        <CDropdownItem
+          onClick={handleLogout}
+          style={{
+            cursor: 'pointer',
+            backgroundColor: '#d32f2f',
+            color: '#fff',
+            fontWeight: 500,
+          }}
+        >
+          <CIcon icon={cilAccountLogout} className="me-2" />
+          Logout
         </CDropdownItem>
       </CDropdownMenu>
     </CDropdown>

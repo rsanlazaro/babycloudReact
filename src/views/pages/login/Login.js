@@ -56,7 +56,7 @@ const Login = () => {
               <CCard className="p-4">
                 <CCardBody>
                   <CForm onSubmit={handleSubmit}>
-                    <h1>Login</h1>
+                    <h1>Inicio de sesión</h1>
                     <p className="text-body-secondary">Ingresa a tu cuenta</p>
                     {error && <CAlert color="danger">{error}</CAlert>}
                     <CInputGroup className="mb-3">
@@ -82,14 +82,9 @@ const Login = () => {
                     </CInputGroup>
                     <CRow>
                       <CCol xs={6}>
-                        <CButton color="primary" className="px-4" type="submit"
+                        <CButton color="primary" className="px-4 app-button" type="submit"
                           disabled={loading}>
-                          {loading ? 'Signing in...' : 'Login'}
-                        </CButton>
-                      </CCol>
-                      <CCol xs={6} className="text-right">
-                        <CButton color="link" className="px-0">
-                          Forgot password?
+                          {loading ? 'Ingresando...' : 'Ingresar'}
                         </CButton>
                       </CCol>
                     </CRow>

@@ -1,0 +1,16 @@
+@use "@coreui/coreui/scss/mixins/color-mode" as *;
+
+@include color-mode(dark) {
+  --app-primary: #e07aa6;
+  --app-primary-light: #f1a6c4;
+  --app-primary-dark: #b95b83;
+
+  --app-bg: #141414;
+  --app-surface: #1e1e1e;
+  --app-gray: #2b2b2b;
+
+  --app-text: #e6e6e6;
+  --app-text-inverse: #ffffff;
+  --app-danger: #f36262;
+  --app-icon: #141414;
+}

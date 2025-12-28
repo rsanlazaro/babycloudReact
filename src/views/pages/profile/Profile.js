@@ -504,7 +504,7 @@ const Profile = () => {
                         textAlign: 'center',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease-in-out',
-                        backgroundColor: isDragging ? '#e9ecef' : '#f8f9fa',
+                        backgroundColor: isDragging ? 'transparent' : 'transparent',
                         border: `2px dashed ${isDragging ? '#0066ff' : '#dee2e6'}`,
                         position: 'relative'
                       }}

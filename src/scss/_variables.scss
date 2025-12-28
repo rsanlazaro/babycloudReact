@@ -1,0 +1,20 @@
+@use "sass:color";
+
+html {
+  --app-primary: #eb6c9c;
+  --app-primary-light: #f4a8c3;
+  --app-primary-dark: #d85f8a;
+
+  --app-bg: #ffffff;
+  --app-surface: #ffffff;
+  --app-gray: #f5f5f5;
+
+  --app-text: #212121;
+  --app-text-inverse: #ffffff;
+  --app-text-muted: #cccccc;
+
+  --app-danger: #9b0000;
+  --app-icon: #ffffff;
+
+  --app-white: #ffffff;
+}

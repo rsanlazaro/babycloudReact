@@ -1,0 +1,13 @@
+@use "@coreui/coreui/scss/mixins/color-mode" as *;
+
+.header {
+    .dropdown-item.active,
+    .dropdown-item:active {
+        background-color: var(--app-primary) !important;
+        color: var(--app-white) !important;
+    }
+}
+
+.dropdown-header {
+    color: var(--app-text);
+}
