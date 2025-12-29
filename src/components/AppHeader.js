@@ -27,12 +27,10 @@ import {
 
 import { AppBreadcrumb } from './index'
 import { AppHeaderDropdown } from './header/index'
-import { useUser } from '../context/UserContext'
 
 const AppHeader = () => {
   const headerRef = useRef()
   const { colorMode, setColorMode } = useColorModes('coreui-free-react-admin-template-theme')
-  const { user, loading } = useUser()
 
   const dispatch = useDispatch()
   const sidebarShow = useSelector((state) => state.sidebarShow)
@@ -78,9 +76,6 @@ const AppHeader = () => {
             <CNavLink href="#">
               <CIcon icon={cilEnvelopeOpen} size="lg" />
             </CNavLink>
-          </CNavItem>
-          <CNavItem>
-            <CNavLink>Bienvenido(a) {loading ? '...' : user?.username ?? 'Guest'}</CNavLink>
           </CNavItem>
         </CHeaderNav>
         <CHeaderNav>
