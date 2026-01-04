@@ -730,7 +730,7 @@ const UsersList = () => {
                           </CButton>
                         </CTableDataCell>
                         <CTableDataCell>
-                          <Link to={`/users/${user.id}/roles`}>
+                          <Link to={`/progestor/users/${user.id}/roles`}>
                             <CButton color="info" variant="outline" size="sm">
                               <CIcon icon={cilPeople} className="me-1" />
                               Ver roles

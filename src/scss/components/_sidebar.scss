@@ -189,8 +189,8 @@ a.nav-link.sidebar-component.active {
 
   .analog-clock {
     position: relative;
-    width: 140px;
-    height: 140px;
+    width: 98px;
+    height: 98px;
     border-radius: 50%;
     background: #fff;
     border: 2px solid #dee2e6;
@@ -199,12 +199,12 @@ a.nav-link.sidebar-component.active {
   /* Hour marks (12) */
   .hour-mark {
     position: absolute;
-    width: 4px;
-    height: 10px;
+    width: 3px;
+    height: 7px;
     background: #343a40;
     top: 0px;
     left: 49.5%;
-    transform-origin: center 68px;
+    transform-origin: center 47px;
     z-index: 2;
   }
 
@@ -212,11 +212,11 @@ a.nav-link.sidebar-component.active {
   .minute-mark {
     position: absolute;
     width: 2px;
-    height: 6px;
+    height: 4px;
     background: #adb5bd;
     top: 0;
     left: 49.5%;
-    transform-origin: center 68px;
+    transform-origin: center 47px;
   }
 
   /* Clock hands */
@@ -230,19 +230,19 @@ a.nav-link.sidebar-component.active {
 
   .hand.hour {
     width: 4px;
-    height: 35px;
+    height: 24px;
     background: #212529;
   }
 
   .hand.minute {
     width: 3px;
-    height: 45px;
+    height: 31px;
     background: #495057;
   }
 
   .hand.second {
     width: 2px;
-    height: 50px;
+    height: 35px;
     background: #e03131;
   }
 

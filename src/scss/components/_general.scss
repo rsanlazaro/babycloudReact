@@ -13,8 +13,8 @@
 
 .form-select:focus,
 .form-control:focus {
-    box-shadow: 0 0 0 0 var(--cui-tertiary-bg);
-    border-color: var(--cui-tertiary-bg);
+  box-shadow: 0 0 0 0 var(--cui-tertiary-bg);
+  border-color: var(--cui-tertiary-bg);
 }
 
 .app-container {
@@ -23,4 +23,21 @@
 
 .btn-outline-success {
   z-index: 2;
+}
+
+.alert-warning-gray {
+  background-color: var(--app-dark-gray) !important;
+  color: var(--app-text) !important;
+  border: 1px var(--app-gray) !important;
+
+  &>* {
+    background-color: var(--app-dark-gray) !important;
+    color: var(--app-text) !important;
+  }
+}
+
+.btn {
+  &:hover {
+    color: var(--app-white) !important;
+  }
 }
