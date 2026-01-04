@@ -8,16 +8,22 @@ import 'simplebar-react/dist/simplebar.min.css'
 import { CBadge, CNavLink, CSidebarNav } from '@coreui/react'
 
 export const AppSidebarNav = ({ items }) => {
+
+  const getItemClass = (state) => {
+    if (state === 'disabled') return 'sidebar-item-disabled'
+    return ''
+  }
+
   const navLink = (name, icon, badge, indent = false) => {
     return (
       <>
         {icon
           ? icon
           : indent && (
-              <span className="nav-icon">
-                <span className="nav-icon-bullet"></span>
-              </span>
-            )}
+            <span className="nav-icon">
+              <span className="nav-icon-bullet"></span>
+            </span>
+          )}
         {name && name}
         {badge && (
           <CBadge color={badge.color} className="ms-auto" size="sm">
@@ -29,8 +35,9 @@ export const AppSidebarNav = ({ items }) => {
   }
 
   const navItem = (item, index, indent = false) => {
-    const { component, name, badge, icon, ...rest } = item
+    const { component, name, badge, icon, state, ...rest } = item
     const Component = component
+    const isDisabled = state === 'disabled'
     return (
       <Component as="div" key={index}>
         {rest.to || rest.href ? (
@@ -38,6 +45,10 @@ export const AppSidebarNav = ({ items }) => {
             {...(rest.to && { as: NavLink })}
             {...(rest.href && { target: '_blank', rel: 'noopener noreferrer' })}
             {...rest}
+            className={isDisabled ? 'disabled' : ''}
+            onClick={isDisabled ? (e) => e.preventDefault() : undefined}
+            tabIndex={isDisabled ? -1 : undefined}
+            aria-disabled={isDisabled}
           >
             {navLink(name, icon, badge, indent)}
           </CNavLink>

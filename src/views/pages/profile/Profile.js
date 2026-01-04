@@ -75,26 +75,39 @@ const Profile = () => {
 
   // Simulate loading existing user data
   useEffect(() => {
-    fetchUserProfile();
-  }, []);
-
-  useEffect(() => {
     const loadUser = async () => {
       try {
-        const res = await api.get(
-          '/api/users/me',
-          { withCredentials: true }
+        setLoadingData(true);
+
+        const res = await api.get('/api/users/me', {
+          withCredentials: true,
+        });
+
+        const user = res.data;
+
+        setFormData({
+          firstName: '',       // Optional (not in DB yet)
+          lastName: '',        // Optional
+          username: user.username || '',
+          email: user.email || '',
+          password: '',
+          confirmPassword: '',
+          phone: '',
+          role: user.role || '',
+          photo: null,
+          photoUrl: user.profileImage?.url || '',
+          photoVersion: null,
+        });
+
+        setPhotoPreview(
+          user.profileImage?.url ||
+          'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=150'
         );
 
-        console.log('USER DATA', res.data);
-
-        const imageUrl =
-          res.data.profileImage?.url ??
-          'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=150';
-
-        setPhotoPreview(imageUrl);
       } catch (err) {
         console.error('USER LOAD ERROR', err);
+      } finally {
+        setLoadingData(false);
       }
     };
 
@@ -108,21 +121,21 @@ const Profile = () => {
       await new Promise(resolve => setTimeout(resolve, 1000));
 
       // Set mock data - replace with actual API call
-      const userData = {
-        firstName: 'John',
-        lastName: 'Doe',
-        username: 'johndoe',
-        email: 'john.doe@example.com',
-        password: '',
-        confirmPassword: '',
-        phone: '+1 (555) 123-4567',
-        role: 'user',
-        photo: null,
-        photoUrl: 'user_1',
-        photoVersion: 1766630000 // from DB
-      };
+      // const userData = {
+      //   firstName: 'John',
+      //   lastName: 'Doe',
+      //   username: 'johndoe',
+      //   email: 'john.doe@example.com',
+      //   password: '',
+      //   confirmPassword: '',
+      //   phone: '+1 (555) 123-4567',
+      //   role: 'user',
+      //   photo: null,
+      //   photoUrl: 'user_1',
+      //   photoVersion: 1766630000 // from DB
+      // };
 
-      setFormData(userData);
+      // setFormData(userData);
       // setPhotoPreview(userData.photoUrl);
     } catch (error) {
       showNotification('error', 'Hubo un error al cargar el perfil del usuario.');
@@ -353,7 +366,7 @@ const Profile = () => {
 
   const validateForm = () => {
     const newErrors = {};
-    const requiredFields = ['firstName', 'lastName', 'username', 'email', 'role'];
+    const requiredFields = ['username', 'email', 'role'];
 
     requiredFields.forEach(field => {
       const error = validateField(field, formData[field]);
@@ -390,20 +403,12 @@ const Profile = () => {
     try {
       setLoading(true);
 
-      let photoUrl = formData.photoUrl;
-      let photoVersion = formData.photoVersion;
-
-      // Upload photo to Cloudinary if a new photo was selected
+      // 1️⃣ Upload photo to Cloudinary if a new photo was selected
       if (formData.photo) {
         try {
           const uploadResult = await uploadToCloudinary();
 
-          photoUrl = uploadResult.url;
-          photoVersion = uploadResult.version;
-
-          console.log('UPLOAD RESULT:', uploadResult);
-
-          // 1️⃣ Save image info in session (backend)
+          // Save image info in backend
           await api.put(
             '/api/users/profile-image',
             {
@@ -414,44 +419,74 @@ const Profile = () => {
             { withCredentials: true }
           );
 
-          // 2️⃣ Refresh global user (for header, breadcrumb, etc.)
-          const me = await api.get(
-            '/api/users/me',
-            { withCredentials: true }
-          );
-
-          // 3️⃣ Update global context (if using UserContext)
-          setUser(me.data);
+          // Update local state
+          setFormData(prev => ({
+            ...prev,
+            photoUrl: uploadResult.url,
+            photoVersion: uploadResult.version,
+            photo: null,
+          }));
 
         } catch (error) {
-          console.error(error);
+          console.error('Photo upload error:', error);
           showNotification('error', 'Hubo un error al cargar la foto. Intente de nuevo');
           setLoading(false);
           return;
         }
       }
 
+      // 2️⃣ Update profile data (username, email, role, password)
+      try {
+        const profileData = {
+          username: formData.username,
+          email: formData.email,
+          role: formData.role,
+        };
 
-      // Prepare data for API call
-      const dataToSubmit = {
-        ...formData,
-        photoUrl,
-        photo: undefined // Don't send the file object to your backend
-      };
+        // Only include password if user entered one
+        if (formData.password && formData.password.trim() !== '') {
+          profileData.password = formData.password;
+        }
 
-      // Simulate API call - replace with your actual API call
-      await new Promise(resolve => setTimeout(resolve, 2000));
+        const response = await api.put(
+          '/api/users/profile',
+          profileData,
+          { withCredentials: true }
+        );
 
-      // Update local state with new photo URL
-      setFormData(prev => ({
-        ...prev,
-        photoUrl,
-        photo: null
-      }));
+        // Clear password fields after successful update
+        setFormData(prev => ({
+          ...prev,
+          password: '',
+          confirmPassword: '',
+        }));
 
-      showNotification('success', 'Foto cargada exitosamente!');
+        // 3️⃣ Refresh global user context
+        const me = await api.get('/api/users/me', { withCredentials: true });
+        setUser(me.data);
+
+        showNotification('success', 'Perfil actualizado exitosamente!');
+
+      } catch (error) {
+        console.error('Profile update error:', error);
+
+        // Handle specific error messages from backend
+        if (error.response?.status === 409) {
+          const message = error.response.data.message;
+          if (message.includes('Username')) {
+            setErrors(prev => ({ ...prev, username: 'Este nombre de usuario ya está en uso' }));
+          } else if (message.includes('Email')) {
+            setErrors(prev => ({ ...prev, email: 'Este correo electrónico ya está en uso' }));
+          }
+          showNotification('error', message);
+        } else {
+          showNotification('error', 'Hubo un error al actualizar el perfil. Intente de nuevo');
+        }
+      }
+
     } catch (error) {
-      showNotification('error', 'Hubo un error al cargar la foto. Intente de nuevo');
+      console.error('Submit error:', error);
+      showNotification('error', 'Hubo un error inesperado. Intente de nuevo');
     } finally {
       setLoading(false);
     }
@@ -582,52 +617,6 @@ const Profile = () => {
                   </CCol>
                 </CRow>
 
-                {/* Name Fields */}
-                <CRow className="mb-3">
-                  <CCol md={6}>
-                    <CFormLabel htmlFor="firstName">Nombre *</CFormLabel>
-                    <CInputGroup className="has-validation">
-                      <CInputGroupText>
-                        <CIcon icon={cilUser} />
-                      </CInputGroupText>
-                      <CFormInput
-                        type="text"
-                        id="firstName"
-                        name="firstName"
-                        placeholder="Ingresa tu nombre"
-                        value={formData.firstName}
-                        onChange={handleInputChange}
-                        onBlur={handleBlur}
-                        invalid={touched.firstName && !!errors.firstName}
-                        disabled={loading || uploadingPhoto}
-                        required
-                      />
-                      <CFormFeedback invalid>{errors.firstName}</CFormFeedback>
-                    </CInputGroup>
-                  </CCol>
-                  <CCol md={6}>
-                    <CFormLabel htmlFor="lastName">Apellido *</CFormLabel>
-                    <CInputGroup className="has-validation">
-                      <CInputGroupText>
-                        <CIcon icon={cilUser} />
-                      </CInputGroupText>
-                      <CFormInput
-                        type="text"
-                        id="lastName"
-                        name="lastName"
-                        placeholder="Ingresa tu apellido"
-                        value={formData.lastName}
-                        onChange={handleInputChange}
-                        onBlur={handleBlur}
-                        invalid={touched.lastName && !!errors.lastName}
-                        disabled={loading || uploadingPhoto}
-                        required
-                      />
-                      <CFormFeedback invalid>{errors.lastName}</CFormFeedback>
-                    </CInputGroup>
-                  </CCol>
-                </CRow>
-
                 {/* Username and Role */}
                 <CRow className="mb-3">
                   <CCol md={6}>
@@ -667,10 +656,11 @@ const Profile = () => {
                         required
                       >
                         <option value="">Selecciona un rol...</option>
-                        <option value="admin">Administrator</option>
-                        <option value="manager">Manager</option>
-                        <option value="user">User</option>
-                        <option value="guest">Guest</option>
+                        <option value="super_admin">Super Admin</option>
+                        <option value="admin_junior">Admin Jr</option>
+                        <option value="coordinador">Coordinador</option>
+                        <option value="operador">Operador</option>
+                        <option value="recluta">Recluta</option>
                       </CFormSelect>
                       <CFormFeedback invalid>{errors.role}</CFormFeedback>
                     </CInputGroup>
@@ -745,30 +735,6 @@ const Profile = () => {
                         disabled={loading || uploadingPhoto}
                       />
                       <CFormFeedback invalid>{errors.confirmPassword}</CFormFeedback>
-                    </CInputGroup>
-                  </CCol>
-                </CRow>
-
-                {/* Phone */}
-                <CRow className="mb-3">
-                  <CCol md={12}>
-                    <CFormLabel htmlFor="phone">Número de teléfono</CFormLabel>
-                    <CInputGroup className="has-validation">
-                      <CInputGroupText>
-                        <CIcon icon={cilPhone} />
-                      </CInputGroupText>
-                      <CFormInput
-                        type="tel"
-                        id="phone"
-                        name="phone"
-                        placeholder="Ingresa el número de teléfono"
-                        value={formData.phone}
-                        onChange={handleInputChange}
-                        onBlur={handleBlur}
-                        invalid={touched.phone && !!errors.phone}
-                        disabled={loading || uploadingPhoto}
-                      />
-                      <CFormFeedback invalid>{errors.phone}</CFormFeedback>
                     </CInputGroup>
                   </CCol>
                 </CRow>

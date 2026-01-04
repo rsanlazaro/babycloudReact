@@ -1,49 +1,38 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
+import { useUser } from '../context/UserContext'
+import api from '../services/api'  // Fix path if needed
 
 import routes from '../routes'
 
 import { CBreadcrumb, CBreadcrumbItem } from '@coreui/react'
 
 const AppBreadcrumb = () => {
-  const currentLocation = useLocation().pathname
+  const { user, setUser } = useUser()  // Get user AND setUser
 
-  const getRouteName = (pathname, routes) => {
-    const currentRoute = routes.find((route) => route.path === pathname)
-    return currentRoute ? currentRoute.name : false
-  }
+  // Fetch user data on mount if not already loaded
+  useEffect(() => {
+    const fetchUser = async () => {
+      // Skip if user is already loaded
+      if (user) return
 
-  const getBreadcrumbs = (location) => {
-    const breadcrumbs = []
-    location.split('/').reduce((prev, curr, index, array) => {
-      const currentPathname = `${prev}/${curr}`
-      const routeName = getRouteName(currentPathname, routes)
-      routeName &&
-        breadcrumbs.push({
-          pathname: currentPathname,
-          name: routeName,
-          active: index + 1 === array.length ? true : false,
-        })
-      return currentPathname
-    })
-    return breadcrumbs
-  }
+      try {
+        const res = await api.get('/api/users/me', { withCredentials: true })
+        setUser(res.data)
+      } catch (error) {
+        console.error('Error fetching user data in AppBreadcrumb:', error)
+        setUser(null)
+      }
+    }
 
-  const breadcrumbs = getBreadcrumbs(currentLocation)
+    fetchUser()
+  }, [user, setUser])
 
   return (
     <CBreadcrumb className="my-0">
-      <CBreadcrumbItem href="/">Home</CBreadcrumbItem>
-      {breadcrumbs.map((breadcrumb, index) => {
-        return (
-          <CBreadcrumbItem
-            {...(breadcrumb.active ? { active: true } : { href: breadcrumb.pathname })}
-            key={index}
-          >
-            {breadcrumb.name}
-          </CBreadcrumbItem>
-        )
-      })}
+      <CBreadcrumbItem>
+        Bienvenido{user?.username ? `, ${user.username}` : ''}
+      </CBreadcrumbItem>
     </CBreadcrumb>
   )
 }

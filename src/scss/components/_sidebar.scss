@@ -1,35 +1,5 @@
 @use "@coreui/coreui/scss/mixins/color-mode" as *;
 
-.app-button {
-  background-color: var(--app-primary) !important;
-  border-color: var(--app-primary) !important;
-  color: var(--app-white) !important;
-
-  &:hover {
-    background-color: var(--app-primary-dark) !important;
-    border-color: var(--app-primary-dark) !important;
-  }
-}
-
-.app-container {
-  background-color: var(--app-bg) !important;
-}
-
-.app-header {
-  background-color: var(--app-primary) !important;
-
-  &>* {
-    color: var(--app-bg) !important;
-
-    &>* {
-      color: var(--app-bg) !important;
-
-      &>* {
-        color: var(--app-bg) !important;
-      }
-    }
-  }
-}
 
 .app-sidebar {
   background-color: var(--app-gray) !important;
@@ -45,6 +15,11 @@
 
   .sidebar-icon {
     filter: invert(63%) sepia(61%) saturate(2875%) hue-rotate(314deg) brightness(102%) contrast(101%);
+  }
+
+  .nav-item .active {
+    background-color: var(--app-primary) !important;
+    color: var(--app-bg) !important;
   }
 
   .sidebar-component,
@@ -76,6 +51,7 @@
         background-color: var(--app-bg) !important;
       }
     }
+
   }
 
   .sidebar-component {
@@ -96,6 +72,11 @@
     &:after {
       background-color: var(--app-primary) !important;
     }
+  }
+
+  .disabled {
+    pointer-events: none;
+    opacity: 0.4;
   }
 }
 
@@ -207,48 +188,73 @@ a.nav-link.sidebar-component.active {
   border: none;
 
   .analog-clock {
-    width: 90px;
-    height: 90px;
-    border-radius: 50%;
-    background: var(--app-gray);
-    border: 2px solid var(--app-text);
     position: relative;
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #dee2e6;
   }
 
+  /* Hour marks (12) */
+  .hour-mark {
+    position: absolute;
+    width: 4px;
+    height: 10px;
+    background: #343a40;
+    top: 0px;
+    left: 49.5%;
+    transform-origin: center 68px;
+    z-index: 2;
+  }
+
+  /* Minute marks (60) */
+  .minute-mark {
+    position: absolute;
+    width: 2px;
+    height: 6px;
+    background: #adb5bd;
+    top: 0;
+    left: 49.5%;
+    transform-origin: center 68px;
+  }
+
+  /* Clock hands */
   .hand {
     position: absolute;
-    top: 50%;
+    bottom: 50%;
     left: 50%;
-    transform-origin: 0% 50%;
-    background: var(--app-text);
-    border-radius: 2px;
+    transform-origin: bottom;
+    transform: translateX(-50%);
   }
 
-  .hour {
-    width: 25%;
-    height: 4px;
+  .hand.hour {
+    width: 4px;
+    height: 35px;
+    background: #212529;
   }
 
-  .minute {
-    width: 35%;
-    height: 3px;
+  .hand.minute {
+    width: 3px;
+    height: 45px;
+    background: #495057;
   }
 
-  .second {
-    width: 40%;
-    height: 2px;
-    background: var(--app-primary);
-    /* accent */
+  .hand.second {
+    width: 2px;
+    height: 50px;
+    background: #e03131;
   }
 
   .center-dot {
     position: absolute;
-    width: 6px;
-    height: 6px;
-    background: var(--app-text);
+    width: 8px;
+    height: 8px;
+    background: #212529;
     border-radius: 50%;
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
   }
+
 }

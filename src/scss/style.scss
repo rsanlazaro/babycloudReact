@@ -4,8 +4,10 @@
 @use "vendors/simplebar";
 @use "./variables" as *;
 @use "./dark" as *;
+@use "./components/general";
 @use "./components/sidebar";
 @use "./components/header";
+
 
 body {
   background-color: var(--cui-tertiary-bg);

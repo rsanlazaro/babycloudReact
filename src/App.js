@@ -21,6 +21,8 @@ const Page500 = React.lazy(() => import('./views/pages/page500/Page500'))
 const UploadImage = React.lazy(() => import('./views/pages/uploadImage/UploadImage'))
 const ProtectedRoute = React.lazy(() => import('./components/ProtectedRoute'))
 const PublicOnlyRoute = React.lazy(() => import('./components/PublicOnlyRoute'))
+const Dashboard = React.lazy(() => import('./views/dashboard/Dashboard'));
+const Profile = React.lazy(() => import('./views/pages/profile/Profile'));
 
 const App = () => {
   const { isColorModeSet, setColorMode } = useColorModes('coreui-free-react-admin-template-theme')
@@ -66,16 +68,8 @@ const App = () => {
             <Route element={<ProtectedRoute />}>
 
               {/* Layout wrapper */}
-              <Route element={<DefaultLayout />}>
+              <Route path="/*" element={<DefaultLayout />}>
 
-                {/* "/" */}
-                <Route index />
-
-                {/* "/dashboard" */}
-                <Route path="dashboard" />
-
-                {/* "/profile" */}
-                <Route path="profile" />
 
               </Route>
 

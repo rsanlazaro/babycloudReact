@@ -37,36 +37,42 @@ const _nav = [
     items: [
       {
         component: CNavItem,
+        state: 'active',
         name: 'Reportes y facturas',
         to: '/progestor/reports',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'active',
         name: 'Listado de usuarios',
         to: '/progestor/users',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Listado de externos',
         to: '/progestor/guests',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Listado de pagos',
         to: '/progestor/payments',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Listado de notas',
         to: '/progestor/notes',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Dashboard',
         to: '/progestor/dashboard',
         className: 'sidebar-component',
@@ -88,30 +94,35 @@ const _nav = [
     items: [
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Listado Sort_GES',
         to: '/babysite/gestant',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Listado Sort_IPS',
         to: '/babysite/ips',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Listado Sort_DON',
         to: '/babysite/donant',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Programas',
         to: '/babysite/programs',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Dashboard',
         to: '/babysite/dashboard',
         className: 'sidebar-component',
@@ -133,24 +144,28 @@ const _nav = [
     items: [
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Nueva Candidata',
         to: '/reclute/candidate',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Nueva Donante',
         to: '/reclute/donant',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Mi listado',
         to: '/reclute/list',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Dashboard',
         to: '/reclute/dashboard',
         className: 'sidebar-component',
@@ -172,18 +187,21 @@ const _nav = [
     items: [
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Cloud IPS_upload',
         to: '/babycloud/ips',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Cloud GES_upload',
         to: '/babycloud/gestant',
         className: 'sidebar-component',
       },
       {
         component: CNavItem,
+        state: 'disabled',
         name: 'Dashboard',
         to: '/babycloud/dashboard',
         className: 'sidebar-component',

@@ -1,0 +1,26 @@
+@use "@coreui/coreui/scss/mixins/color-mode" as *;
+
+.app-button {
+  background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+  color: var(--app-white) !important;
+
+  &:hover {
+    background-color: var(--app-primary-dark) !important;
+    border-color: var(--app-primary-dark) !important;
+  }
+}
+
+.form-select:focus,
+.form-control:focus {
+    box-shadow: 0 0 0 0 var(--cui-tertiary-bg);
+    border-color: var(--cui-tertiary-bg);
+}
+
+.app-container {
+  background-color: var(--app-bg) !important;
+}
+
+.btn-outline-success {
+  z-index: 2;
+}

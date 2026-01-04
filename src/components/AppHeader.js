@@ -19,7 +19,7 @@ import {
   cilBell,
   cilContrast,
   cilEnvelopeOpen,
-  cilList,
+  cilTask,
   cilMenu,
   cilMoon,
   cilSun,
@@ -69,12 +69,12 @@ const AppHeader = () => {
           </CNavItem>
           <CNavItem>
             <CNavLink href="#">
-              <CIcon icon={cilList} size="lg" />
+              <CIcon icon={cilEnvelopeOpen} size="lg" />
             </CNavLink>
           </CNavItem>
           <CNavItem>
             <CNavLink href="#">
-              <CIcon icon={cilEnvelopeOpen} size="lg" />
+              <CIcon icon={cilTask} size="lg" />
             </CNavLink>
           </CNavItem>
         </CHeaderNav>
@@ -129,6 +129,9 @@ const AppHeader = () => {
         <CHeaderNav>
           <AppHeaderDropdown />
         </CHeaderNav>
+      </CContainer>
+      <CContainer className="px-4" fluid>
+        <AppBreadcrumb />
       </CContainer>
     </CHeader>
   )
