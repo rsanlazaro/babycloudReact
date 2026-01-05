@@ -468,7 +468,7 @@ const InvoiceNexatravel = () => {
           <CForm onSubmit={(e) => e.preventDefault()}>
             {/* Información General */}
             <CCard className="mb-4">
-              <CCardHeader className="bg-light">
+              <CCardHeader className="  ">
                 <strong>Información de Factura</strong>
               </CCardHeader>
               <CCardBody>
@@ -516,7 +516,7 @@ const InvoiceNexatravel = () => {
                         name="balanceDue"
                         value={formData.balanceDue}
                         readOnly
-                        className="bg-light"
+                        className="  "
                       />
                     </CInputGroup>
                   </CCol>
@@ -550,7 +550,7 @@ const InvoiceNexatravel = () => {
 
             {/* Productos */}
             <CCard className="mb-4">
-              <CCardHeader className="bg-light">
+              <CCardHeader className="  ">
                 <strong>Productos / Servicios</strong>
                 <div className="small text-muted">
                   Agregue hasta 4 productos o servicios
@@ -606,7 +606,7 @@ const InvoiceNexatravel = () => {
                         name="product1Total"
                         value={formData.product1Total}
                         readOnly
-                        className="bg-light"
+                        className="  "
                       />
                     </CInputGroup>
                   </CCol>
@@ -661,7 +661,7 @@ const InvoiceNexatravel = () => {
                         name="product2Total"
                         value={formData.product2Total}
                         readOnly
-                        className="bg-light"
+                        className="  "
                       />
                     </CInputGroup>
                   </CCol>
@@ -716,7 +716,7 @@ const InvoiceNexatravel = () => {
                         name="product3Total"
                         value={formData.product3Total}
                         readOnly
-                        className="bg-light"
+                        className="  "
                       />
                     </CInputGroup>
                   </CCol>
@@ -771,7 +771,7 @@ const InvoiceNexatravel = () => {
                         name="product4Total"
                         value={formData.product4Total}
                         readOnly
-                        className="bg-light"
+                        className="  "
                       />
                     </CInputGroup>
                   </CCol>
@@ -781,7 +781,7 @@ const InvoiceNexatravel = () => {
 
             {/* Totales */}
             <CCard className="mb-4">
-              <CCardHeader className="bg-light">
+              <CCardHeader className="  ">
                 <strong>Totales</strong>
               </CCardHeader>
               <CCardBody>
@@ -796,7 +796,7 @@ const InvoiceNexatravel = () => {
                         name="subtotal"
                         value={formData.subtotal}
                         readOnly
-                        className="bg-light"
+                        className="  "
                       />
                     </CInputGroup>
                   </CCol>
@@ -825,7 +825,7 @@ const InvoiceNexatravel = () => {
                         name="total"
                         value={formData.total}
                         readOnly
-                        className="bg-light fw-bold"
+                        className="   fw-bold"
                       />
                     </CInputGroup>
                   </CCol>

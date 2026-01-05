@@ -11,6 +11,11 @@
   filter: brightness(0) invert(1);
 }
 
+.sidebar-nav .nav-link.active .nav-icon-bullet {
+  background-color: var(--app-bg) !important;
+  border: var(--app-bg) !important;
+}
+
 .sidebar {
 
   .sidebar-icon {
