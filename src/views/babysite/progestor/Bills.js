@@ -22,14 +22,14 @@ const bills = [
     title: 'Travel Medical Care',
     description: 'Generación de facturas Travel Medical Care',
     icon: cilHospital,
-    path: '/progestor/admin/bills/travel-medical-care',
+    path: '/progestor/admin/bills/travelmedicalcare',
     color: 'primary',
   },
   {
     title: 'Nexa Travel',
     description: 'Generación de facturas Nexa Travel',
     icon: cilAirplaneMode,
-    path: '/progestor/admin/bills/nexa-travel',
+    path: '/progestor/admin/bills/nexatravel',
     color: 'warning',
   },
   {

@@ -60,6 +60,9 @@ const Admin = React.lazy(() => import('./views/babysite/progestor/Admin'))
 const Reports = React.lazy(() => import('./views/babysite/progestor/Reports'))
 const MedicalReport = React.lazy(() => import('./views/babysite/progestor/MedicalReport'))
 const ItineraryBabymedic = React.lazy(() => import('./views/babysite/progestor/ItineraryBabymedic'))
+const InvoiceBabymedic = React.lazy(() => import('./views/babysite/progestor/InvoiceBabymedic'))
+const InvoiceTravelmedicalcare = React.lazy(() => import('./views/babysite/progestor/InvoiceTravelmedicalcare'))
+const InvoiceNexatravel = React.lazy(() => import('./views/babysite/progestor/InvoiceNexatravel'))
 const Bills = React.lazy(() => import('./views/babysite/progestor/Bills'))
 const Users = React.lazy(() => import('./views/babysite/progestor/Users'))
 const Roles = React.lazy(() => import('./views/babysite/progestor/Roles'))
@@ -112,14 +115,17 @@ const routes = [
   { path: '/notifications/toasts', name: 'Toasts', element: Toasts },
   { path: '/profile', name: 'Profile', element: Profile },
   { path: '/widgets', name: 'Widgets', element: Widgets },
-  { path: '/progestor/admin', name: 'Users', element: Admin },
-  { path: '/progestor/admin/reports', name: 'Users', element: Reports },
-  { path: '//progestor/admin/reports/medical', name: 'Users', element: MedicalReport },
-  { path: '//progestor/admin/reports/itinerary-babymedic', name: 'Users', element: ItineraryBabymedic },
-  { path: '/progestor/admin/bills', name: 'Users', element: Bills },
+  { path: '/progestor/admin', name: 'Admin', element: Admin },
+  { path: '/progestor/admin/reports', name: 'Reports', element: Reports },
+  { path: '//progestor/admin/reports/medical', name: 'MedicalReport', element: MedicalReport },
+  { path: '//progestor/admin/reports/itinerary-babymedic', name: 'ItineraryBabymedic', element: ItineraryBabymedic },
+  { path: '//progestor/admin/bills/babymedic', name: 'InvoiceBabymedic', element: InvoiceBabymedic },
+  { path: '//progestor/admin/bills/nexatravel', name: 'InvoiceNexatravel', element: InvoiceNexatravel },
+  { path: '//progestor/admin/bills/travelmedicalcare', name: 'InvoiceTravelmedicalcare', element: InvoiceTravelmedicalcare },
+  { path: '/progestor/admin/bills', name: 'Bills', element: Bills },
   { path: '/progestor/users', name: 'Users', element: Users },
-  { path: '/progestor/users/:id/roles', name: 'Users', element: Roles },
-  { path: '/progestor/users/roles', name: 'Users', element: AccessRoles },
+  { path: '/progestor/users/:id/roles', name: 'Roles', element: Roles },
+  { path: '/progestor/users/roles', name: 'AccessRoles', element: AccessRoles },
 ]
 
 export default routes

@@ -36,7 +36,7 @@ const Admin = () => {
     <CContainer lg>
       <CCard className="mb-4">
         <CCardHeader>
-          <strong>Administración</strong>
+          <strong>Reportes y facturas</strong>
           <div className="small text-muted">
             Selecciona una sección para continuar
           </div>
