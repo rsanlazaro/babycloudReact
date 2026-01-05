@@ -39,7 +39,7 @@ const _nav = [
         component: CNavItem,
         state: 'active',
         name: 'Reportes y facturas',
-        to: '/progestor/reports',
+        to: '/progestor/admin',
         className: 'sidebar-component',
       },
       {

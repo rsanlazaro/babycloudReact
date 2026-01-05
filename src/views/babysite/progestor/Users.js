@@ -615,10 +615,16 @@ const UsersList = () => {
       <CCard className="mb-4 mx-5">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>Lista de usuarios</strong>
-          <CButton color="primary" className="app-button" onClick={() => setShowNewUserModal(true)}>
-            <CIcon icon={cilPlus} className="me-2" />
-            Nuevo usuario
-          </CButton>
+          <div>
+            <CButton href='/progestor/users/roles' color="primary" className="app-button mx-2">
+              <CIcon icon={cilLockUnlocked} className="me-2" />
+              Roles
+            </CButton>
+            <CButton color="primary" className="app-button" onClick={() => setShowNewUserModal(true)}>
+              <CIcon icon={cilPlus} className="me-2" />
+              Nuevo usuario
+            </CButton>
+          </div>
         </CCardHeader>
         <CCardBody>
           {/* Search and bulk actions */}

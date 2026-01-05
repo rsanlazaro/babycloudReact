@@ -56,8 +56,14 @@ const Widgets = React.lazy(() => import('./views/widgets/Widgets'))
 
 // Progestor 
 
+const Admin = React.lazy(() => import('./views/babysite/progestor/Admin'))
+const Reports = React.lazy(() => import('./views/babysite/progestor/Reports'))
+const MedicalReport = React.lazy(() => import('./views/babysite/progestor/MedicalReport'))
+const ItineraryBabymedic = React.lazy(() => import('./views/babysite/progestor/ItineraryBabymedic'))
+const Bills = React.lazy(() => import('./views/babysite/progestor/Bills'))
 const Users = React.lazy(() => import('./views/babysite/progestor/Users'))
 const Roles = React.lazy(() => import('./views/babysite/progestor/Roles'))
+const AccessRoles = React.lazy(() => import('./views/babysite/progestor/AccessRoles'))
 
 const routes = [
   { path: '/', exact: true, name: 'Home' },
@@ -106,8 +112,14 @@ const routes = [
   { path: '/notifications/toasts', name: 'Toasts', element: Toasts },
   { path: '/profile', name: 'Profile', element: Profile },
   { path: '/widgets', name: 'Widgets', element: Widgets },
+  { path: '/progestor/admin', name: 'Users', element: Admin },
+  { path: '/progestor/admin/reports', name: 'Users', element: Reports },
+  { path: '//progestor/admin/reports/medical', name: 'Users', element: MedicalReport },
+  { path: '//progestor/admin/reports/itinerary-babymedic', name: 'Users', element: ItineraryBabymedic },
+  { path: '/progestor/admin/bills', name: 'Users', element: Bills },
   { path: '/progestor/users', name: 'Users', element: Users },
   { path: '/progestor/users/:id/roles', name: 'Users', element: Roles },
+  { path: '/progestor/users/roles', name: 'Users', element: AccessRoles },
 ]
 
 export default routes
