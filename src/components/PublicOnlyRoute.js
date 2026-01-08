@@ -1,14 +1,25 @@
-import { Navigate } from 'react-router-dom'
-import { useUser } from '../context/UserContext'
+// src/components/PublicOnlyRoute.js
+import { Navigate } from 'react-router-dom';
+import { CSpinner } from '@coreui/react';
+import { useUser } from '../context/AuthContext';
 
-const PublicOnlyRoute = ({ children }) => {
-  const { user } = useUser()
+const PublicOnlyRoute = ({ children, redirectTo = '/dashboard' }) => {
+  const { user, loading } = useUser();
 
-  if (user) {
-    return <Navigate to="/dashboard" replace />
+  // Show loading spinner while checking authentication
+  if (loading) {
+    return (
+      <div className="pt-3 text-center min-vh-100 d-flex align-items-center justify-content-center">
+        <CSpinner color="primary" variant="grow" />
+      </div>
+    );
   }
 
-  return children
-}
+  if (user) {
+    return <Navigate to={redirectTo} replace />;
+  }
 
-export default PublicOnlyRoute
+  return children;
+};
+
+export default PublicOnlyRoute;

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   CCard,
@@ -16,25 +16,44 @@ import {
   cilAirplaneMode,
 } from '@coreui/icons';
 
-const reports = [
-  {
-    title: 'Reporte Médico',
-    description: 'Generación de reportes médicos para pacientes',
-    icon: cilMedicalCross,
-    path: '/progestor/admin/reports/medical',
-    color: 'danger',
-  },
-  {
-    title: 'Itinerary Babymedic',
-    description: 'Generación de itinerarios Babymedic',
-    icon: cilAirplaneMode,
-    path: '/progestor/admin/reports/itinerary-babymedic',
-    color: 'info',
-  },
-];
+import usePermissions from '../../../hooks/usePermissions';
 
 const Reports = () => {
   const navigate = useNavigate();
+  const { reports } = usePermissions();
+
+  const canViewMedical = reports.medical.visible;
+  const canEditMedical = reports.medical.editable;
+  const canViewItinerary = reports.itinerary.visible;
+  const canEditItinerary = reports.itinerary.editable;
+
+  const reportsSections = [
+    {
+      title: 'Reporte Médico',
+      description: 'Generación de reportes médicos para pacientes',
+      icon: cilMedicalCross,
+      path: '/progestor/admin/reports/medical',
+      color: 'danger',
+      visible: canViewMedical,
+      editable: canEditMedical,
+    },
+    {
+      title: 'Itinerary Babymedic',
+      description: 'Generación de itinerarios Babymedic',
+      icon: cilAirplaneMode,
+      path: '/progestor/admin/reports/itinerary-babymedic',
+      color: 'info',
+      visible: canViewItinerary,
+      editable: canEditItinerary,
+    },
+  ];
+
+  // Redirect if no view permission
+  useEffect(() => {
+    if (!canViewMedical && !canViewItinerary ) {
+      navigate('/progestor/admin');
+    }
+  }, [canViewMedical, navigate]);
 
   return (
     <CContainer lg>
@@ -64,40 +83,41 @@ const Reports = () => {
         </CCardHeader>
         <CCardBody>
           <CRow className="g-4">
-            {reports.map((report) => (
-              <CCol key={report.path} xs={12} sm={6} lg={4}>
-                <Link to={report.path} style={{ textDecoration: 'none' }}>
-                  <CCard
-                    className="h-100 border-top-3 hover-card"
-                    style={{
-                      borderTopColor: `var(--cui-${report.color})`,
-                      cursor: 'pointer',
-                      transition: 'transform 0.2s, box-shadow 0.2s',
-                    }}
-                  >
-                    <CCardBody className="text-center py-4">
-                      <div
-                        className="rounded-circle d-inline-flex align-items-center justify-content-center mb-3"
-                        style={{
-                          width: '64px',
-                          height: '64px',
-                          backgroundColor: `var(--cui-${report.color}-bg-subtle)`,
-                        }}
-                      >
-                        <CIcon
-                          icon={report.icon}
-                          size="xl"
-                          style={{ color: `var(--cui-${report.color})` }}
-                        />
-                      </div>
-                      <h5 className="mb-2">{report.title}</h5>
-                      <p className="text-muted mb-0 small">
-                        {report.description}
-                      </p>
-                    </CCardBody>
-                  </CCard>
-                </Link>
-              </CCol>
+            {reportsSections.map((report) => (
+              report.visible ?
+                <CCol key={report.path} xs={12} sm={6} lg={4}>
+                  <Link to={!report.editable ? '' : report.path} style={!report.editable ? { opacity: 0.5, textDecoration: 'none', cursor: 'auto' } : { textDecoration: 'none' }}>
+                    <CCard
+                      className={!report.editable ? "h-100 border-top-3" : "h-100 border-top-3 hover-card"}
+                      style={!report.editable ? { borderTopColor: `var(--cui-${report.color})` } : {
+                        borderTopColor: `var(--cui-${report.color})`,
+                        cursor: 'pointer',
+                        transition: 'transform 0.2s, box-shadow 0.2s',
+                      }}
+                    >
+                      <CCardBody className="text-center py-4">
+                        <div
+                          className="rounded-circle d-inline-flex align-items-center justify-content-center mb-3"
+                          style={{
+                            width: '64px',
+                            height: '64px',
+                            backgroundColor: `var(--cui-${report.color}-bg-subtle)`,
+                          }}
+                        >
+                          <CIcon
+                            icon={report.icon}
+                            size="xl"
+                            style={{ color: `var(--cui-${report.color})` }}
+                          />
+                        </div>
+                        <h5 className="mb-2">{report.title}</h5>
+                        <p className="text-muted mb-0 small">
+                          {report.description}
+                        </p>
+                      </CCardBody>
+                    </CCard>
+                  </Link>
+                </CCol> : null
             ))}
           </CRow>
         </CCardBody>

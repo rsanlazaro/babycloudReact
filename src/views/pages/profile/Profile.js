@@ -1,6 +1,6 @@
 // src/views/pages/profile/Profile.js
 import React, { useState, useEffect } from 'react';
-import { useUser } from '../../../context/UserContext';
+import { useUser } from '../../../context/AuthContext';
 
 import {
   CCard,

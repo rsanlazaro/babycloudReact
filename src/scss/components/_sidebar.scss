@@ -263,3 +263,33 @@ a.nav-link.sidebar-component.active {
   }
 
 }
+
+/* Disabled nav items */
+.sidebar-nav .nav-link.disabled {
+  opacity: 0.5;
+  color: var(--app-text);
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+.sidebar-nav .nav-link.disabled:hover {
+  background-color: transparent !important;
+}
+
+/* Alternative: If you want disabled items to be clickable but show tooltip */
+.sidebar-nav .nav-link[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Disabled nav group styling */
+.nav-group-disabled>.nav-link {
+  opacity: 0.7;
+}
+
+/* Optional: Add a lock icon to disabled items */
+.sidebar-nav .nav-link.disabled::after {
+  content: "🔒";
+  margin-left: auto;
+  font-size: 0.75rem;
+}

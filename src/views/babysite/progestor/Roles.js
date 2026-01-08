@@ -1,3 +1,4 @@
+// src/views/pages/users/Roles.js
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
@@ -30,8 +31,17 @@ import {
   cilLockLocked,
   cilLockUnlocked,
   cilPencil,
+  cilBan,
 } from '@coreui/icons';
 import api from '../../../services/api';
+import usePermissions from '../../../hooks/usePermissions';
+
+/**
+ * Permission Levels for this page (users.permissions / access_12):
+ * 0 = No access - redirect to /progestor/users
+ * 1 = Read-only - can view but not edit permissions
+ * 2 = Full access - can view and edit permissions
+ */
 
 // Access names mapping
 const accessNames = [
@@ -61,6 +71,7 @@ const accessNames = [
   { key: 'access_24', name: 'Generar factura (Nexa Travel)', category: 'Progestor' },
   { key: 'access_25', name: 'Generar factura (Babymedic)', category: 'Progestor' },
   { key: 'access_26', name: 'Dash Boards', category: 'Progestor' },
+  { key: 'access_83', name: 'Historial de actividades', category: 'Progestor' },
   { key: 'access_27', name: 'Listado Sort_GES', category: 'Babysite' },
   { key: 'access_28', name: 'Alta Sort_GES', category: 'Babysite' },
   { key: 'access_29', name: 'Documentación (Sort_GES)', category: 'Babysite' },
@@ -132,6 +143,13 @@ const categories = [...new Set(accessNames.map((a) => a.category))];
 const Roles = () => {
   const { id } = useParams();
   const navigate = useNavigate();
+  
+  // Get permissions for this page
+  const { users: userPerms } = usePermissions();
+  
+  // Check access level for users.permissions (access_12)
+  const canView = userPerms.permissions.visible;   // level >= 1
+  const canEdit = userPerms.permissions.editable;  // level >= 2
 
   // State
   const [user, setUser] = useState(null);
@@ -143,10 +161,19 @@ const Roles = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
 
+  // Redirect if no view permission (level 0)
+  useEffect(() => {
+    if (!canView) {
+      navigate('/progestor/users');
+    }
+  }, [canView, navigate]);
+
   // Fetch user and permissions on mount
   useEffect(() => {
-    fetchUserRoles();
-  }, [id]);
+    if (canView) {
+      fetchUserRoles();
+    }
+  }, [id, canView]);
 
   const fetchUserRoles = async () => {
     try {
@@ -177,6 +204,9 @@ const Roles = () => {
   };
 
   const handlePermissionChange = (key, value) => {
+    // Only allow changes if has edit permission (level 2)
+    if (!canEdit) return;
+    
     setPermissions((prev) => ({
       ...prev,
       [key]: parseInt(value, 10),
@@ -184,6 +214,9 @@ const Roles = () => {
   };
 
   const handleSave = async () => {
+    // Only allow save if has edit permission (level 2)
+    if (!canEdit) return;
+    
     try {
       setSaving(true);
       await api.put(`/api/users/${id}/roles`, { permissions }, { withCredentials: true });
@@ -198,6 +231,9 @@ const Roles = () => {
   };
 
   const handleSetAll = (value) => {
+    // Only allow changes if has edit permission (level 2)
+    if (!canEdit) return;
+    
     const newPerms = {};
     accessNames.forEach((access) => {
       newPerms[access.key] = value;
@@ -206,6 +242,9 @@ const Roles = () => {
   };
 
   const handleSetCategoryAll = (category, value) => {
+    // Only allow changes if has edit permission (level 2)
+    if (!canEdit) return;
+    
     setPermissions((prev) => {
       const newPerms = { ...prev };
       accessNames
@@ -247,6 +286,24 @@ const Roles = () => {
     );
   };
 
+  // Access denied view (level 0)
+  if (!canView) {
+    return (
+      <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+        <CCard>
+          <CCardBody className="text-center">
+            <CIcon icon={cilBan} size="3xl" className="text-danger mb-3" />
+            <h4>Acceso Denegado</h4>
+            <p className="text-muted">No tienes permiso para ver esta página.</p>
+            <CButton color="primary" onClick={() => navigate('/progestor/users')}>
+              Volver a usuarios
+            </CButton>
+          </CCardBody>
+        </CCard>
+      </CContainer>
+    );
+  }
+
   if (loading) {
     return (
       <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
@@ -260,6 +317,16 @@ const Roles = () => {
       {alert.show && (
         <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
           {alert.message}
+        </CAlert>
+      )}
+
+      {/* Read-only banner when level 1 */}
+      {!canEdit && (
+        <CAlert color="warning" className="d-flex align-items-center">
+          <CIcon icon={cilLockUnlocked} className="me-2" />
+          <span>
+            <strong>Modo solo lectura.</strong> No tienes permiso para modificar los permisos de este usuario.
+          </span>
         </CAlert>
       )}
 
@@ -288,24 +355,32 @@ const Roles = () => {
               </div>
             </CCol>
             <CCol xs="auto">
-              <CButton
-                color="primary"
-                className="app-button"
-                onClick={handleSave}
-                disabled={saving || !hasChanges()}
-              >
-                {saving ? (
-                  <>
-                    <CSpinner size="sm" className="me-2" />
-                    Guardando...
-                  </>
-                ) : (
-                  <>
-                    <CIcon icon={cilSave} className="me-2" />
-                    Guardar cambios
-                  </>
-                )}
-              </CButton>
+              {/* Save button - only show if has edit permission */}
+              {canEdit ? (
+                <CButton
+                  color="primary"
+                  className="app-button"
+                  onClick={handleSave}
+                  disabled={saving || !hasChanges()}
+                >
+                  {saving ? (
+                    <>
+                      <CSpinner size="sm" className="me-2" />
+                      Guardando...
+                    </>
+                  ) : (
+                    <>
+                      <CIcon icon={cilSave} className="me-2" />
+                      Guardar cambios
+                    </>
+                  )}
+                </CButton>
+              ) : (
+                <CBadge color="warning" className="px-3 py-2">
+                  <CIcon icon={cilLockUnlocked} className="me-1" />
+                  Solo lectura
+                </CBadge>
+              )}
             </CCol>
           </CRow>
         </CCardHeader>
@@ -337,35 +412,38 @@ const Roles = () => {
                 ))}
               </CFormSelect>
             </CCol>
-            <CCol md={5} className="text-end">
-              <span className="me-2 text-muted small">Aplicar a todos:</span>
-              <CButton
-                color="danger"
-                variant="outline"
-                size="sm"
-                className="me-1"
-                onClick={() => handleSetAll(0)}
-              >
-                Sin acceso
-              </CButton>
-              <CButton
-                color="warning"
-                variant="outline"
-                size="sm"
-                className="me-1"
-                onClick={() => handleSetAll(1)}
-              >
-                Solo ver
-              </CButton>
-              <CButton
-                color="success"
-                variant="outline"
-                size="sm"
-                onClick={() => handleSetAll(2)}
-              >
-                Ver y editar
-              </CButton>
-            </CCol>
+            {/* Bulk actions - only show if has edit permission */}
+            {canEdit && (
+              <CCol md={5} className="text-end">
+                <span className="me-2 text-muted small">Aplicar a todos:</span>
+                <CButton
+                  color="danger"
+                  variant="outline"
+                  size="sm"
+                  className="me-1"
+                  onClick={() => handleSetAll(0)}
+                >
+                  Sin acceso
+                </CButton>
+                <CButton
+                  color="warning"
+                  variant="outline"
+                  size="sm"
+                  className="me-1"
+                  onClick={() => handleSetAll(1)}
+                >
+                  Solo ver
+                </CButton>
+                <CButton
+                  color="success"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleSetAll(2)}
+                >
+                  Ver y editar
+                </CButton>
+              </CCol>
+            )}
           </CRow>
 
           {/* Permissions by category */}
@@ -377,36 +455,39 @@ const Roles = () => {
                     <strong>{category}</strong>
                     <span className="text-muted ms-2 small">({accesses.length} permisos)</span>
                   </CCol>
-                  <CCol xs="auto">
-                    <span className="me-2 text-muted small">Aplicar:</span>
-                    <CButton
-                      color="danger"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleSetCategoryAll(category, 0)}
-                      title="Sin acceso"
-                    >
-                      <CIcon icon={cilLockLocked} />
-                    </CButton>
-                    <CButton
-                      color="warning"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleSetCategoryAll(category, 1)}
-                      title="Solo ver"
-                    >
-                      <CIcon icon={cilLockUnlocked} />
-                    </CButton>
-                    <CButton
-                      color="success"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleSetCategoryAll(category, 2)}
-                      title="Ver y editar"
-                    >
-                      <CIcon icon={cilPencil} />
-                    </CButton>
-                  </CCol>
+                  {/* Category bulk actions - only show if has edit permission */}
+                  {canEdit && (
+                    <CCol xs="auto">
+                      <span className="me-2 text-muted small">Aplicar:</span>
+                      <CButton
+                        color="danger"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleSetCategoryAll(category, 0)}
+                        title="Sin acceso"
+                      >
+                        <CIcon icon={cilLockLocked} />
+                      </CButton>
+                      <CButton
+                        color="warning"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleSetCategoryAll(category, 1)}
+                        title="Solo ver"
+                      >
+                        <CIcon icon={cilLockUnlocked} />
+                      </CButton>
+                      <CButton
+                        color="success"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleSetCategoryAll(category, 2)}
+                        title="Ver y editar"
+                      >
+                        <CIcon icon={cilPencil} />
+                      </CButton>
+                    </CCol>
+                  )}
                 </CRow>
               </CCardHeader>
               <CCardBody className="p-0">
@@ -415,7 +496,10 @@ const Roles = () => {
                     <CTableRow>
                       <CTableHeaderCell style={{ width: '50%' }}>Permiso</CTableHeaderCell>
                       <CTableHeaderCell style={{ width: '25%' }}>Estado actual</CTableHeaderCell>
-                      <CTableHeaderCell style={{ width: '25%' }}>Cambiar a</CTableHeaderCell>
+                      {/* Only show "Cambiar a" column if can edit */}
+                      {canEdit && (
+                        <CTableHeaderCell style={{ width: '25%' }}>Cambiar a</CTableHeaderCell>
+                      )}
                     </CTableRow>
                   </CTableHead>
                   <CTableBody>
@@ -434,20 +518,23 @@ const Roles = () => {
                         <CTableDataCell>
                           {getPermissionBadge(permissions[access.key])}
                         </CTableDataCell>
-                        <CTableDataCell>
-                          <CFormSelect
-                            size="sm"
-                            value={permissions[access.key]}
-                            onChange={(e) => handlePermissionChange(access.key, e.target.value)}
-                            style={{ maxWidth: '150px' }}
-                          >
-                            {permissionOptions.map((opt) => (
-                              <option key={opt.value} value={opt.value}>
-                                {opt.label}
-                              </option>
-                            ))}
-                          </CFormSelect>
-                        </CTableDataCell>
+                        {/* Only show select if can edit */}
+                        {canEdit && (
+                          <CTableDataCell>
+                            <CFormSelect
+                              size="sm"
+                              value={permissions[access.key]}
+                              onChange={(e) => handlePermissionChange(access.key, e.target.value)}
+                              style={{ maxWidth: '150px' }}
+                            >
+                              {permissionOptions.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </CFormSelect>
+                          </CTableDataCell>
+                        )}
                       </CTableRow>
                     ))}
                   </CTableBody>
@@ -462,8 +549,8 @@ const Roles = () => {
             </div>
           )}
 
-          {/* Changes indicator */}
-          {hasChanges() && (
+          {/* Changes indicator - only show if can edit */}
+          {canEdit && hasChanges() && (
             <CAlert className="mt-3 alert-warning-gray">
               Hay cambios sin guardar. Los permisos modificados están resaltados en gris.
             </CAlert>

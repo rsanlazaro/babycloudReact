@@ -1,5 +1,4 @@
-// src/views/pages/progestor/reports/ItineraryBabymedic.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     CCard,
@@ -20,6 +19,7 @@ import {
     CModalTitle,
     CModalBody,
     CModalFooter,
+    CBadge,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
 import {
@@ -28,8 +28,11 @@ import {
     cilTrash,
     cilCloudDownload,
     cilMagnifyingGlass,
+    cilLockLocked,
+    cilBan,
 } from '@coreui/icons';
 import { jsPDF } from 'jspdf';
+import usePermissions from '../../../hooks/usePermissions';
 
 // Import template images for all pages
 import Page1Template from 'src/assets/itinerary/page1-template.jpg';
@@ -48,9 +51,9 @@ import Page13 from 'src/assets/itinerary/page13.jpg';
 import Page14 from 'src/assets/itinerary/page14.jpg';
 
 // Day input section component - OUTSIDE main component to prevent re-renders
-const DaySection = ({ dayNumber, formData, handleChange }) => (
+const DaySection = ({ dayNumber, formData, handleChange, canEdit }) => (
     <CCard className="mb-3">
-        <CCardHeader className="bg-light py-2">
+        <CCardHeader className="  py-2">
             <strong>Día {dayNumber}</strong>
         </CCardHeader>
         <CCardBody>
@@ -64,6 +67,7 @@ const DaySection = ({ dayNumber, formData, handleChange }) => (
                         placeholder="Ej: 15 de Enero"
                         value={formData[`day${dayNumber}Date`] || ''}
                         onChange={handleChange}
+                        disabled={!canEdit}
                     />
                 </CCol>
             </CRow>
@@ -77,6 +81,7 @@ const DaySection = ({ dayNumber, formData, handleChange }) => (
                         placeholder="Descripción de la actividad..."
                         value={formData[`day${dayNumber}Activity1`] || ''}
                         onChange={handleChange}
+                        disabled={!canEdit}
                     />
                 </CCol>
                 <CCol md={6}>
@@ -88,6 +93,7 @@ const DaySection = ({ dayNumber, formData, handleChange }) => (
                         placeholder="Descripción de la actividad..."
                         value={formData[`day${dayNumber}Activity2`] || ''}
                         onChange={handleChange}
+                        disabled={!canEdit}
                     />
                 </CCol>
             </CRow>
@@ -101,6 +107,7 @@ const DaySection = ({ dayNumber, formData, handleChange }) => (
                         placeholder="Descripción de la actividad..."
                         value={formData[`day${dayNumber}Activity3`] || ''}
                         onChange={handleChange}
+                        disabled={!canEdit}
                     />
                 </CCol>
                 <CCol md={6}>
@@ -112,6 +119,7 @@ const DaySection = ({ dayNumber, formData, handleChange }) => (
                         placeholder="Descripción de la actividad..."
                         value={formData[`day${dayNumber}Activity4`] || ''}
                         onChange={handleChange}
+                        disabled={!canEdit}
                     />
                 </CCol>
             </CRow>
@@ -121,6 +129,10 @@ const DaySection = ({ dayNumber, formData, handleChange }) => (
 
 const ItineraryBabymedic = () => {
     const navigate = useNavigate();
+    const { reports } = usePermissions();
+    // Permission checks
+    const canView = reports.itinerary.visible;
+    const canEdit = reports.itinerary.editable;
 
     const [loading, setLoading] = useState(false);
     const [alert, setAlert] = useState({ show: false, type: '', message: '' });
@@ -170,6 +182,13 @@ const ItineraryBabymedic = () => {
         day6Activity3: '',
         day6Activity4: '',
     });
+
+    // Redirect if no view permission
+    useEffect(() => {
+        if (!canView) {
+            navigate('/progestor/admin/reports');
+        }
+    }, [canView, navigate]);
 
     const showNotification = (type, message) => {
         setAlert({ show: true, type, message });
@@ -252,6 +271,11 @@ const ItineraryBabymedic = () => {
     };
 
     const generatePDF = async (action = 'preview') => {
+        if (!canEdit) {
+            showNotification('warning', 'No tienes permiso para generar PDFs');
+            return;
+        }
+
         if (!formData.nombre || !formData.periodo) {
             showNotification('danger', 'Por favor complete los campos obligatorios (Periodo y Nombre)');
             return;
@@ -418,11 +442,39 @@ const ItineraryBabymedic = () => {
         }
     };
 
+    // Access denied view
+    if (!canView) {
+        return (
+            <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+                <CCard>
+                    <CCardBody className="text-center">
+                        <CIcon icon={cilBan} size="3xl" className="text-danger mb-3" />
+                        <h4>Acceso Denegado</h4>
+                        <p className="text-muted">No tienes permiso para ver esta página.</p>
+                        <CButton color="primary" onClick={() => navigate('/progestor/admin/reports')}>
+                            Volver a reportes
+                        </CButton>
+                    </CCardBody>
+                </CCard>
+            </CContainer>
+        );
+    }
+
     return (
         <CContainer lg onKeyDown={handleKeyDown}>
             {alert.show && (
                 <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
                     {alert.message}
+                </CAlert>
+            )}
+
+            {/* Read-only banner */}
+            {!canEdit && (
+                <CAlert color="warning" className="d-flex align-items-center">
+                    <CIcon icon={cilLockLocked} className="me-2" />
+                    <span>
+                        <strong>Modo solo lectura.</strong> No tienes permiso para generar PDFs de itinerarios.
+                    </span>
                 </CAlert>
             )}
 
@@ -450,49 +502,58 @@ const ItineraryBabymedic = () => {
                             </div>
                         </CCol>
                         <CCol xs="auto">
-                            <CButton
-                                color="secondary"
-                                variant="outline"
-                                className="me-2"
-                                onClick={handleClear}
-                                tabIndex={-1}
-                            >
-                                <CIcon icon={cilTrash} className="me-2" />
-                                Limpiar
-                            </CButton>
-                            <CButton
-                                color="info"
-                                onClick={() => generatePDF('preview')}
-                                disabled={loading}
-                                className="me-2 app-button"
-                                tabIndex={-1}
-                            >
-                                {loading ? (
-                                    <CSpinner size="sm" className="me-2" />
-                                ) : (
-                                    <CIcon icon={cilMagnifyingGlass} className="me-2" />
-                                )}
-                                Vista Previa
-                            </CButton>
-                            <CButton
-                                color="primary"
-                                onClick={() => generatePDF('download')}
-                                disabled={loading}
-                                className="app-button"
-                                tabIndex={-1}
-                            >
-                                {loading ? (
-                                    <>
-                                        <CSpinner size="sm" className="me-2" />
-                                        Generando...
-                                    </>
-                                ) : (
-                                    <>
-                                        <CIcon icon={cilFile} className="me-2" />
-                                        Generar PDF
-                                    </>
-                                )}
-                            </CButton>
+                            {canEdit ? (
+                                <>
+                                    <CButton
+                                        color="secondary"
+                                        variant="outline"
+                                        className="me-2"
+                                        onClick={handleClear}
+                                        tabIndex={-1}
+                                    >
+                                        <CIcon icon={cilTrash} className="me-2" />
+                                        Limpiar
+                                    </CButton>
+                                    <CButton
+                                        color="info"
+                                        onClick={() => generatePDF('preview')}
+                                        disabled={loading}
+                                        className="me-2 app-button"
+                                        tabIndex={-1}
+                                    >
+                                        {loading ? (
+                                            <CSpinner size="sm" className="me-2" />
+                                        ) : (
+                                            <CIcon icon={cilMagnifyingGlass} className="me-2" />
+                                        )}
+                                        Vista Previa
+                                    </CButton>
+                                    <CButton
+                                        color="primary"
+                                        onClick={() => generatePDF('download')}
+                                        disabled={loading}
+                                        className="app-button"
+                                        tabIndex={-1}
+                                    >
+                                        {loading ? (
+                                            <>
+                                                <CSpinner size="sm" className="me-2" />
+                                                Generando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <CIcon icon={cilFile} className="me-2" />
+                                                Generar PDF
+                                            </>
+                                        )}
+                                    </CButton>
+                                </>
+                            ) : (
+                                <CBadge color="warning" className="px-3 py-2">
+                                    <CIcon icon={cilLockLocked} className="me-1" />
+                                    Solo lectura
+                                </CBadge>
+                            )}
                         </CCol>
                     </CRow>
                 </CCardHeader>
@@ -500,7 +561,7 @@ const ItineraryBabymedic = () => {
                     <CForm onSubmit={(e) => e.preventDefault()}>
                         {/* Información General */}
                         <CCard className="mb-4">
-                            <CCardHeader className="bg-light">
+                            <CCardHeader className=" ">
                                 <strong>Información General</strong>
                             </CCardHeader>
                             <CCardBody>
@@ -514,6 +575,7 @@ const ItineraryBabymedic = () => {
                                             placeholder="Ej: 15 - 21 de Enero 2025"
                                             value={formData.periodo}
                                             onChange={handleChange}
+                                            disabled={!canEdit}
                                         />
                                     </CCol>
                                     <CCol md={6}>
@@ -525,6 +587,7 @@ const ItineraryBabymedic = () => {
                                             placeholder="Nombre completo del paciente"
                                             value={formData.nombre}
                                             onChange={handleChange}
+                                            disabled={!canEdit}
                                         />
                                     </CCol>
                                 </CRow>
@@ -533,7 +596,7 @@ const ItineraryBabymedic = () => {
 
                         {/* Itinerario por Día */}
                         <CCard className="mb-4">
-                            <CCardHeader className="bg-light">
+                            <CCardHeader className=" ">
                                 <strong>Itinerario por Día</strong>
                                 <div className="small text-muted">
                                     Complete la fecha y hasta 4 actividades por día
@@ -542,14 +605,14 @@ const ItineraryBabymedic = () => {
                             <CCardBody>
                                 <CRow>
                                     <CCol lg={6}>
-                                        <DaySection dayNumber={1} formData={formData} handleChange={handleChange} />
-                                        <DaySection dayNumber={3} formData={formData} handleChange={handleChange} />
-                                        <DaySection dayNumber={5} formData={formData} handleChange={handleChange} />
+                                        <DaySection dayNumber={1} formData={formData} handleChange={handleChange} canEdit={canEdit}/>
+                                        <DaySection dayNumber={3} formData={formData} handleChange={handleChange} canEdit={canEdit}/>
+                                        <DaySection dayNumber={5} formData={formData} handleChange={handleChange} canEdit={canEdit}/>
                                     </CCol>
                                     <CCol lg={6}>
-                                        <DaySection dayNumber={2} formData={formData} handleChange={handleChange} />
-                                        <DaySection dayNumber={4} formData={formData} handleChange={handleChange} />
-                                        <DaySection dayNumber={6} formData={formData} handleChange={handleChange} />
+                                        <DaySection dayNumber={2} formData={formData} handleChange={handleChange} canEdit={canEdit}/>
+                                        <DaySection dayNumber={4} formData={formData} handleChange={handleChange} canEdit={canEdit}/>
+                                        <DaySection dayNumber={6} formData={formData} handleChange={handleChange} canEdit={canEdit}/>
                                     </CCol>
                                 </CRow>
                             </CCardBody>
@@ -640,7 +703,7 @@ const ItineraryBabymedic = () => {
                     </CButton>
                 </CModalFooter>
             </CModal>
-        </CContainer>
+        </CContainer >
     );
 };
 

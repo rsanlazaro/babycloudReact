@@ -1,49 +1,46 @@
-import React, { Suspense, useEffect } from 'react'
-import { BrowserRouter, Route, Routes, UNSAFE_getPatchRoutesOnNavigationFunction } from 'react-router-dom'
-import { useSelector } from 'react-redux'
-import { UserProvider } from './context/UserContext';
-import { Navigate, Outlet } from 'react-router-dom';
+// src/App.js
+import React, { Suspense, useEffect } from 'react';
+import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { useSelector } from 'react-redux';
+import { AuthProvider } from './context/AuthContext';
 
-import { CSpinner, useColorModes } from '@coreui/react'
-import './scss/style.scss'
-
-// We use those styles to show code examples, you should remove them in your application.
-import './scss/examples.scss'
+import { CSpinner, useColorModes } from '@coreui/react';
+import './scss/style.scss';
+import './scss/examples.scss';
 
 // Containers
-const DefaultLayout = React.lazy(() => import('./layout/DefaultLayout'))
+const DefaultLayout = React.lazy(() => import('./layout/DefaultLayout'));
 
 // Pages
-const Login = React.lazy(() => import('./views/pages/login/Login'))
-const Register = React.lazy(() => import('./views/pages/register/Register'))
-const Page404 = React.lazy(() => import('./views/pages/page404/Page404'))
-const Page500 = React.lazy(() => import('./views/pages/page500/Page500'))
-const UploadImage = React.lazy(() => import('./views/pages/uploadImage/UploadImage'))
-const ProtectedRoute = React.lazy(() => import('./components/ProtectedRoute'))
-const PublicOnlyRoute = React.lazy(() => import('./components/PublicOnlyRoute'))
-const Dashboard = React.lazy(() => import('./views/dashboard/Dashboard'));
-const Profile = React.lazy(() => import('./views/pages/profile/Profile'));
+const Login = React.lazy(() => import('./views/pages/login/Login'));
+const Register = React.lazy(() => import('./views/pages/register/Register'));
+const Page404 = React.lazy(() => import('./views/pages/page404/Page404'));
+const Page500 = React.lazy(() => import('./views/pages/page500/Page500'));
+const Unauthorized = React.lazy(() => import('./views/pages/unauthorized/Unauthorized'));
+const UploadImage = React.lazy(() => import('./views/pages/uploadImage/UploadImage'));
+const ProtectedRoute = React.lazy(() => import('./components/ProtectedRoute'));
+const PublicOnlyRoute = React.lazy(() => import('./components/PublicOnlyRoute'));
 
 const App = () => {
-  const { isColorModeSet, setColorMode } = useColorModes('coreui-free-react-admin-template-theme')
-  const storedTheme = useSelector((state) => state.theme)
+  const { isColorModeSet, setColorMode } = useColorModes('coreui-free-react-admin-template-theme');
+  const storedTheme = useSelector((state) => state.theme);
 
   useEffect(() => {
-    const urlParams = new URLSearchParams(window.location.href.split('?')[1])
-    const theme = urlParams.get('theme') && urlParams.get('theme').match(/^[A-Za-z0-9\s]+/)[0]
+    const urlParams = new URLSearchParams(window.location.href.split('?')[1]);
+    const theme = urlParams.get('theme') && urlParams.get('theme').match(/^[A-Za-z0-9\s]+/)[0];
     if (theme) {
-      setColorMode(theme)
+      setColorMode(theme);
     }
 
     if (isColorModeSet()) {
-      return
+      return;
     }
 
-    setColorMode(storedTheme)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    setColorMode(storedTheme);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <UserProvider>
+    <AuthProvider>
       <BrowserRouter>
         <Suspense
           fallback={
@@ -53,7 +50,6 @@ const App = () => {
           }
         >
           <Routes>
-
             {/* Public */}
             <Route
               path="/login"
@@ -64,23 +60,20 @@ const App = () => {
               }
             />
 
+            {/* Error pages */}
+            <Route path="/404" element={<Page404 />} />
+            <Route path="/500" element={<Page500 />} />
+            <Route path="/unauthorized" element={<Unauthorized />} />
+
             {/* Protected */}
             <Route element={<ProtectedRoute />}>
-
-              {/* Layout wrapper */}
-              <Route path="/*" element={<DefaultLayout />}>
-
-
-              </Route>
-
+              <Route path="/*" element={<DefaultLayout />} />
             </Route>
-
           </Routes>
-
         </Suspense>
       </BrowserRouter>
-    </UserProvider>
-  )
-}
+    </AuthProvider>
+  );
+};
 
-export default App
+export default App;

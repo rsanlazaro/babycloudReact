@@ -1,7 +1,6 @@
-import React from 'react'
-import { useState } from 'react';
-import axios from 'axios';
-import { Link } from 'react-router-dom'
+// src/views/pages/login/Login.js
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   CAlert,
   CButton,
@@ -15,17 +14,20 @@ import {
   CInputGroup,
   CInputGroupText,
   CRow,
-} from '@coreui/react'
-import CIcon from '@coreui/icons-react'
-import { cilLockLocked, cilUser } from '@coreui/icons'
+} from '@coreui/react';
+import CIcon from '@coreui/icons-react';
+import { cilLockLocked, cilUser } from '@coreui/icons';
 import api from '../../../services/api';
+import { useUser } from '../../../context/AuthContext';
 
 const Login = () => {
+  const navigate = useNavigate();
+  const { login } = useUser();
 
-  const [username, setUsername] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState(null)
-  const [loading, setLoading] = useState(false)
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -33,15 +35,31 @@ const Login = () => {
     setLoading(true);
 
     try {
-      await api.post('/api/auth/login', {
+      const response = await api.post('/api/auth/login', {
         username,
         password,
       });
 
-      // redirect after successful login
-      window.location.href = '/dashboard';
+      console.log('=== LOGIN RESPONSE ===');
+      console.log('Full response.data:', response.data);
+      
+      const { user, access } = response.data;
+      
+      console.log('Extracted user:', user);
+      console.log('Extracted access:', access);
+      
+      if (!access) {
+        console.warn('WARNING: No access object in response! Backend needs to return access permissions.');
+      }
+
+      // Call login function from context
+      login(user, access);
+
+      // Redirect to dashboard
+      navigate('/dashboard');
     } catch (err) {
-      setError(err.response?.data?.message || 'Login failed');
+      console.error('Login error:', err);
+      setError(err.response?.data?.message || 'Error al iniciar sesión');
     } finally {
       setLoading(false);
     }
@@ -63,9 +81,13 @@ const Login = () => {
                       <CInputGroupText>
                         <CIcon icon={cilUser} />
                       </CInputGroupText>
-                      <CFormInput placeholder="Username" autoComplete="username" value={username}
+                      <CFormInput
+                        placeholder="Usuario o correo"
+                        autoComplete="username"
+                        value={username}
                         onChange={(e) => setUsername(e.target.value)}
-                        required />
+                        required
+                      />
                     </CInputGroup>
                     <CInputGroup className="mb-4">
                       <CInputGroupText>
@@ -73,7 +95,7 @@ const Login = () => {
                       </CInputGroupText>
                       <CFormInput
                         type="password"
-                        placeholder="Password"
+                        placeholder="Contraseña"
                         autoComplete="current-password"
                         value={password}
                         onChange={(e) => setPassword(e.target.value)}
@@ -82,8 +104,12 @@ const Login = () => {
                     </CInputGroup>
                     <CRow>
                       <CCol xs={6}>
-                        <CButton color="primary" className="px-4 app-button" type="submit"
-                          disabled={loading}>
+                        <CButton
+                          color="primary"
+                          className="px-4 app-button"
+                          type="submit"
+                          disabled={loading}
+                        >
                           {loading ? 'Ingresando...' : 'Ingresar'}
                         </CButton>
                       </CCol>
@@ -96,7 +122,7 @@ const Login = () => {
         </CRow>
       </CContainer>
     </div>
-  )
-}
+  );
+};
 
-export default Login
+export default Login;

@@ -1,5 +1,5 @@
 // src/views/pages/progestor/reports/MedicalReport.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   CCard,
@@ -21,6 +21,7 @@ import {
   CModalTitle,
   CModalBody,
   CModalFooter,
+  CBadge,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
 import {
@@ -31,14 +32,29 @@ import {
   cilX,
   cilCloudDownload,
   cilMagnifyingGlass,
+  cilBan,
+  cilLockLocked,
 } from '@coreui/icons';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import usePermissions from '../../../hooks/usePermissions';
 
-import FertihausLogo from '../../../../src/assets/brand/fertihaus-logo.png';
+import FertihausLogo from '../../../assets/brand/fertihaus-logo.png';
+
+/**
+ * Permission Levels for Medical Report (access_21):
+ * 0 = No access - redirect to /progestor/admin/reports
+ * 1 = Read-only - can view form but cannot generate PDF
+ * 2 = Full access - can generate and download PDF
+ */
 
 const MedicalReport = () => {
   const navigate = useNavigate();
+  const { reports } = usePermissions();
+
+  // Permission checks
+  const canView = reports.medical.visible;
+  const canEdit = reports.medical.editable;
 
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
@@ -99,6 +115,13 @@ const MedicalReport = () => {
     image7: null,
     image8: null,
   });
+
+  // Redirect if no view permission
+  useEffect(() => {
+    if (!canView) {
+      navigate('/progestor/admin/reports');
+    }
+  }, [canView, navigate]);
 
   const showNotification = (type, message) => {
     setAlert({ show: true, type, message });
@@ -213,6 +236,12 @@ const MedicalReport = () => {
   };
 
   const generatePDF = async (action = 'preview') => {
+    // Block if no edit permission
+    if (!canEdit) {
+      showNotification('warning', 'No tienes permiso para generar PDFs');
+      return;
+    }
+
     // Validate required fields
     if (!formData.nombrePaciente || !formData.medicoTratante) {
       showNotification('danger', 'Por favor complete los campos obligatorios');
@@ -245,7 +274,6 @@ const MedicalReport = () => {
 
       // Helper function to add header to each page
       const addHeader = () => {
-
         return margin + 20;
       };
 
@@ -282,14 +310,13 @@ const MedicalReport = () => {
       doc.text('Médico tratante: ', pageWidth / 2 - 10, yPos);
       labelWidth = doc.getTextWidth('Médico tratante: ');
       doc.setFont('helvetica', 'normal');
-      doc.text(formData.medicoTratante, pageWidth / 2 -10 + labelWidth, yPos);
+      doc.text(formData.medicoTratante, pageWidth / 2 - 10 + labelWidth, yPos);
 
       yPos += 6;
       doc.line(margin, yPos, pageWidth - margin, yPos);
       yPos += 8;
 
       // Row 2: Nombre paciente and Edad
-
       doc.setFont('helvetica', 'bold');
       doc.text('Nombre de paciente: ', margin, yPos);
       labelWidth = doc.getTextWidth('Nombre de paciente: ');
@@ -343,7 +370,6 @@ const MedicalReport = () => {
         ['Longitud femoral (LF)', formData.lfValor, formData.lfEdad],
       ];
 
-      // Biophysical parameters table
       const tableData2 = [
         ['Parámetro biofísico', 'Valor'],
         ['Fetometría promedio', `${formData.fetometriaPromedio} SDG`],
@@ -421,7 +447,6 @@ const MedicalReport = () => {
 
       // Impresión diagnóstica section
       checkNewPage(40);
-      // Add logo
       try {
         const logoBase64 = await getImageAsBase64(FertihausLogo);
         const logoWidth = 50;
@@ -447,25 +472,20 @@ const MedicalReport = () => {
       yPos += splitDiagnostic.length * 6;
 
       // Add images (4 per page, 2x2 grid)
-      const imageWidth = 80; // mm
-      const imageHeight = 56; // mm (maintains ~470x330 aspect ratio)
+      const imageWidth = 80;
+      const imageHeight = 56;
       const imageGap = 8;
 
-      // Get all images that have been uploaded
       const uploadedImages = Object.entries(imagePreviews)
         .filter(([key, value]) => value !== null)
         .map(([key, value]) => value);
 
       if (uploadedImages.length > 0) {
-        // Start new page for images
-
         let imageIndex = 0;
         for (const imageData of uploadedImages) {
-          // Check if we need a new page (4 images per page)
           if (imageIndex > 0 && imageIndex % 4 === 0) {
             doc.addPage();
             yPos = addHeader();
-            // Add logo
             try {
               const logoBase64 = await getImageAsBase64(FertihausLogo);
               const logoWidth = 50;
@@ -501,11 +521,6 @@ const MedicalReport = () => {
         doc.setTextColor(150, 150, 150);
       }
 
-      // Generate filename
-      const patientName = formData.nombrePaciente.replace(/\s+/g, '_') || 'paciente';
-      const date = formData.fecha.replace(/-/g, '');
-      const filename = `ReporteMedico_${patientName}_${date}.pdf`;
-
       // Save PDF
       if (action === 'preview') {
         const pdfBlob = doc.output('blob');
@@ -517,7 +532,6 @@ const MedicalReport = () => {
         doc.save(fileName);
         showNotification('success', 'PDF generado exitosamente');
       }
-
     } catch (error) {
       console.error('Error generating PDF:', error);
       showNotification('danger', 'Error al generar el PDF');
@@ -532,7 +546,7 @@ const MedicalReport = () => {
       link.href = pdfBlobUrl;
       link.download = `Reporte_${formData.nombrePaciente.replace(/\s+/g, '_')}_${formData.fecha}.pdf`;
       link.click();
-      setSuccess('PDF descargado exitosamente');
+      showNotification('success', 'PDF descargado exitosamente');
     }
   };
 
@@ -562,7 +576,7 @@ const MedicalReport = () => {
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: '#fafafa',
+            backgroundColor: 'var(--app-bg)',
             position: 'relative',
           }}
         >
@@ -600,8 +614,9 @@ const MedicalReport = () => {
                 color="primary"
                 variant="outline"
                 size="sm"
-                className="mt-2"
+                className="mt-2 app-button"
                 onClick={() => document.getElementById(imageKey).click()}
+                disabled={!canEdit}
               >
                 Seleccionar
               </CButton>
@@ -619,11 +634,39 @@ const MedicalReport = () => {
     );
   };
 
+  // Access denied view
+  if (!canView) {
+    return (
+      <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+        <CCard>
+          <CCardBody className="text-center">
+            <CIcon icon={cilBan} size="3xl" className="text-danger mb-3" />
+            <h4>Acceso Denegado</h4>
+            <p className="text-muted">No tienes permiso para ver esta página.</p>
+            <CButton color="primary" onClick={() => navigate('/progestor/admin/reports')}>
+              Volver a reportes
+            </CButton>
+          </CCardBody>
+        </CCard>
+      </CContainer>
+    );
+  }
+
   return (
     <CContainer lg>
       {alert.show && (
         <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
           {alert.message}
+        </CAlert>
+      )}
+
+      {/* Read-only banner */}
+      {!canEdit && (
+        <CAlert color="warning" className="d-flex align-items-center">
+          <CIcon icon={cilLockLocked} className="me-2" />
+          <span>
+            <strong>Modo solo lectura.</strong> No tienes permiso para generar PDFs de reportes médicos.
+          </span>
         </CAlert>
       )}
 
@@ -650,46 +693,55 @@ const MedicalReport = () => {
               </div>
             </CCol>
             <CCol xs="auto">
-              <CButton
-                color="secondary"
-                variant="outline"
-                className="me-2"
-                onClick={handleClear}
-              >
-                <CIcon icon={cilTrash} className="me-2" />
-                Limpiar
-              </CButton>
-              <CButton
-                color="info"
-                onClick={() => generatePDF('preview')}
-                disabled={loading}
-                className="app-button mx-2"
-              >
-                {loading ? (
-                  <CSpinner size="sm" className="me-2" />
-                ) : (
-                  <CIcon icon={cilMagnifyingGlass} className="me-2" />
-                )}
-                Vista Previa
-              </CButton>
-              <CButton
-                color="primary"
-                className="app-button"
-                onClick={() => generatePDF('download')}
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <CSpinner size="sm" className="me-2" />
-                    Generando...
-                  </>
-                ) : (
-                  <>
-                    <CIcon icon={cilFile} className="me-2" />
-                    Generar PDF
-                  </>
-                )}
-              </CButton>
+              {canEdit ? (
+                <>
+                  <CButton
+                    color="secondary"
+                    variant="outline"
+                    className="me-2"
+                    onClick={handleClear}
+                  >
+                    <CIcon icon={cilTrash} className="me-2" />
+                    Limpiar
+                  </CButton>
+                  <CButton
+                    color="info"
+                    onClick={() => generatePDF('preview')}
+                    disabled={loading}
+                    className="app-button mx-2"
+                  >
+                    {loading ? (
+                      <CSpinner size="sm" className="me-2" />
+                    ) : (
+                      <CIcon icon={cilMagnifyingGlass} className="me-2" />
+                    )}
+                    Vista Previa
+                  </CButton>
+                  <CButton
+                    color="primary"
+                    className="app-button"
+                    onClick={() => generatePDF('download')}
+                    disabled={loading}
+                  >
+                    {loading ? (
+                      <>
+                        <CSpinner size="sm" className="me-2" />
+                        Generando...
+                      </>
+                    ) : (
+                      <>
+                        <CIcon icon={cilFile} className="me-2" />
+                        Generar PDF
+                      </>
+                    )}
+                  </CButton>
+                </>
+              ) : (
+                <CBadge color="warning" className="px-3 py-2">
+                  <CIcon icon={cilLockLocked} className="me-1" />
+                  Solo lectura
+                </CBadge>
+              )}
             </CCol>
           </CRow>
         </CCardHeader>
@@ -697,7 +749,7 @@ const MedicalReport = () => {
           <CForm>
             {/* Datos Generales */}
             <CCard className="mb-4">
-              <CCardHeader className="bg-light">
+              <CCardHeader>
                 <strong>Datos Generales</strong>
               </CCardHeader>
               <CCardBody>
@@ -710,6 +762,7 @@ const MedicalReport = () => {
                       name="fecha"
                       value={formData.fecha}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={8}>
@@ -721,6 +774,7 @@ const MedicalReport = () => {
                       placeholder="Nombre del médico tratante"
                       value={formData.medicoTratante}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -734,6 +788,7 @@ const MedicalReport = () => {
                       placeholder="Nombre completo del paciente"
                       value={formData.nombrePaciente}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={4}>
@@ -745,6 +800,7 @@ const MedicalReport = () => {
                       placeholder="Años"
                       value={formData.edad}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -757,6 +813,7 @@ const MedicalReport = () => {
                       name="fechaUltimaMenstruacion"
                       value={formData.fechaUltimaMenstruacion}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={6}>
@@ -768,6 +825,7 @@ const MedicalReport = () => {
                       placeholder="Ej: 26.2"
                       value={formData.edadGestacional}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -776,7 +834,7 @@ const MedicalReport = () => {
 
             {/* Parámetros Biofísicos */}
             <CCard className="mb-4">
-              <CCardHeader className="bg-light">
+              <CCardHeader>
                 <strong>Parámetros Biofísicos</strong>
               </CCardHeader>
               <CCardBody>
@@ -795,6 +853,7 @@ const MedicalReport = () => {
                       placeholder="0.00"
                       value={formData.dbpValor}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={4}>
@@ -807,6 +866,7 @@ const MedicalReport = () => {
                       placeholder="0.0"
                       value={formData.dbpEdad}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -826,6 +886,7 @@ const MedicalReport = () => {
                       placeholder="0.00"
                       value={formData.ccValor}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={4}>
@@ -838,6 +899,7 @@ const MedicalReport = () => {
                       placeholder="0.0"
                       value={formData.ccEdad}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -857,6 +919,7 @@ const MedicalReport = () => {
                       placeholder="0.00"
                       value={formData.caValor}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={4}>
@@ -869,6 +932,7 @@ const MedicalReport = () => {
                       placeholder="0.0"
                       value={formData.caEdad}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -888,6 +952,7 @@ const MedicalReport = () => {
                       placeholder="0.00"
                       value={formData.lfValor}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={4}>
@@ -900,6 +965,7 @@ const MedicalReport = () => {
                       placeholder="0.0"
                       value={formData.lfEdad}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -917,6 +983,7 @@ const MedicalReport = () => {
                       placeholder="Ej: 26.1"
                       value={formData.fetometriaPromedio}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={6}>
@@ -928,6 +995,7 @@ const MedicalReport = () => {
                       placeholder="Ej: 827"
                       value={formData.pesoFetalEstimado}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -942,6 +1010,7 @@ const MedicalReport = () => {
                       placeholder="Ej: 18.4"
                       value={formData.percentilPeso}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={6}>
@@ -953,6 +1022,7 @@ const MedicalReport = () => {
                       placeholder="Ej: 145"
                       value={formData.frecuenciaCardiacaFetal}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -961,7 +1031,7 @@ const MedicalReport = () => {
 
             {/* Comentarios y Conclusiones */}
             <CCard className="mb-4">
-              <CCardHeader className="bg-light">
+              <CCardHeader>
                 <strong>Comentarios y Conclusiones</strong>
               </CCardHeader>
               <CCardBody>
@@ -975,6 +1045,7 @@ const MedicalReport = () => {
                       placeholder="Feto único, vivo, adecuados movimientos durante el estudio..."
                       value={formData.comentarios}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -988,6 +1059,7 @@ const MedicalReport = () => {
                       placeholder="Embarazo normoevolutivo de XX semanas de gestación por fecha de última menstruación."
                       value={formData.impresionDiagnostica}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -996,7 +1068,7 @@ const MedicalReport = () => {
 
             {/* Imágenes */}
             <CCard className="mb-4">
-              <CCardHeader className="bg-light">
+              <CCardHeader>
                 <strong>Imágenes</strong>
                 <div className="small text-muted">
                   Agregue hasta 8 imágenes para incluir en el reporte
@@ -1020,47 +1092,47 @@ const MedicalReport = () => {
           </CForm>
         </CCardBody>
       </CCard>
-      <CRow className="align-items-center">
-            <CCol>
-              <div className="d-flex align-items-center">
-                <div>
-                </div>
-              </div>
-            </CCol>
-            <CCol xs="auto">  
-              <CButton
-                color="info"
-                onClick={() => generatePDF('preview')}
-                disabled={loading}
-                className="app-button mx-2"
-              >
-                {loading ? (
+
+      {/* Bottom action buttons - only if can edit */}
+      {canEdit && (
+        <CRow className="align-items-center mb-4">
+          <CCol></CCol>
+          <CCol xs="auto">
+            <CButton
+              color="info"
+              onClick={() => generatePDF('preview')}
+              disabled={loading}
+              className="app-button mx-2"
+            >
+              {loading ? (
+                <CSpinner size="sm" className="me-2" />
+              ) : (
+                <CIcon icon={cilMagnifyingGlass} className="me-2" />
+              )}
+              Vista Previa
+            </CButton>
+            <CButton
+              color="primary"
+              className="app-button"
+              onClick={() => generatePDF('download')}
+              disabled={loading}
+            >
+              {loading ? (
+                <>
                   <CSpinner size="sm" className="me-2" />
-                ) : (
-                  <CIcon icon={cilMagnifyingGlass} className="me-2" />
-                )}
-                Vista Previa
-              </CButton>
-              <CButton
-                color="primary"
-                className="app-button"
-                onClick={() => generatePDF('download')}
-                disabled={loading}
-              >
-                {loading ? (
-                  <>
-                    <CSpinner size="sm" className="me-2" />
-                    Generando...
-                  </>
-                ) : (
-                  <>
-                    <CIcon icon={cilFile} className="me-2" />
-                    Generar PDF
-                  </>
-                )}
-              </CButton>
-            </CCol>
-          </CRow>
+                  Generando...
+                </>
+              ) : (
+                <>
+                  <CIcon icon={cilFile} className="me-2" />
+                  Generar PDF
+                </>
+              )}
+            </CButton>
+          </CCol>
+        </CRow>
+      )}
+
       {/* PDF Preview Modal */}
       <CModal
         visible={showPreview}
@@ -1088,7 +1160,7 @@ const MedicalReport = () => {
           <CButton color="secondary" onClick={handleClosePreview}>
             Cerrar
           </CButton>
-          <CButton className='app-button' onClick={handleDownloadFromPreview}>
+          <CButton className="app-button" onClick={handleDownloadFromPreview}>
             <CIcon icon={cilCloudDownload} className="me-2" />
             Descargar PDF
           </CButton>

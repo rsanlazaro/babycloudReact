@@ -1,8 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { useUser } from '../../context/UserContext';
-import { useNavigate } from 'react-router-dom'
-import api from '../../services/api';
+// src/components/header/AppHeaderDropdown.js
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useUser } from '../../context/AuthContext';
 
 import {
   CAvatar,
@@ -13,56 +12,28 @@ import {
   CDropdownItem,
   CDropdownMenu,
   CDropdownToggle,
-} from '@coreui/react'
+} from '@coreui/react';
 import {
   cilBell,
-  cilCreditCard,
-  cilCommentSquare,
   cilEnvelopeOpen,
-  cilFile,
-  cilLockLocked,
   cilSettings,
   cilTask,
   cilUser,
-} from '@coreui/icons'
-import CIcon from '@coreui/icons-react'
-import { cilAccountLogout } from '@coreui/icons'
+  cilAccountLogout,
+} from '@coreui/icons';
+import CIcon from '@coreui/icons-react';
 
 const AppHeaderDropdown = () => {
-
-  const { user, setUser } = useUser()
-  const navigate = useNavigate()
+  const { user, logout } = useUser();
+  const navigate = useNavigate();
 
   const avatar =
     user?.profileImage?.url ??
     'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=150';
 
-  const loadUser = async () => {
-    try {
-      const res = await api.get('/api/users/me');
-
-      console.log('USER DATA:', res.data);
-
-      setUser(res.data);
-    } catch (err) {
-      console.error('USER LOAD ERROR', err);
-      setUser(null); // important fallback
-    }
-  };
-
   const handleLogout = async () => {
-    try {
-      await api.post('/api/auth/logout')
-      setUser(null)
-      navigate('/login')
-    } catch (err) {
-      console.error('Logout failed', err)
-    }
-  }
-
-  useEffect(() => {
-    loadUser();
-  }, []);
+    await logout();
+  };
 
   return (
     <CDropdown variant="nav-item">
@@ -70,7 +41,9 @@ const AppHeaderDropdown = () => {
         <CAvatar src={avatar} size="md" />
       </CDropdownToggle>
       <CDropdownMenu className="pt-0" placement="bottom-end">
-        <CDropdownHeader className="bg-body-secondary fw-semibold mb-2">Account</CDropdownHeader>
+        <CDropdownHeader className="bg-body-secondary fw-semibold mb-2">
+          {user?.username || 'Account'}
+        </CDropdownHeader>
         <CDropdownItem href="#">
           <CIcon icon={cilBell} className="me-2" />
           Updates
@@ -93,7 +66,7 @@ const AppHeaderDropdown = () => {
           </CBadge>
         </CDropdownItem>
         <CDropdownHeader className="bg-body-secondary fw-semibold my-2">Settings</CDropdownHeader>
-        <CDropdownItem href="/profile">
+        <CDropdownItem onClick={() => navigate('/profile')} style={{ cursor: 'pointer' }}>
           <CIcon icon={cilUser} className="me-2" />
           Profile
         </CDropdownItem>
@@ -112,11 +85,11 @@ const AppHeaderDropdown = () => {
           }}
         >
           <CIcon icon={cilAccountLogout} className="me-2" />
-          Logout
+          Cerrar sesión
         </CDropdownItem>
       </CDropdownMenu>
     </CDropdown>
-  )
-}
+  );
+};
 
-export default AppHeaderDropdown
+export default AppHeaderDropdown;

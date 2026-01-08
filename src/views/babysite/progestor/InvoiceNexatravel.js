@@ -1,4 +1,3 @@
-// src/views/pages/progestor/reports/InvoiceNexatravel.js
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -22,6 +21,7 @@ import {
   CModalFooter,
   CInputGroup,
   CInputGroupText,
+  CBadge,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
 import {
@@ -32,6 +32,8 @@ import {
   cilMagnifyingGlass,
   cilDollar,
   cilEuro,
+  cilLockLocked,
+  cilBan,
 } from '@coreui/icons';
 import { jsPDF } from 'jspdf';
 
@@ -39,8 +41,15 @@ import { jsPDF } from 'jspdf';
 import TemplateDollar from '../../../assets/invoice/Nexatravel_dollar.jpg';
 import TemplateEuro from '../../../assets/invoice/Nexatravel_euro.jpg';
 
+import usePermissions from '../../../hooks/usePermissions';
+
 const InvoiceNexatravel = () => {
   const navigate = useNavigate();
+  const { reports } = usePermissions();
+
+  // Permission checks
+  const canView = reports.invoiceNexa.visible;
+  const canEdit = reports.invoiceNexa.editable;
 
   const [loading, setLoading] = useState(false);
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
@@ -82,6 +91,13 @@ const InvoiceNexatravel = () => {
     tax: '0',
     total: '',
   });
+
+  // Redirect if no view permission
+  useEffect(() => {
+    if (!canView) {
+      navigate('/progestor/admin/bills');
+    }
+  }, [canView, navigate]);
 
   const showNotification = (type, message) => {
     setAlert({ show: true, type, message });
@@ -196,6 +212,11 @@ const InvoiceNexatravel = () => {
   };
 
   const generatePDF = async (action = 'preview') => {
+    if (!canEdit) {
+      showNotification('warning', 'No tienes permiso para generar PDFs');
+      return;
+    }
+
     if (!formData.invoiceNumber || !formData.billTo) {
       showNotification('danger', 'Por favor complete los campos obligatorios (Número de Factura y Facturar a)');
       return;
@@ -236,7 +257,7 @@ const InvoiceNexatravel = () => {
       doc.setTextColor(...blueColor);
 
       // ========== HEADER SECTION ==========
-      
+
       // Invoice Number (FACTURE #) - top right
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(20);
@@ -248,19 +269,19 @@ const InvoiceNexatravel = () => {
       doc.text(formatDate(formData.date), 196, 38, { align: 'right' });
 
       // ========== BILL TO SECTION ==========
-      
+
       // Facturer à (Bill to) - left side
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(13);
       doc.text(formData.billTo, 15, 63);
-      
+
       // Country
       if (formData.country) {
         doc.text(formData.country, 15, 70);
       }
 
       // ========== BALANCE DUE SECTION ==========
-      
+
       // Solde DÛ - right side
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(15);
@@ -268,7 +289,7 @@ const InvoiceNexatravel = () => {
       doc.text(balanceText, 196, 70, { align: 'right' });
 
       // ========== PRODUCTS TABLE ==========
-      
+
       // Table row positions (adjust based on template)
       const tableStartY = 97;
       const rowHeight = 14;
@@ -318,7 +339,7 @@ const InvoiceNexatravel = () => {
       }
 
       // ========== TOTALS SECTION ==========
-      
+
       const totalsX = 195;
       const subtotalY = 155;
       const taxY = 166;
@@ -386,11 +407,39 @@ const InvoiceNexatravel = () => {
   // Get currency symbol for display
   const getCurrencySymbol = () => (formData.currency === 'dollar' ? '$' : '€');
 
+  // Access denied view
+  if (!canView) {
+    return (
+      <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+        <CCard>
+          <CCardBody className="text-center">
+            <CIcon icon={cilBan} size="3xl" className="text-danger mb-3" />
+            <h4>Acceso Denegado</h4>
+            <p className="text-muted">No tienes permiso para ver esta página.</p>
+            <CButton color="primary" onClick={() => navigate('/progestor/admin/bills')}>
+              Volver a reportes
+            </CButton>
+          </CCardBody>
+        </CCard>
+      </CContainer>
+    );
+  }
+
   return (
     <CContainer lg>
       {alert.show && (
         <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
           {alert.message}
+        </CAlert>
+      )}
+
+      {/* Read-only banner */}
+      {!canEdit && (
+        <CAlert color="warning" className="d-flex align-items-center">
+          <CIcon icon={cilLockLocked} className="me-2" />
+          <span>
+            <strong>Modo solo lectura.</strong> No tienes permiso para generar PDFs de itinerarios.
+          </span>
         </CAlert>
       )}
 
@@ -418,49 +467,58 @@ const InvoiceNexatravel = () => {
               </div>
             </CCol>
             <CCol xs="auto">
-              <CButton
-                color="secondary"
-                variant="outline"
-                className="me-2"
-                onClick={handleClear}
-                tabIndex={-1}
-              >
-                <CIcon icon={cilTrash} className="me-2" />
-                Limpiar
-              </CButton>
-              <CButton
-                color="info"
-                onClick={() => generatePDF('preview')}
-                disabled={loading}
-                className="me-2 app-button"
-                tabIndex={-1}
-              >
-                {loading ? (
-                  <CSpinner size="sm" className="me-2" />
-                ) : (
-                  <CIcon icon={cilMagnifyingGlass} className="me-2" />
-                )}
-                Vista Previa
-              </CButton>
-              <CButton
-                color="primary"
-                className="app-button"
-                onClick={() => generatePDF('download')}
-                disabled={loading}
-                tabIndex={-1}
-              >
-                {loading ? (
-                  <>
-                    <CSpinner size="sm" className="me-2" />
-                    Generando...
-                  </>
-                ) : (
-                  <>
-                    <CIcon icon={cilFile} className="me-2" />
-                    Generar PDF
-                  </>
-                )}
-              </CButton>
+              {canEdit ? (
+                <>
+                  <CButton
+                    color="secondary"
+                    variant="outline"
+                    className="me-2"
+                    onClick={handleClear}
+                    tabIndex={-1}
+                  >
+                    <CIcon icon={cilTrash} className="me-2" />
+                    Limpiar
+                  </CButton>
+                  <CButton
+                    color="info"
+                    onClick={() => generatePDF('preview')}
+                    disabled={loading}
+                    className="me-2 app-button"
+                    tabIndex={-1}
+                  >
+                    {loading ? (
+                      <CSpinner size="sm" className="me-2" />
+                    ) : (
+                      <CIcon icon={cilMagnifyingGlass} className="me-2" />
+                    )}
+                    Vista Previa
+                  </CButton>
+                  <CButton
+                    color="primary"
+                    className="app-button"
+                    onClick={() => generatePDF('download')}
+                    disabled={loading}
+                    tabIndex={-1}
+                  >
+                    {loading ? (
+                      <>
+                        <CSpinner size="sm" className="me-2" />
+                        Generando...
+                      </>
+                    ) : (
+                      <>
+                        <CIcon icon={cilFile} className="me-2" />
+                        Generar PDF
+                      </>
+                    )}
+                  </CButton>
+                </>
+              ) : (
+                <CBadge color="warning" className="px-3 py-2">
+                  <CIcon icon={cilLockLocked} className="me-1" />
+                  Solo lectura
+                </CBadge>
+              )}
             </CCol>
           </CRow>
         </CCardHeader>
@@ -480,6 +538,7 @@ const InvoiceNexatravel = () => {
                       name="currency"
                       value={formData.currency}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     >
                       <option value="dollar">Dólar (USD) $</option>
                       <option value="euro">Euro (EUR) €</option>
@@ -494,6 +553,7 @@ const InvoiceNexatravel = () => {
                       placeholder="Ej: 001"
                       value={formData.invoiceNumber}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={3}>
@@ -504,6 +564,7 @@ const InvoiceNexatravel = () => {
                       name="date"
                       value={formData.date}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={3}>
@@ -531,6 +592,7 @@ const InvoiceNexatravel = () => {
                       placeholder="Nombre del cliente"
                       value={formData.billTo}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={6}>
@@ -542,6 +604,7 @@ const InvoiceNexatravel = () => {
                       placeholder="País del cliente"
                       value={formData.country}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                 </CRow>
@@ -568,6 +631,7 @@ const InvoiceNexatravel = () => {
                       placeholder="Descripción del producto/servicio"
                       value={formData.product1Description}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={2}>
@@ -579,6 +643,7 @@ const InvoiceNexatravel = () => {
                       placeholder="0"
                       value={formData.product1Quantity}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={2}>
@@ -593,6 +658,7 @@ const InvoiceNexatravel = () => {
                         placeholder="0.00"
                         value={formData.product1Price}
                         onChange={handleChange}
+                        disabled={!canEdit}
                       />
                     </CInputGroup>
                   </CCol>
@@ -623,6 +689,7 @@ const InvoiceNexatravel = () => {
                       placeholder="Descripción del producto/servicio"
                       value={formData.product2Description}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={2}>
@@ -634,6 +701,7 @@ const InvoiceNexatravel = () => {
                       placeholder="0"
                       value={formData.product2Quantity}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={2}>
@@ -648,6 +716,7 @@ const InvoiceNexatravel = () => {
                         placeholder="0.00"
                         value={formData.product2Price}
                         onChange={handleChange}
+                        disabled={!canEdit}
                       />
                     </CInputGroup>
                   </CCol>
@@ -678,6 +747,7 @@ const InvoiceNexatravel = () => {
                       placeholder="Descripción del producto/servicio"
                       value={formData.product3Description}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={2}>
@@ -689,6 +759,7 @@ const InvoiceNexatravel = () => {
                       placeholder="0"
                       value={formData.product3Quantity}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={2}>
@@ -703,6 +774,7 @@ const InvoiceNexatravel = () => {
                         placeholder="0.00"
                         value={formData.product3Price}
                         onChange={handleChange}
+                        disabled={!canEdit}
                       />
                     </CInputGroup>
                   </CCol>
@@ -733,6 +805,7 @@ const InvoiceNexatravel = () => {
                       placeholder="Descripción del producto/servicio"
                       value={formData.product4Description}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={2}>
@@ -744,6 +817,7 @@ const InvoiceNexatravel = () => {
                       placeholder="0"
                       value={formData.product4Quantity}
                       onChange={handleChange}
+                      disabled={!canEdit}
                     />
                   </CCol>
                   <CCol md={2}>
@@ -758,6 +832,7 @@ const InvoiceNexatravel = () => {
                         placeholder="0.00"
                         value={formData.product4Price}
                         onChange={handleChange}
+                        disabled={!canEdit}
                       />
                     </CInputGroup>
                   </CCol>
@@ -811,6 +886,7 @@ const InvoiceNexatravel = () => {
                         placeholder="0"
                         value={formData.tax}
                         onChange={handleChange}
+                        disabled={!canEdit}
                       />
                       <CInputGroupText>%</CInputGroupText>
                     </CInputGroup>
@@ -835,8 +911,8 @@ const InvoiceNexatravel = () => {
 
             {/* Nota informativa */}
             <CAlert color="info">
-              <strong>Nota:</strong> Los campos de Total de cada producto, Subtotal, Balance Due y Total 
-              se calculan automáticamente. La información bancaria (COORDONNÉES BANCAIRES) se incluye 
+              <strong>Nota:</strong> Los campos de Total de cada producto, Subtotal, Balance Due y Total
+              se calculan automáticamente. La información bancaria (COORDONNÉES BANCAIRES) se incluye
               automáticamente desde la plantilla.
             </CAlert>
           </CForm>

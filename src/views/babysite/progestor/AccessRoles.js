@@ -124,6 +124,7 @@ const accessNames = [
     { key: 80, name: 'Habilitar 2', category: 'Babycloud' },
     { key: 81, name: 'Habilitar 3', category: 'Babycloud' },
     { key: 82, name: 'Habilitar vista de la etapa', category: 'Babycloud' },
+    { key: 83, name: 'Historial de actividades', category: 'Babycloud' },
 ];
 
 // Profile options

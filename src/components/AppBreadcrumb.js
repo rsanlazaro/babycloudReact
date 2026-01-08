@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { useUser } from '../context/UserContext'
+import { useUser } from '../context/AuthContext'
 import api from '../services/api'  // Fix path if needed
 
 import routes from '../routes'
