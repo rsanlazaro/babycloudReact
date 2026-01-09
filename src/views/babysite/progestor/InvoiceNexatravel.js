@@ -38,8 +38,8 @@ import {
 import { jsPDF } from 'jspdf';
 
 // Import template images for Dollar and Euro versions
-import TemplateDollar from '../../../assets/invoice/Nexatravel_dollar.jpg';
-import TemplateEuro from '../../../assets/invoice/Nexatravel_euro.jpg';
+import TemplateDollar from './src/assets/invoice/Nexatravel_dollar.jpg';
+import TemplateEuro from './src/assets/invoice/Nexatravel_euro.jpg';
 
 import usePermissions from '../../../hooks/usePermissions';
 
