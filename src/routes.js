@@ -6,7 +6,7 @@ const Dashboard = React.lazy(() => import('./views/dashboard/Dashboard'))
 const Profile = React.lazy(() => import('./views/pages/profile/Profile'))
 
 // Activity History
-const ActivityHistory = React.lazy(() => import('./views/pages/activityHistory/activityHistory'))
+const ActivityHistory = React.lazy(() => import('./views/pages/activityHistory/ActivityHistory'))
 
 // Progestor 
 
