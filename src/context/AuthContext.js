@@ -26,7 +26,7 @@ export const AuthProvider = ({ children }) => {
    */
   const processPermissions = (access) => {
     const perms = {};
-    
+
     if (!access || typeof access !== 'object') {
       return perms;
     }
@@ -35,7 +35,7 @@ export const AuthProvider = ({ children }) => {
       // Store as number (0, 1, or 2)
       perms[key] = Number(value) || 0;
     }
-    
+
     return perms;
   };
 
@@ -44,8 +44,12 @@ export const AuthProvider = ({ children }) => {
     const checkSession = async () => {
       try {
         const res = await api.get('/api/users/me');
-        setUserState(res.data);
-        localStorage.setItem('user', JSON.stringify(res.data));
+
+        // Extract the user object from the response
+        const userData = res.data.user || res.data;
+
+        setUserState(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
 
         // Load permissions from localStorage
         const storedPerms = localStorage.getItem('permissions');
@@ -54,15 +58,24 @@ export const AuthProvider = ({ children }) => {
         }
       } catch (error) {
         console.log('Session check failed:', error?.response?.status);
-        
-        try {
-          const storedUser = localStorage.getItem('user');
-          const storedPerms = localStorage.getItem('permissions');
-          
-          if (storedUser) setUserState(JSON.parse(storedUser));
-          if (storedPerms) setPermissions(JSON.parse(storedPerms));
-        } catch (e) {
-          console.log('No stored session data');
+
+        // Only use localStorage as fallback for brief network issues,
+        // not for invalid sessions
+        if (error?.response?.status === 401) {
+          // Session is invalid, clear everything
+          localStorage.removeItem('user');
+          localStorage.removeItem('permissions');
+        } else {
+          // Network error - try localStorage
+          try {
+            const storedUser = localStorage.getItem('user');
+            const storedPerms = localStorage.getItem('permissions');
+
+            if (storedUser) setUserState(JSON.parse(storedUser));
+            if (storedPerms) setPermissions(JSON.parse(storedPerms));
+          } catch (e) {
+            console.log('No stored session data');
+          }
         }
       } finally {
         setLoading(false);
@@ -78,7 +91,7 @@ export const AuthProvider = ({ children }) => {
   const login = useCallback((userData, accessData) => {
     console.log('Login - User:', userData);
     console.log('Login - Access:', accessData);
-    
+
     setUserState(userData);
     localStorage.setItem('user', JSON.stringify(userData));
 
@@ -86,7 +99,7 @@ export const AuthProvider = ({ children }) => {
       const perms = processPermissions(accessData);
       setPermissions(perms);
       localStorage.setItem('permissions', JSON.stringify(perms));
-      
+
       // Debug: count permission levels
       const counts = { hidden: 0, readOnly: 0, fullAccess: 0 };
       Object.values(perms).forEach(v => {

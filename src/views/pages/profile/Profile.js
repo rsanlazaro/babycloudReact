@@ -84,23 +84,24 @@ const Profile = () => {
         });
 
         const user = res.data;
+        console.log(user.user);
 
         setFormData({
           firstName: '',       // Optional (not in DB yet)
           lastName: '',        // Optional
-          username: user.username || '',
-          email: user.email || '',
+          username: user.user.username || '',
+          email: user.user.email || '',
           password: '',
           confirmPassword: '',
           phone: '',
-          role: user.role || '',
+          role: user.user.role || '',
           photo: null,
-          photoUrl: user.profileImage?.url || '',
+          photoUrl: user.user.profileImage?.url || '',
           photoVersion: null,
         });
 
         setPhotoPreview(
-          user.profileImage?.url ||
+          user.user.profileImage?.url ||
           'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=150'
         );
 
@@ -463,7 +464,7 @@ const Profile = () => {
 
         // 3️⃣ Refresh global user context
         const me = await api.get('/api/users/me', { withCredentials: true });
-        setUser(me.data);
+        setUser(me.data.user || me.data);  // ← Extract the user object
 
         showNotification('success', 'Perfil actualizado exitosamente!');
 
@@ -632,7 +633,7 @@ const Profile = () => {
                         onChange={handleInputChange}
                         onBlur={handleBlur}
                         invalid={touched.username && !!errors.username}
-                        disabled={loading || uploadingPhoto}
+                        disabled
                         required
                       />
                       <CFormFeedback invalid>{errors.username}</CFormFeedback>
@@ -652,7 +653,7 @@ const Profile = () => {
                         onChange={handleInputChange}
                         onBlur={handleBlur}
                         invalid={touched.role && !!errors.role}
-                        disabled={loading || uploadingPhoto}
+                        disabled
                         required
                       >
                         <option value="">Selecciona un rol...</option>

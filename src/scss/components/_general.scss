@@ -9,6 +9,33 @@
     background-color: var(--app-primary-dark) !important;
     border-color: var(--app-primary-dark) !important;
   }
+
+  .page-link {
+    background-color: var(--app-bg) !important;
+    color: var(--app-text) !important;
+
+    &:hover {
+      cursor: pointer;
+    }
+  }
+
+  &.active {
+    background-color: transparent !important;
+    .page-link {
+      background-color: var(--app-bg) !important;
+      color: var(--app-text) !important;
+      border-color: var(--app-text) !important;
+    }
+  }
+}
+
+.page-item {
+  .page-link {
+    color: var(--app-text);
+    &:hover {
+      cursor: pointer;
+    }
+  }
 }
 
 .form-select:focus,

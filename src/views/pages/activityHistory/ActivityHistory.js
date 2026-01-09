@@ -150,37 +150,76 @@ const ActivityHistory = () => {
     return new Date(dateString).toLocaleString();
   };
 
-  const exportToCSV = () => {
-    const headers = ['Date', 'User', 'Activity', 'Entity', 'Description'];
 
-    const csvData = activities.map(act => [
-      formatDate(act.created_at),
-      act.username || '',
-      act.activity_type,
-      act.entity_type || '-',
-      act.description || ''
-    ]);
+  const exportToCSV = async () => {
+    try {
+      setLoading(true);
 
-    const csvContent =
-      '\uFEFF' + // 👈 UTF-8 BOM (CRITICAL)
-      [
-        headers.join(','),
-        ...csvData.map(row =>
-          row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-        )
-      ].join('\n');
+      // Fetch all pages
+      let allActivities = [];
+      let currentPageNum = 1;
+      let totalPagesNum = 1;
 
-    const blob = new Blob([csvContent], {
-      type: 'text/csv;charset=utf-8;'
-    });
+      do {
+        const queryParams = new URLSearchParams(
+          Object.entries({
+            page: currentPageNum,
+            limit: itemsPerPage,
+            ...filters,
+          }).filter(([_, v]) => v !== '')
+        );
 
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `activity-history-${new Date().toISOString()}.csv`;
-    a.click();
+        const response = await api.get(
+          `/api/logs?${queryParams}`,
+          { withCredentials: true }
+        );
+
+        allActivities = [...allActivities, ...(response.data.data || [])];
+        totalPagesNum = Math.ceil(response.data.total / itemsPerPage);
+        currentPageNum++;
+      } while (currentPageNum <= totalPagesNum);
+
+      if (allActivities.length === 0) {
+        alert('No hay datos para exportar');
+        return;
+      }
+
+      const headers = ['Date', 'User', 'Activity', 'Entity', 'Description'];
+
+      const csvData = allActivities.map(act => [
+        formatDate(act.created_at),
+        act.username || '',
+        act.activity_type,
+        act.entity_type || '-',
+        act.description || ''
+      ]);
+
+      const csvContent =
+        '\uFEFF' + // UTF-8 BOM
+        [
+          headers.join(','),
+          ...csvData.map(row =>
+            row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
+          )
+        ].join('\n');
+
+      const blob = new Blob([csvContent], {
+        type: 'text/csv;charset=utf-8;'
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `activity-history-${new Date().toISOString()}.csv`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error exporting to CSV:', error);
+      alert('Error al exportar CSV');
+    } finally {
+      setLoading(false);
+    }
   };
-
 
   return (
     <CContainer lg>
@@ -392,6 +431,7 @@ const ActivityHistory = () => {
 
                   {[...Array(totalPages)].map((_, i) => (
                     <CPaginationItem
+                      className='app-button'
                       key={i + 1}
                       active={currentPage === i + 1}
                       onClick={() => setCurrentPage(i + 1)}
