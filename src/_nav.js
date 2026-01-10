@@ -43,7 +43,7 @@ const _nav = [
         name: 'Listado de externos',
         to: '/progestor/guests',
         className: 'sidebar-component',
-        state: 'disabled',
+        state: 'enabled',
         permission: PERMISSIONS.LIST_GUESTS, // access_14
       },
       {

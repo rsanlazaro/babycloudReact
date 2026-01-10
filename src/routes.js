@@ -19,6 +19,7 @@ const InvoiceTravelmedicalcare = React.lazy(() => import('./views/babysite/proge
 const InvoiceNexatravel = React.lazy(() => import('./views/babysite/progestor/InvoiceNexatravel'))
 const Bills = React.lazy(() => import('./views/babysite/progestor/Bills'))
 const Users = React.lazy(() => import('./views/babysite/progestor/Users'))
+const Guests = React.lazy(() => import('./views/babysite/progestor/Guests'))
 const Roles = React.lazy(() => import('./views/babysite/progestor/Roles'))
 const AccessRoles = React.lazy(() => import('./views/babysite/progestor/AccessRoles'))
 
@@ -36,6 +37,7 @@ const routes = [
   { path: '/progestor/admin/bills/travelmedicalcare', name: 'InvoiceTravelmedicalcare', element: InvoiceTravelmedicalcare },
   { path: '/progestor/admin/bills', name: 'Bills', element: Bills },
   { path: '/progestor/users', name: 'Users', element: Users },
+  { path: '/progestor/guests', name: 'Guests', element: Guests },
   { path: '/progestor/users/:id/roles', name: 'Roles', element: Roles },
   { path: '/progestor/users/roles', name: 'AccessRoles', element: AccessRoles },
 ]
