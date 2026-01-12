@@ -36,8 +36,10 @@ import {
 import axios from 'axios';
 import api from '../../../services/api';
 
-const getUploadSignature = async () => {
-  const res = await api.get('/api/upload/cloudinary-signature');
+const getUploadSignature = async (folder) => {
+  const res = await api.get('/api/upload/cloudinary-signature', {
+    params: { folder }
+  });
   return res.data;
 };
 
@@ -84,7 +86,6 @@ const Profile = () => {
         });
 
         const user = res.data;
-        console.log(user.user);
 
         setFormData({
           firstName: '',       // Optional (not in DB yet)
@@ -281,77 +282,73 @@ const Profile = () => {
   };
 
   const uploadToCloudinary = async () => {
-    if (!formData.photo) return formData.photoUrl;
+  if (!formData.photo) return formData.photoUrl;
 
-    setUploadingPhoto(true);
-    setUploadProgress(0);
+  setUploadingPhoto(true);
+  setUploadProgress(0);
 
-    const signatureResponse = await getUploadSignature();
+  const signatureResponse = await getUploadSignature('profile-images');
 
-    console.log('SIGNATURE RESPONSE:', signatureResponse);
+  const {
+    timestamp,
+    signature,
+    publicId,
+    assetFolder,  // ← Get this from response
+    cloudName,
+    apiKey,
+  } = signatureResponse;
 
-    const {
-      timestamp,
-      signature,
-      publicId,
-      cloudName,
-      apiKey,
-    } = signatureResponse;
+  const cloudinaryFormData = new FormData();
+  cloudinaryFormData.append('file', formData.photo);
+  cloudinaryFormData.append('api_key', apiKey);
+  cloudinaryFormData.append('timestamp', timestamp);
+  cloudinaryFormData.append('signature', signature);
+  cloudinaryFormData.append('public_id', publicId);
+  cloudinaryFormData.append('asset_folder', assetFolder);  // ← Add this
+  cloudinaryFormData.append('overwrite', 'true');
+  cloudinaryFormData.append('transformation', 'c_fill,w_300,h_300,g_face');
 
-    const cloudinaryFormData = new FormData();
-    cloudinaryFormData.append('file', formData.photo);
-    cloudinaryFormData.append('api_key', apiKey);
-    cloudinaryFormData.append('timestamp', timestamp);
-    cloudinaryFormData.append('signature', signature);
-    cloudinaryFormData.append('public_id', publicId);
-    cloudinaryFormData.append('overwrite', 'true');
-    cloudinaryFormData.append('transformation', 'c_fill,w_300,h_300,g_face');
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
 
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
+    xhr.open(
+      'POST',
+      `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`
+    );
 
-      xhr.open(
-        'POST',
-        `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`
-      );
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) {
+        setUploadProgress(Math.round((e.loaded * 100) / e.total));
+      }
+    };
 
-      console.log('USING CLOUD NAME:', cloudName);
+    xhr.onload = () => {
+      if (xhr.status !== 200) {
+        reject(new Error(`Cloudinary upload failed: ${xhr.responseText}`));
+        return;
+      }
+      const response = JSON.parse(xhr.responseText);
+      
+      setUploadingPhoto(false);
+      setUploadProgress(0);
+      const { public_id, version, secure_url } = response;
 
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable) {
-          setUploadProgress(Math.round((e.loaded * 100) / e.total));
-        }
-      };
+      resolve({
+        publicId: public_id,
+        version,
+        url: secure_url,
+      });
+    };
 
-      xhr.onload = () => {
-        if (xhr.status !== 200) {
-          reject(new Error(`Cloudinary upload failed: ${xhr.responseText}`));
-          return;
-        }
-        const response = JSON.parse(xhr.responseText);
-        setUploadingPhoto(false);
-        setUploadProgress(0);
-        const { public_id, version, secure_url } = response;
+    xhr.onerror = () => {
+      setUploadingPhoto(false);
+      setUploadProgress(0);
+      reject(new Error('Upload failed'));
+    };
 
-        // const versionedUrl = `https://res.cloudinary.com/${cloudName}/image/upload/v${version}/${public_id}.jpg`;
-
-        resolve({
-          publicId: public_id,
-          version,
-          url: secure_url,
-        });
-
-      };
-
-      xhr.onerror = () => {
-        setUploadingPhoto(false);
-        setUploadProgress(0);
-        reject(new Error('Upload failed'));
-      };
-
-      xhr.send(cloudinaryFormData);
-    });
-  };
+    xhr.send(cloudinaryFormData);
+  });
+};
 
 
 
