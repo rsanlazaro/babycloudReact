@@ -20,6 +20,7 @@ export const AuthProvider = ({ children }) => {
   const [user, setUserState] = useState(null);
   const [permissions, setPermissions] = useState({});
   const [loading, setLoading] = useState(true);
+  const [backendWaking, setBackendWaking] = useState(false);
 
   /**
    * Store raw permission values (0, 1, 2)
@@ -42,8 +43,18 @@ export const AuthProvider = ({ children }) => {
   // Check session on mount
   useEffect(() => {
     const checkSession = async () => {
+      const startTime = Date.now();
+      
       try {
         const res = await api.get('/api/users/me');
+
+        const elapsed = Date.now() - startTime;
+        
+        // If request took more than 5 seconds, show backend waking message
+        if (elapsed > 5000) {
+          setBackendWaking(true);
+          setTimeout(() => setBackendWaking(false), 3000); // Hide after 3 seconds
+        }
 
         // Extract the user object from the response
         const userData = res.data.user || res.data;
@@ -58,6 +69,14 @@ export const AuthProvider = ({ children }) => {
         }
       } catch (error) {
         console.log('Session check failed:', error?.response?.status);
+
+        const elapsed = Date.now() - startTime;
+        
+        // Show backend waking message even on error if it took too long
+        if (elapsed > 5000) {
+          setBackendWaking(true);
+          setTimeout(() => setBackendWaking(false), 3000);
+        }
 
         // Only use localStorage as fallback for brief network issues,
         // not for invalid sessions
@@ -240,6 +259,53 @@ export const AuthProvider = ({ children }) => {
     hasAnyPermission,
     hasAllPermissions,
   };
+
+  // Show loading spinner with optional backend waking message
+  if (loading) {
+    return (
+      <div style={{
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        height: '100vh',
+        width: '100vw',
+        gap: '20px'
+      }}>
+        <div style={{
+          width: '40px',
+          height: '40px',
+          border: '4px solid #f3f3f3',
+          borderTop: '4px solid #eb6c9c',
+          borderRadius: '50%',
+          animation: 'spin 1s linear infinite'
+        }} />
+        
+        {backendWaking && (
+          <div style={{
+            textAlign: 'center',
+            color: '#666',
+            maxWidth: '350px',
+            padding: '0 20px'
+          }}>
+            <p style={{ margin: '0 0 10px 0', fontWeight: 'bold', fontSize: '16px' }}>
+              🚀 Server is waking up...
+            </p>
+            <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.5' }}>
+              This may take 30-60 seconds on first visit. Subsequent loads will be instant!
+            </p>
+          </div>
+        )}
+
+        <style>{`
+          @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+          }
+        `}</style>
+      </div>
+    );
+  }
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
