@@ -28,7 +28,7 @@ const routes = [
   { path: '/', exact: true, name: 'Home' },
   { path: '/dashboard', name: 'Dashboard', element: Dashboard },
   { path: '/profile', name: 'Profile', element: Profile },
-  { path: '/registers', name: 'Registers', element: Registers },
+  { path: '/registers', name: 'Registers', element: Registers, requiresBillsAuth: true },
   { path: '/activity-history', name: 'ActivityHistory', element: ActivityHistory },
   { path: '/progestor/admin', name: 'Admin', element: Admin },
   { path: '/progestor/admin/reports', name: 'Reports', element: Reports },

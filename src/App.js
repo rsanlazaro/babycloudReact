@@ -9,6 +9,7 @@ import './scss/examples.scss';
 
 import ProtectedRoute from './components/ProtectedRoute';
 import PublicOnlyRoute from './components/PublicOnlyRoute';
+import { BillsAuthProvider } from './context/BillsAuthContext';
 
 const DefaultLayout = React.lazy(() => import('./layout/DefaultLayout'));
 const Login = React.lazy(() => import('./views/pages/login/Login'));
@@ -63,40 +64,42 @@ const App = () => {
 
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Suspense fallback={<LoadingFallback />}>
-          <Routes>
-            {/* Public */}
-            <Route
-              path="/login"
-              element={
-                <PublicOnlyRoute>
-                  <Login />
-                </PublicOnlyRoute>
-              }
-            />
+      <BillsAuthProvider>
+        <BrowserRouter>
+          <Suspense fallback={<LoadingFallback />}>
+            <Routes>
+              {/* Public */}
+              <Route
+                path="/login"
+                element={
+                  <PublicOnlyRoute>
+                    <Login />
+                  </PublicOnlyRoute>
+                }
+              />
 
-            <Route
-              path="/register"
-              element={
-                <PublicOnlyRoute>
-                  <Register />
-                </PublicOnlyRoute>
-              }
-            />
+              <Route
+                path="/register"
+                element={
+                  <PublicOnlyRoute>
+                    <Register />
+                  </PublicOnlyRoute>
+                }
+              />
 
-            {/* Error pages */}
-            <Route path="/404" element={<Page404 />} />
-            <Route path="/500" element={<Page500 />} />
-            <Route path="/unauthorized" element={<Unauthorized />} />
+              {/* Error pages */}
+              <Route path="/404" element={<Page404 />} />
+              <Route path="/500" element={<Page500 />} />
+              <Route path="/unauthorized" element={<Unauthorized />} />
 
-            {/* Protected */}
-            <Route element={<ProtectedRoute />}>
-              <Route path="/*" element={<DefaultLayout />} />
-            </Route>
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
+              {/* Protected */}
+              <Route element={<ProtectedRoute />}>
+                <Route path="/*" element={<DefaultLayout />} />
+              </Route>
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+      </BillsAuthProvider>
     </AuthProvider>
   );
 };

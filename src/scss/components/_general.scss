@@ -1,5 +1,9 @@
 @use "@coreui/coreui/scss/mixins/color-mode" as *;
 
+.app-modal {
+  background-color: var(--app-white);
+}
+
 .app-button {
   background-color: var(--app-primary) !important;
   border-color: var(--app-primary) !important;
@@ -21,6 +25,7 @@
 
   &.active {
     background-color: transparent !important;
+
     .page-link {
       background-color: var(--app-bg) !important;
       color: var(--app-text) !important;
@@ -32,6 +37,7 @@
 .page-item {
   .page-link {
     color: var(--app-text);
+
     &:hover {
       cursor: pointer;
     }
@@ -66,5 +72,35 @@
 .btn {
   &:hover {
     color: var(--app-white) !important;
+  }
+}
+
+.app-unvisible,
+.app-visible {
+  text-decoration: none;
+}
+
+.app-unvisible {
+  opacity: 0.5;
+  cursor: auto;
+}
+
+.app-visible,
+.app-unvisible {
+  .card-body {
+    border-top-width: 3px !important;
+    border-top-style: solid !important;
+  }
+}
+
+.app-visible {
+  .card-body {
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+
+    &:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    }
   }
 }

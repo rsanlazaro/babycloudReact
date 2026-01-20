@@ -289,7 +289,7 @@ export const AuthProvider = ({ children }) => {
             padding: '0 20px'
           }}>
             <p style={{ margin: '0 0 10px 0', fontWeight: 'bold', fontSize: '16px' }}>
-              🚀 Server is waking up...
+              Server is waking up...
             </p>
             <p style={{ margin: 0, fontSize: '14px', lineHeight: '1.5' }}>
               This may take 30-60 seconds on first visit. Subsequent loads will be instant!
