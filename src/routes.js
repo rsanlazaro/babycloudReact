@@ -23,12 +23,15 @@ const Guests = React.lazy(() => import('./views/babysite/progestor/Guests'))
 const Roles = React.lazy(() => import('./views/babysite/progestor/Roles'))
 const AccessRoles = React.lazy(() => import('./views/babysite/progestor/AccessRoles'))
 const Registers = React.lazy(() => import('./views/babysite/progestor/Registers'))
+const RegisterForm = React.lazy(() => import('./views/babysite/progestor/Registerform'))
 
 const routes = [
   { path: '/', exact: true, name: 'Home' },
   { path: '/dashboard', name: 'Dashboard', element: Dashboard },
   { path: '/profile', name: 'Profile', element: Profile },
   { path: '/registers', name: 'Registers', element: Registers, requiresBillsAuth: true },
+  { path: '/registers/registerForm', name: 'New Register', element: RegisterForm, requiresBillsAuth: true },
+  { path: '/registers/registerForm/:id', name: 'Edit Register', element: RegisterForm, requiresBillsAuth: true },
   { path: '/activity-history', name: 'ActivityHistory', element: ActivityHistory },
   { path: '/progestor/admin', name: 'Admin', element: Admin },
   { path: '/progestor/admin/reports', name: 'Reports', element: Reports },
