@@ -39,6 +39,8 @@ import {
   cilNotes,
   cilFile,
   cilWarning,
+  cilLockLocked,
+  cilLockUnlocked,
 } from '@coreui/icons';
 import api from '../../../services/api';
 
@@ -85,7 +87,7 @@ const RegisterForm = () => {
   const [newExpense, setNewExpense] = useState({
     date: '',
     movement: 'salida',
-    reason: 'Poder notarial',
+    reason: '',
     origin: '',
     destination: '',
     bank: '',
@@ -93,6 +95,20 @@ const RegisterForm = () => {
     notes: '',
     currency: 'MXN'
   });
+
+  // Track which payment fields are unlocked per phase
+  const [unlockedPayments, setUnlockedPayments] = useState({});
+
+  // Password modal state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [pendingUnlock, setPendingUnlock] = useState({ phaseId: null, paymentNumber: null });
+
+  // Delete password modal state
+  const [showDeletePasswordModal, setShowDeletePasswordModal] = useState(false);
+  const [deletePasswordInput, setDeletePasswordInput] = useState('');
+  const [deletePasswordError, setDeletePasswordError] = useState('');
 
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [currentNotes, setCurrentNotes] = useState({ type: '', index: null, text: '' });
@@ -108,7 +124,43 @@ const RegisterForm = () => {
   const depositOptions = ['Kiromedic', 'Care', 'Citmer', 'Umare', 'Eligen', 'Plenus'];
   const invoiceOptions = ['Babymedic', 'Nexatravel', 'Travelmedicalcare'];
   const catalogOptions = ['Kiromedic', 'Ovodonors', 'Nora', 'Eggdonors'];
-  const reasonOptions = ['Poder notarial', 'Depósito semen', 'COM. VENTA', 'FIV', 'Captura OVO', 'Factura IP'];
+  
+  // Grouped reason options for better UX
+  const reasonOptionGroups = [
+    {
+      label: 'Documentación',
+      options: ['Poder Single', 'Poder Doble', 'Extra Doc']
+    },
+    {
+      label: 'Depósitos',
+      options: ['Depo Single', 'Depo Doble']
+    },
+    {
+      label: 'Procedimientos Médicos',
+      options: ['COM VENTA', 'Captura Ovo', 'FIV', 'PGTA', 'Donante', 'Medicamento']
+    },
+    {
+      label: 'Transferencias',
+      options: ['Transfer GESCA', 'Transfer RECLU', 'BETA RECLU', 'Transfer y Beta GESCA', 'Transfer y Beta RECLU']
+    },
+    {
+      label: 'Seguimiento (SDG)',
+      options: ['SDG 6', 'SDG 8', 'SDG 10', 'SDG 12', 'SDG 16', 'SDG 20', 'SDG 24', 'SDG 28', 'SDG 32', 'SDG 34', 'SDG 36']
+    },
+    {
+      label: 'Parto y Puerperio',
+      options: ['Parto GESCA', 'Puerperio 1 GESCA', 'RCivil GESCA', 'Puerperio 2 GESCA', 'Consent GESCA']
+    },
+    {
+      label: 'Seguros',
+      options: ['1/4 Prima Seguro', '2/4 Seguro', '3/4 Seguro', '4/4 Seguro', '1/4 Renova Seguro', 'Seguro de Vida']
+    },
+    {
+      label: 'Otros',
+      options: ['Reembolso GESCA', 'Extra Clinic', 'Otros Pagos']
+    }
+  ];
+
   const statusOptions = [
     { value: 'active', label: 'Activo' },
     { value: 'completed', label: 'Completado' },
@@ -123,6 +175,59 @@ const RegisterForm = () => {
       'Travelmedicalcare': ['BanRegio', 'Afirme', 'Bajío', 'Invex']
     };
     return bankMap[invoiceType] || ['Santander', 'BBVA', 'Banorte', 'HSBC'];
+  };
+
+  // Toggle payment field lock state
+  const togglePaymentLock = (phaseId, paymentNumber) => {
+    const key = `${phaseId}-${paymentNumber}`;
+    const isCurrentlyUnlocked = unlockedPayments[key] || false;
+    
+    if (isCurrentlyUnlocked) {
+      // Lock without password
+      setUnlockedPayments(prev => ({
+        ...prev,
+        [key]: false
+      }));
+    } else {
+      // Show password modal to unlock
+      setPendingUnlock({ phaseId, paymentNumber });
+      setPasswordInput('');
+      setPasswordError('');
+      setShowPasswordModal(true);
+    }
+  };
+
+  // Handle password verification
+  const handlePasswordSubmit = () => {
+    const correctPassword = 'adm@bbcloud1';
+    
+    if (passwordInput === correctPassword) {
+      const key = `${pendingUnlock.phaseId}-${pendingUnlock.paymentNumber}`;
+      setUnlockedPayments(prev => ({
+        ...prev,
+        [key]: true
+      }));
+      setShowPasswordModal(false);
+      setPasswordInput('');
+      setPasswordError('');
+      setPendingUnlock({ phaseId: null, paymentNumber: null });
+    } else {
+      setPasswordError('Contraseña incorrecta');
+    }
+  };
+
+  // Handle password modal close
+  const handlePasswordModalClose = () => {
+    setShowPasswordModal(false);
+    setPasswordInput('');
+    setPasswordError('');
+    setPendingUnlock({ phaseId: null, paymentNumber: null });
+  };
+
+  // Check if a payment field is unlocked
+  const isPaymentUnlocked = (phaseId, paymentNumber) => {
+    const key = `${phaseId}-${paymentNumber}`;
+    return unlockedPayments[key] || false;
   };
 
   // Fetch program data if editing
@@ -170,7 +275,7 @@ const RegisterForm = () => {
 
       // Map phases from API
       if (program.phases && program.phases.length > 0) {
-        setPhases(program.phases.map(phase => ({
+        const mappedPhases = program.phases.map(phase => ({
           id: phase.id,
           name: phase.phase_name,
           value: parseFloat(phase.phase_value) || 0,
@@ -186,7 +291,17 @@ const RegisterForm = () => {
           payment2ExpenseId: null,
           payment3ExpenseId: null,
           dbId: phase.id
-        })));
+        }));
+        setPhases(mappedPhases);
+
+        // Unlock payments that already have values
+        const unlocked = {};
+        mappedPhases.forEach(phase => {
+          if (phase.payment1) unlocked[`${phase.id}-1`] = true;
+          if (phase.payment2) unlocked[`${phase.id}-2`] = true;
+          if (phase.payment3) unlocked[`${phase.id}-3`] = true;
+        });
+        setUnlockedPayments(unlocked);
       }
 
       // Map expenses from API
@@ -405,7 +520,9 @@ const RegisterForm = () => {
   const confirmDeletePhase = (index) => {
     const phase = phases[index];
     setDeleteTarget({ type: 'phase', index, name: phase.name });
-    setShowDeleteModal(true);
+    setDeletePasswordInput('');
+    setDeletePasswordError('');
+    setShowDeletePasswordModal(true);
   };
 
   const deletePhase = (index) => {
@@ -435,8 +552,8 @@ const RegisterForm = () => {
   };
 
   const addExpense = () => {
-    if (!newExpense.date || !newExpense.value) {
-      setExpenseAlert({ show: true, type: 'warning', message: 'Completa la fecha y valor del gasto' });
+    if (!newExpense.date || !newExpense.value || !newExpense.reason) {
+      setExpenseAlert({ show: true, type: 'warning', message: 'Completa la fecha, motivo y valor del gasto' });
       setTimeout(() => setExpenseAlert({ show: false, type: '', message: '' }), 5000);
       return;
     }
@@ -450,7 +567,7 @@ const RegisterForm = () => {
     setNewExpense({ 
       date: '', 
       movement: 'salida', 
-      reason: 'Poder notarial', 
+      reason: '', 
       origin: '', 
       destination: '', 
       bank: '', 
@@ -475,7 +592,31 @@ const RegisterForm = () => {
     }
     
     setDeleteTarget({ type: 'expense', index, name: expense.reason });
-    setShowDeleteModal(true);
+    setDeletePasswordInput('');
+    setDeletePasswordError('');
+    setShowDeletePasswordModal(true);
+  };
+
+  // Handle delete password verification
+  const handleDeletePasswordSubmit = () => {
+    const correctPassword = 'adm@bbcloud1';
+    
+    if (deletePasswordInput === correctPassword) {
+      setShowDeletePasswordModal(false);
+      setDeletePasswordInput('');
+      setDeletePasswordError('');
+      setShowDeleteModal(true);
+    } else {
+      setDeletePasswordError('Contraseña incorrecta');
+    }
+  };
+
+  // Handle delete password modal close
+  const handleDeletePasswordModalClose = () => {
+    setShowDeletePasswordModal(false);
+    setDeletePasswordInput('');
+    setDeletePasswordError('');
+    setDeleteTarget({ type: '', index: null, name: '' });
   };
 
   const deleteExpense = (index) => {
@@ -560,12 +701,12 @@ const RegisterForm = () => {
         await api.post('/api/programs', programData, { withCredentials: true });
         setAlert({ show: true, type: 'success', message: 'Programa creado correctamente' });
       }
-      setTimeout(() => navigateBack(), 1500);
+      // Immediate navigation after success
+      navigateBack();
     } catch (err) {
       console.error('Error saving program:', err);
       const message = err.response?.data?.message || 'Error al guardar el programa';
       setAlert({ show: true, type: 'danger', message });
-    } finally {
       setSaving(false);
     }
   };
@@ -614,6 +755,44 @@ const RegisterForm = () => {
     }
   }, [currency]);
 
+  // Render payment field with lock button
+  const renderPaymentField = (phase, index, paymentNumber) => {
+    const isUnlocked = isPaymentUnlocked(phase.id, paymentNumber);
+    const paymentField = `payment${paymentNumber}`;
+    const dateField = `payment${paymentNumber}Date`;
+
+    return (
+      <div className="d-flex gap-1 align-items-center">
+        <CButton
+          color={isUnlocked ? 'success' : 'secondary'}
+          variant="ghost"
+          size="sm"
+          onClick={() => togglePaymentLock(phase.id, paymentNumber)}
+          title={isUnlocked ? 'Bloquear campo' : 'Desbloquear para editar'}
+          style={{ minWidth: '32px' }}
+        >
+          <CIcon icon={isUnlocked ? cilLockUnlocked : cilLockLocked} size="sm" />
+        </CButton>
+        <CFormInput
+          type="number"
+          className="no-spinners"
+          style={{ width: '70px' }}
+          value={phase[paymentField]}
+          onChange={(e) => updatePhase(index, paymentField, e.target.value)}
+          placeholder="0"
+          disabled={!isUnlocked}
+        />
+        <CFormInput
+          type="date"
+          style={{ width: '130px' }}
+          value={phase[dateField]}
+          onChange={(e) => updatePhase(index, dateField, e.target.value)}
+          disabled={!isUnlocked}
+        />
+      </div>
+    );
+  };
+
   if (loading) {
     return (
       <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
@@ -624,6 +803,20 @@ const RegisterForm = () => {
 
   return (
     <CContainer fluid>
+      {/* CSS to hide number input spinners */}
+      <style>
+        {`
+          .no-spinners::-webkit-outer-spin-button,
+          .no-spinners::-webkit-inner-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+          }
+          .no-spinners {
+            -moz-appearance: textfield;
+          }
+        `}
+      </style>
+
       {alert.show && (
         <CAlert className="mx-5" color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
           {alert.message}
@@ -668,7 +861,7 @@ const RegisterForm = () => {
         </CCardHeader>
         <CCardBody className="p-0">
           {/* Section 1 */}
-          <div className="p-4" style={{ backgroundColor: '#f8f9fa', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+          <div className="p-4" style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
             <CRow className="mb-3">
               <CCol md={6}>
                 <CFormLabel>Nombre IP *</CFormLabel>
@@ -764,7 +957,7 @@ const RegisterForm = () => {
           </div>
 
           {/* Section 3 */}
-          <div className="p-4" style={{ backgroundColor: '#f8f9fa', boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
+          <div className="p-4" style={{ boxShadow: '0 2px 4px rgba(0,0,0,0.1)' }}>
             <CRow className="mb-3">
               <CCol md={4}>
                 <CFormLabel>Gestante</CFormLabel>
@@ -808,16 +1001,16 @@ const RegisterForm = () => {
         <CCardBody>
           <CRow>
             <CCol md={6}>
-              <div className="p-3 bg-light rounded mb-3">
+              <div className="p-3 rounded mb-3">
                 <h6 className="text-muted mb-2">Valor del programa</h6>
                 <h4 className="mb-0 text-primary">{formatProgramTotal()}</h4>
                 <small className="text-muted">Suma de todas las fases</small>
               </div>
             </CCol>
             <CCol md={6}>
-              <div className="p-3 bg-light rounded mb-3">
+              <div className="p-3 rounded mb-3">
                 <h6 className="text-muted mb-2">Costo interno</h6>
-                <h4 className="mb-0 text-danger">{formatMXN(calculateInternalCost())}</h4>
+                <h4 className="mb-0 text-danger">- {formatMXN(calculateInternalCost())}</h4>
                 <small className="text-muted">Suma de movimientos de salida (MXN)</small>
               </div>
             </CCol>
@@ -857,9 +1050,9 @@ const RegisterForm = () => {
                 <CTableRow>
                   <CTableHeaderCell>Fase</CTableHeaderCell>
                   <CTableHeaderCell>Valor</CTableHeaderCell>
-                  <CTableHeaderCell style={{ width: '100px' }}>Pago 1</CTableHeaderCell>
-                  <CTableHeaderCell style={{ width: '100px' }}>Pago 2</CTableHeaderCell>
-                  <CTableHeaderCell style={{ width: '100px' }}>Pago 3</CTableHeaderCell>
+                  <CTableHeaderCell style={{ width: '220px' }}>Pago 1</CTableHeaderCell>
+                  <CTableHeaderCell style={{ width: '220px' }}>Pago 2</CTableHeaderCell>
+                  <CTableHeaderCell style={{ width: '220px' }}>Pago 3</CTableHeaderCell>
                   <CTableHeaderCell>Facturar a</CTableHeaderCell>
                   <CTableHeaderCell>Diferencia</CTableHeaderCell>
                   <CTableHeaderCell>Notas</CTableHeaderCell>
@@ -881,22 +1074,13 @@ const RegisterForm = () => {
                         <CTableDataCell><strong>{phase.name}</strong></CTableDataCell>
                         <CTableDataCell>{formatPhaseValue(phase.value)}</CTableDataCell>
                         <CTableDataCell>
-                          <div className="d-flex gap-1">
-                            <CFormInput type="number" style={{width: '80px'}} value={phase.payment1} onChange={(e) => updatePhase(index, 'payment1', e.target.value)} placeholder="0" />
-                            <CFormInput type="date" style={{width: '140px'}} value={phase.payment1Date} onChange={(e) => updatePhase(index, 'payment1Date', e.target.value)} />
-                          </div>
+                          {renderPaymentField(phase, index, 1)}
                         </CTableDataCell>
                         <CTableDataCell>
-                          <div className="d-flex gap-1">
-                            <CFormInput type="number" style={{width: '80px'}} value={phase.payment2} onChange={(e) => updatePhase(index, 'payment2', e.target.value)} placeholder="0" />
-                            <CFormInput type="date" style={{width: '140px'}} value={phase.payment2Date} onChange={(e) => updatePhase(index, 'payment2Date', e.target.value)} />
-                          </div>
+                          {renderPaymentField(phase, index, 2)}
                         </CTableDataCell>
                         <CTableDataCell>
-                          <div className="d-flex gap-1">
-                            <CFormInput type="number" style={{width: '80px'}} value={phase.payment3} onChange={(e) => updatePhase(index, 'payment3', e.target.value)} placeholder="0" />
-                            <CFormInput type="date" style={{width: '140px'}} value={phase.payment3Date} onChange={(e) => updatePhase(index, 'payment3Date', e.target.value)} />
-                          </div>
+                          {renderPaymentField(phase, index, 3)}
                         </CTableDataCell>
                         <CTableDataCell>
                           <CFormSelect style={{width: '120px'}} value={phase.invoiced} onChange={(e) => updatePhase(index, 'invoiced', e.target.value)}>
@@ -962,7 +1146,14 @@ const RegisterForm = () => {
             </CCol>
             <CCol md={2}>
               <CFormSelect size="sm" value={newExpense.reason} onChange={(e) => setNewExpense(prev => ({ ...prev, reason: e.target.value }))}>
-                {reasonOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                <option value="">Seleccionar motivo...</option>
+                {reasonOptionGroups.map(group => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.options.map(opt => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </optgroup>
+                ))}
               </CFormSelect>
             </CCol>
             <CCol md={2}>
@@ -977,7 +1168,8 @@ const RegisterForm = () => {
             <CCol md={2}>
               <CFormInput 
                 type="number" 
-                size="sm" 
+                size="sm"
+                className="no-spinners"
                 placeholder={newExpense.movement === 'entrada' ? `Valor (${currency})` : 'Valor (MXN)'} 
                 value={newExpense.value} 
                 onChange={(e) => setNewExpense(prev => ({ ...prev, value: e.target.value }))} 
@@ -1013,7 +1205,7 @@ const RegisterForm = () => {
                   </CTableRow>
                 ) : (
                   expenses.map((expense, index) => (
-                    <CTableRow key={expense.id} style={expense.isAutoGenerated ? { backgroundColor: '#e7f3ff' } : {}}>
+                    <CTableRow key={expense.id} className={expense.isAutoGenerated ? 'table-info' : ''}>
                       <CTableDataCell>
                         {new Date(expense.date).toLocaleDateString('es-MX')}
                       </CTableDataCell>
@@ -1054,13 +1246,13 @@ const RegisterForm = () => {
           </div>
           <CRow className="mt-3">
             <CCol md={6}>
-              <div className="p-3 bg-light rounded">
+              <div className="p-3 rounded">
                 <strong>Total gastos de salida: </strong>
-                <span className="text-danger">{formatMXN(calculateInternalCost())}</span>
+                <span className="text-danger">- {formatMXN(calculateInternalCost())}</span>
               </div>
             </CCol>
             <CCol md={6}>
-              <div className="p-3 bg-light rounded">
+              <div className="p-3 rounded">
                 <strong>Total costos de entrada: </strong>
                 <span className="text-success">{formatEntriesTotal()}</span>
               </div>
@@ -1112,6 +1304,86 @@ const RegisterForm = () => {
           <CButton color="danger" onClick={handleConfirmDelete}>
             <CIcon icon={cilTrash} className="me-2" />
             Eliminar
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* Delete Password Modal */}
+      <CModal visible={showDeletePasswordModal} onClose={handleDeletePasswordModalClose} alignment="center">
+        <CModalHeader>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilLockLocked} className="text-danger me-2" size="lg" />
+            Autorización requerida
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="mb-3">Ingresa la contraseña para eliminar {deleteTarget.type === 'phase' ? 'la fase' : 'el gasto'} <strong>"{deleteTarget.name}"</strong>:</p>
+          <CFormInput
+            type="password"
+            autoComplete="new-password"
+            value={deletePasswordInput}
+            onChange={(e) => {
+              setDeletePasswordInput(e.target.value);
+              setDeletePasswordError('');
+            }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleDeletePasswordSubmit();
+              }
+            }}
+            invalid={!!deletePasswordError}
+          />
+          {deletePasswordError && (
+            <div className="text-danger mt-2 small">{deletePasswordError}</div>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={handleDeletePasswordModalClose}>
+            Cancelar
+          </CButton>
+          <CButton color="danger" onClick={handleDeletePasswordSubmit}>
+            <CIcon icon={cilTrash} className="me-2" />
+            Continuar
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* Password Modal for Payment Unlock */}
+      <CModal visible={showPasswordModal} onClose={handlePasswordModalClose} alignment="center">
+        <CModalHeader>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilLockLocked} className="text-primary me-2" size="lg" />
+            Desbloquear campo de pago
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="mb-3">Ingresa la contraseña para desbloquear este campo:</p>
+          <CFormInput
+            type="password"
+            autoComplete="new-password"
+            value={passwordInput}
+            onChange={(e) => {
+              setPasswordInput(e.target.value);
+              setPasswordError('');
+            }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handlePasswordSubmit();
+              }
+            }}
+            invalid={!!passwordError}
+          />
+          {passwordError && (
+            <div className="text-danger mt-2 small">{passwordError}</div>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={handlePasswordModalClose}>
+            Cancelar
+          </CButton>
+          <CButton color="primary" onClick={handlePasswordSubmit}>
+            <CIcon icon={cilLockUnlocked} className="me-2" />
+            Desbloquear
           </CButton>
         </CModalFooter>
       </CModal>

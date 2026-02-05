@@ -42,6 +42,7 @@ import {
   cilGlobeAlt,
   cilCalendar,
   cilWarning,
+  cilLockLocked,
 } from '@coreui/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../../../context/AuthContext';
@@ -72,6 +73,12 @@ const Registers = () => {
   // Modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [registerToDelete, setRegisterToDelete] = useState(null);
+
+  // Password modal state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  const [deleteType, setDeleteType] = useState('single'); // 'single' or 'bulk'
 
   // Alert state
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
@@ -207,7 +214,41 @@ const Registers = () => {
   // Delete handlers
   const confirmDeleteRegister = (register) => {
     setRegisterToDelete(register);
-    setShowDeleteModal(true);
+    setDeleteType('single');
+    setPasswordInput('');
+    setPasswordError('');
+    setShowPasswordModal(true);
+  };
+
+  const confirmBulkDelete = () => {
+    if (selectedRegisters.length === 0) return;
+    setDeleteType('bulk');
+    setPasswordInput('');
+    setPasswordError('');
+    setShowPasswordModal(true);
+  };
+
+  // Handle password verification
+  const handlePasswordSubmit = () => {
+    const correctPassword = 'adm@bbcloud1';
+    
+    if (passwordInput === correctPassword) {
+      setShowPasswordModal(false);
+      setPasswordInput('');
+      setPasswordError('');
+      setShowDeleteModal(true);
+    } else {
+      setPasswordError('Contraseña incorrecta');
+    }
+  };
+
+  // Handle password modal close
+  const handlePasswordModalClose = () => {
+    setShowPasswordModal(false);
+    setPasswordInput('');
+    setPasswordError('');
+    setRegisterToDelete(null);
+    setDeleteType('single');
   };
 
   const deleteRegister = async () => {
@@ -238,6 +279,16 @@ const Registers = () => {
     } catch (err) {
       console.error('Error deleting registers:', err);
       showNotification('danger', 'Error al eliminar los registros');
+    } finally {
+      setShowDeleteModal(false);
+    }
+  };
+
+  const handleConfirmDelete = () => {
+    if (deleteType === 'single') {
+      deleteRegister();
+    } else {
+      deleteSelectedRegisters();
     }
   };
 
@@ -326,6 +377,7 @@ const Registers = () => {
                   placeholder="Buscar por nombre, país, gestante, gestor..."
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
+                  autoComplete="off"
                 />
               </CInputGroup>
             </CCol>
@@ -351,7 +403,7 @@ const Registers = () => {
             </CCol>
             <CCol md={4} className="text-end">
               {selectedRegisters.length > 0 && (
-                <CButton color="danger" variant="outline" onClick={deleteSelectedRegisters}>
+                <CButton color="danger" variant="outline" onClick={confirmBulkDelete}>
                   <CIcon icon={cilTrash} className="me-2" />
                   Eliminar seleccionados ({selectedRegisters.length})
                 </CButton>
@@ -362,13 +414,13 @@ const Registers = () => {
           {/* Statistics cards */}
           <CRow className="mb-4">
             <CCol md={3}>
-              <div className="p-3 bg-light rounded text-center">
+              <div className="p-3 rounded text-center">
                 <h6 className="text-muted mb-1">Total registros</h6>
                 <h4 className="mb-0 text-primary">{registers.length}</h4>
               </div>
             </CCol>
             <CCol md={3}>
-              <div className="p-3 bg-light rounded text-center">
+              <div className="p-3 rounded text-center">
                 <h6 className="text-muted mb-1">Activos</h6>
                 <h4 className="mb-0 text-success">
                   {registers.filter(r => r.status === 'active').length}
@@ -376,7 +428,7 @@ const Registers = () => {
               </div>
             </CCol>
             <CCol md={3}>
-              <div className="p-3 bg-light rounded text-center">
+              <div className="p-3 rounded text-center">
                 <h6 className="text-muted mb-1">Completados</h6>
                 <h4 className="mb-0 text-info">
                   {registers.filter(r => r.status === 'completed').length}
@@ -384,7 +436,7 @@ const Registers = () => {
               </div>
             </CCol>
             <CCol md={3}>
-              <div className="p-3 bg-light rounded text-center">
+              <div className="p-3 rounded text-center">
                 <h6 className="text-muted mb-1">Pendientes</h6>
                 <h4 className="mb-0 text-warning">
                   {registers.filter(r => r.status === 'pending').length}
@@ -496,7 +548,11 @@ const Registers = () => {
       </CCard>
 
       {/* Delete Confirmation Modal */}
-      <CModal visible={showDeleteModal} onClose={() => setShowDeleteModal(false)} alignment="center">
+      <CModal visible={showDeleteModal} onClose={() => {
+        setShowDeleteModal(false);
+        setRegisterToDelete(null);
+        setDeleteType('single');
+      }} alignment="center">
         <CModalHeader>
           <CModalTitle className="d-flex align-items-center">
             <CIcon icon={cilWarning} className="text-danger me-2" size="lg" />
@@ -504,20 +560,82 @@ const Registers = () => {
           </CModalTitle>
         </CModalHeader>
         <CModalBody>
-          <p className="mb-2">
-            ¿Estás seguro de que deseas eliminar el registro <strong>"{registerToDelete?.ip_name}"</strong>?
-          </p>
-          <p className="text-muted mb-0">
-            <small>Esta acción eliminará también todas las fases y gastos asociados. No se puede deshacer.</small>
-          </p>
+          {deleteType === 'single' ? (
+            <>
+              <p className="mb-2">
+                ¿Estás seguro de que deseas eliminar el registro <strong>"{registerToDelete?.ip_name}"</strong>?
+              </p>
+              <p className="text-muted mb-0">
+                <small>Esta acción eliminará también todas las fases y gastos asociados. No se puede deshacer.</small>
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="mb-2">
+                ¿Estás seguro de que deseas eliminar <strong>{selectedRegisters.length} registro(s)</strong>?
+              </p>
+              <p className="text-muted mb-0">
+                <small>Esta acción eliminará también todas las fases y gastos asociados. No se puede deshacer.</small>
+              </p>
+            </>
+          )}
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => setShowDeleteModal(false)}>
+          <CButton color="secondary" onClick={() => {
+            setShowDeleteModal(false);
+            setRegisterToDelete(null);
+            setDeleteType('single');
+          }}>
             Cancelar
           </CButton>
-          <CButton color="danger" onClick={deleteRegister}>
+          <CButton color="danger" onClick={handleConfirmDelete}>
             <CIcon icon={cilTrash} className="me-2" />
             Eliminar
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* Password Modal for Delete */}
+      <CModal visible={showPasswordModal} onClose={handlePasswordModalClose} alignment="center">
+        <CModalHeader>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilLockLocked} className="text-danger me-2" size="lg" />
+            Autorización requerida
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="mb-3">
+            Ingresa la contraseña para eliminar {deleteType === 'single' 
+              ? <>el registro <strong>"{registerToDelete?.ip_name}"</strong></>
+              : <><strong>{selectedRegisters.length} registro(s)</strong></>
+            }:
+          </p>
+          <CFormInput
+            type="password"
+            autoComplete="new-password"
+            value={passwordInput}
+            onChange={(e) => {
+              setPasswordInput(e.target.value);
+              setPasswordError('');
+            }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handlePasswordSubmit();
+              }
+            }}
+            invalid={!!passwordError}
+          />
+          {passwordError && (
+            <div className="text-danger mt-2 small">{passwordError}</div>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={handlePasswordModalClose}>
+            Cancelar
+          </CButton>
+          <CButton color="danger" onClick={handlePasswordSubmit}>
+            <CIcon icon={cilTrash} className="me-2" />
+            Continuar
           </CButton>
         </CModalFooter>
       </CModal>
