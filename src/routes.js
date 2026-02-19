@@ -25,6 +25,10 @@ const AccessRoles = React.lazy(() => import('./views/babysite/progestor/AccessRo
 const Registers = React.lazy(() => import('./views/babysite/progestor/Registers'))
 const RegisterForm = React.lazy(() => import('./views/babysite/progestor/Registerform'))
 
+// Babysite
+const sortGes = React.lazy(() => import('./views/babysite/babysite/SortGes'))
+const sortGesList = React.lazy(() => import('./views/babysite/babysite/SortGesList'))
+
 const routes = [
   { path: '/', exact: true, name: 'Home' },
   { path: '/dashboard', name: 'Dashboard', element: Dashboard },
@@ -45,6 +49,8 @@ const routes = [
   { path: '/progestor/guests', name: 'Guests', element: Guests },
   { path: '/progestor/users/:id/roles', name: 'Roles', element: Roles },
   { path: '/progestor/users/roles', name: 'AccessRoles', element: AccessRoles },
+  { path: '/babysite/sortGes', name: 'sortGesList', element: sortGesList },
+  { path: '/babysite/sortGes/:id', name: 'sortGes', element: sortGes },
 ]
 
 export default routes
