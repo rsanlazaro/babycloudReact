@@ -9,20 +9,39 @@ export const BillsAuthProvider = ({ children }) => {
   });
 
   const authenticateBills = () => {
-    sessionStorage.setItem('billsAuth', 'true'); // Set first
-    setIsBillsAuthenticated(true); // Then update state
-    return true; // Return success
+    sessionStorage.setItem('billsAuth', 'true');
+    setIsBillsAuthenticated(true);
+    return true;
   };
 
   const clearBillsAuth = () => {
     sessionStorage.removeItem('billsAuth');
+    sessionStorage.removeItem('billsAuthTimestamp');
     setIsBillsAuthenticated(false);
   };
 
-  // Clear bills auth when tab/browser closes (sessionStorage handles this automatically)
   useEffect(() => {
+    // On page load, check if this is a refresh or new session
+    const lastTimestamp = sessionStorage.getItem('billsAuthTimestamp');
+    const currentTime = Date.now();
+    
+    if (lastTimestamp) {
+      const timeDiff = currentTime - parseInt(lastTimestamp, 10);
+      // If more than 3 seconds since last beforeunload, assume window was closed and reopened
+      if (timeDiff > 3000) {
+        sessionStorage.removeItem('billsAuth');
+        sessionStorage.removeItem('billsAuthTimestamp');
+        setIsBillsAuthenticated(false);
+      }
+    }
+    
+    // Clear the timestamp after checking
+    sessionStorage.removeItem('billsAuthTimestamp');
+
+    // Set up beforeunload to store timestamp when page unloads
     const handleBeforeUnload = () => {
-      sessionStorage.removeItem('billsAuth');
+      // Store current timestamp - if page reloads quickly, it's a refresh
+      sessionStorage.setItem('billsAuthTimestamp', Date.now().toString());
     };
     
     window.addEventListener('beforeunload', handleBeforeUnload);

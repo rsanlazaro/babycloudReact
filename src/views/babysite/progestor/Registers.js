@@ -43,15 +43,18 @@ import {
   cilCalendar,
   cilWarning,
   cilLockLocked,
+  cilCloudDownload,
 } from '@coreui/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../../../context/AuthContext';
+import { useBillsAuth } from '../../../context/BillsAuthContext';
 import usePermissions from '../../../hooks/usePermissions';
 import api from '../../../services/api';
 
 const Registers = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useUser();
+  const { authenticateBills } = useBillsAuth();
   // You can add specific permissions for registers if needed
   // const { registers: registerPerms } = usePermissions();
 
@@ -73,12 +76,28 @@ const Registers = () => {
   // Modal state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [registerToDelete, setRegisterToDelete] = useState(null);
-
-  // Password modal state
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordInput, setPasswordInput] = useState('');
-  const [passwordError, setPasswordError] = useState('');
   const [deleteType, setDeleteType] = useState('single'); // 'single' or 'bulk'
+
+  // Password modal state for delete
+  const [showDeletePasswordModal, setShowDeletePasswordModal] = useState(false);
+  const [deletePasswordInput, setDeletePasswordInput] = useState('');
+  const [deletePasswordError, setDeletePasswordError] = useState('');
+
+  // Password modal state for edit
+  const [showEditPasswordModal, setShowEditPasswordModal] = useState(false);
+  const [editPasswordInput, setEditPasswordInput] = useState('');
+  const [editPasswordError, setEditPasswordError] = useState('');
+  const [registerToEdit, setRegisterToEdit] = useState(null);
+
+  // Password modal state for export
+  const [showExportPasswordModal, setShowExportPasswordModal] = useState(false);
+  const [exportPasswordInput, setExportPasswordInput] = useState('');
+  const [exportPasswordError, setExportPasswordError] = useState('');
+  const [exportLoading, setExportLoading] = useState(false);
+
+  // Export warning state
+  const [showExportWarning, setShowExportWarning] = useState(false);
+  const [daysSinceLastExport, setDaysSinceLastExport] = useState(0);
 
   // Alert state
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
@@ -102,6 +121,26 @@ const Registers = () => {
   // Fetch registers on mount
   useEffect(() => {
     fetchRegisters();
+  }, []);
+
+  // Check last export date on mount
+  useEffect(() => {
+    const lastExportDate = localStorage.getItem('registersLastExportDate');
+    if (lastExportDate) {
+      const lastDate = new Date(lastExportDate);
+      const now = new Date();
+      const diffTime = Math.abs(now - lastDate);
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays >= 5) {
+        setDaysSinceLastExport(diffDays);
+        setShowExportWarning(true);
+      }
+    } else {
+      // No export has ever been made
+      setDaysSinceLastExport(-1); // -1 indicates never exported
+      setShowExportWarning(true);
+    }
   }, []);
 
   const fetchRegisters = async () => {
@@ -211,85 +250,362 @@ const Registers = () => {
     );
   }, [selectedRegisters, filteredAndSortedRegisters]);
 
-  // Delete handlers
-  const confirmDeleteRegister = (register) => {
-    setRegisterToDelete(register);
-    setDeleteType('single');
-    setPasswordInput('');
-    setPasswordError('');
-    setShowPasswordModal(true);
+  // Edit handlers
+  const handleEditClick = (register) => {
+    setRegisterToEdit(register);
+    setEditPasswordInput('');
+    setEditPasswordError('');
+    setShowEditPasswordModal(true);
   };
 
-  const confirmBulkDelete = () => {
-    if (selectedRegisters.length === 0) return;
-    setDeleteType('bulk');
-    setPasswordInput('');
-    setPasswordError('');
-    setShowPasswordModal(true);
-  };
-
-  // Handle password verification
-  const handlePasswordSubmit = () => {
+  const handleEditPasswordSubmit = () => {
     const correctPassword = 'adm@bbcloud1';
     
-    if (passwordInput === correctPassword) {
-      setShowPasswordModal(false);
-      setPasswordInput('');
-      setPasswordError('');
-      setShowDeleteModal(true);
+    if (editPasswordInput === correctPassword) {
+      authenticateBills(); // Persist authentication
+      setShowEditPasswordModal(false);
+      setEditPasswordInput('');
+      setEditPasswordError('');
+      navigate(`/registers/registerForm/${registerToEdit.id}`);
+      setRegisterToEdit(null);
     } else {
-      setPasswordError('Contraseña incorrecta');
+      setEditPasswordError('Contraseña incorrecta');
     }
   };
 
-  // Handle password modal close
-  const handlePasswordModalClose = () => {
-    setShowPasswordModal(false);
-    setPasswordInput('');
-    setPasswordError('');
+  const handleEditPasswordModalClose = () => {
+    setShowEditPasswordModal(false);
+    setEditPasswordInput('');
+    setEditPasswordError('');
+    setRegisterToEdit(null);
+  };
+
+  // Export handlers
+  const handleExportClick = () => {
+    setExportPasswordInput('');
+    setExportPasswordError('');
+    setShowExportPasswordModal(true);
+  };
+
+  const handleExportPasswordSubmit = () => {
+    const correctPassword = 'adm@bbcloud10';
+    
+    if (exportPasswordInput === correctPassword) {
+      setShowExportPasswordModal(false);
+      setExportPasswordInput('');
+      setExportPasswordError('');
+      exportToCSV();
+    } else {
+      setExportPasswordError('Contraseña incorrecta');
+    }
+  };
+
+  const handleExportPasswordModalClose = () => {
+    setShowExportPasswordModal(false);
+    setExportPasswordInput('');
+    setExportPasswordError('');
+  };
+
+  const exportToCSV = async () => {
+    try {
+      setExportLoading(true);
+      showNotification('info', 'Preparando exportación, por favor espere...');
+
+      // Fetch detailed data for all programs (with phases and expenses)
+      const detailedPrograms = await Promise.all(
+        registers.map(async (reg) => {
+          try {
+            const response = await api.get(`/api/programs/${reg.id}`, { withCredentials: true });
+            return response.data;
+          } catch (err) {
+            console.error(`Error fetching program ${reg.id}:`, err);
+            return { ...reg, phases: [], expenses: [] };
+          }
+        })
+      );
+
+      // Define CSV headers - Program info + Phase columns + Expense summary
+      const headers = [
+        // Program info
+        'ID',
+        'Nombre IP',
+        'Pareja',
+        'País',
+        'Fecha Contrato',
+        'Depósito 1',
+        'Depósito 2',
+        'Donante Select',
+        'Select 2',
+        'Select 3',
+        'Select R',
+        'Catálogo',
+        'Valor Catálogo',
+        'Crio Embrio',
+        'XX',
+        'XY',
+        'NI',
+        'Tanque',
+        'Gestante',
+        'Parto',
+        'CLABE',
+        'Seguro',
+        'Póliza',
+        'Gestor',
+        'Moneda',
+        'Tipo de Cambio',
+        'Estado',
+        'Valor Total Programa',
+        'Fecha Creación',
+        'Fecha Actualización',
+        // Phase columns (up to 10 phases)
+        ...Array.from({ length: 10 }, (_, i) => [
+          `Fase ${i + 1} Nombre`,
+          `Fase ${i + 1} Valor`,
+          `Fase ${i + 1} Pago 1`,
+          `Fase ${i + 1} Fecha Pago 1`,
+          `Fase ${i + 1} Pago 2`,
+          `Fase ${i + 1} Fecha Pago 2`,
+          `Fase ${i + 1} Pago 3`,
+          `Fase ${i + 1} Fecha Pago 3`,
+          `Fase ${i + 1} Facturado a`,
+          `Fase ${i + 1} Notas`,
+        ]).flat(),
+        // Expense summary
+        'Total Entradas',
+        'Total Salidas',
+        'Número de Gastos',
+        // Expense details (concatenated)
+        'Detalle de Gastos'
+      ];
+
+      // Helper to format date
+      const formatDate = (dateStr) => {
+        if (!dateStr) return '';
+        try {
+          return new Date(dateStr).toLocaleDateString('es-MX');
+        } catch {
+          return '';
+        }
+      };
+
+      // Convert data to CSV rows
+      const rows = detailedPrograms.map(prog => {
+        const phases = prog.phases || [];
+        const expenses = prog.expenses || [];
+
+        // Calculate expense totals
+        const totalEntradas = expenses
+          .filter(e => e.movement_type === 'entrada')
+          .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+        const totalSalidas = expenses
+          .filter(e => e.movement_type === 'salida')
+          .reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+        // Format expense details
+        const expenseDetails = expenses.map(e => 
+          `${formatDate(e.expense_date)}: ${e.movement_type} - ${e.reason} - ${e.amount} ${e.currency || 'MXN'}`
+        ).join(' | ');
+
+        // Build row
+        const row = [
+          // Program info
+          prog.id || '',
+          prog.ip_name || '',
+          prog.couple_name || '',
+          prog.country || '',
+          formatDate(prog.contract_date),
+          prog.deposit_1 || '',
+          prog.deposit_2 || '',
+          prog.donor_select || '',
+          prog.select_2 || '',
+          prog.select_3 || '',
+          prog.select_r || '',
+          prog.catalog || '',
+          prog.catalog_value || '',
+          prog.crio_embryo || '',
+          prog.xx_count || '',
+          prog.xy_count || '',
+          prog.ni_count || '',
+          prog.tank || '',
+          prog.surrogate || '',
+          prog.birth_info || '',
+          prog.clabe || '',
+          prog.insurance || '',
+          prog.policy || '',
+          prog.manager || '',
+          prog.currency || '',
+          prog.exchange_rate || '',
+          prog.status || '',
+          prog.total_program_value || 0,
+          formatDate(prog.created_at),
+          formatDate(prog.updated_at),
+        ];
+
+        // Add phase data (up to 10 phases)
+        for (let i = 0; i < 10; i++) {
+          const phase = phases[i];
+          if (phase) {
+            row.push(
+              phase.phase_name || '',
+              phase.phase_value || '',
+              phase.payment_1_amount || '',
+              formatDate(phase.payment_1_date),
+              phase.payment_2_amount || '',
+              formatDate(phase.payment_2_date),
+              phase.payment_3_amount || '',
+              formatDate(phase.payment_3_date),
+              phase.invoiced_to || '',
+              phase.notes || ''
+            );
+          } else {
+            // Empty phase columns
+            row.push('', '', '', '', '', '', '', '', '', '');
+          }
+        }
+
+        // Add expense summary
+        row.push(
+          totalEntradas,
+          totalSalidas,
+          expenses.length,
+          expenseDetails
+        );
+
+        return row;
+      });
+
+      // Escape CSV values (handle commas, quotes, newlines)
+      const escapeCSV = (value) => {
+        if (value === null || value === undefined) return '';
+        const str = String(value);
+        if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('|')) {
+          return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+      };
+
+      // Build CSV content
+      const csvContent = [
+        headers.map(escapeCSV).join(','),
+        ...rows.map(row => row.map(escapeCSV).join(','))
+      ].join('\n');
+
+      // Add BOM for Excel compatibility with special characters
+      const BOM = '\uFEFF';
+      const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+      
+      // Create download link
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      const timestamp = new Date().toISOString().split('T')[0];
+      
+      link.setAttribute('href', url);
+      link.setAttribute('download', `registros_programas_completo_${timestamp}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      // Save export date to localStorage
+      localStorage.setItem('registersLastExportDate', new Date().toISOString());
+      setShowExportWarning(false);
+
+      showNotification('success', `Se exportaron ${registers.length} registros con fases y gastos correctamente`);
+    } catch (err) {
+      console.error('Error exporting to CSV:', err);
+      showNotification('danger', 'Error al exportar los datos');
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  // Delete handlers
+  const handleDeleteClick = (register) => {
+    setRegisterToDelete(register);
+    setDeleteType('single');
+    setDeletePasswordInput('');
+    setDeletePasswordError('');
+    setShowDeletePasswordModal(true);
+  };
+
+  const handleBulkDeleteClick = () => {
+    if (selectedRegisters.length === 0) return;
+    setDeleteType('bulk');
+    setDeletePasswordInput('');
+    setDeletePasswordError('');
+    setShowDeletePasswordModal(true);
+  };
+
+  // Ref to track if we're transitioning between modals
+  const isTransitioningToConfirmation = React.useRef(false);
+
+  const handleDeletePasswordSubmit = () => {
+    const correctPassword = 'adm@bbcloud1';
+    
+    if (deletePasswordInput === correctPassword) {
+      authenticateBills(); // Persist authentication
+      isTransitioningToConfirmation.current = true;
+      setDeletePasswordInput('');
+      setDeletePasswordError('');
+      setShowDeletePasswordModal(false);
+      // Use setTimeout to ensure the password modal is fully closed before opening confirmation
+      setTimeout(() => {
+        setShowDeleteModal(true);
+        isTransitioningToConfirmation.current = false;
+      }, 50);
+    } else {
+      setDeletePasswordError('Contraseña incorrecta');
+    }
+  };
+
+  const handleDeletePasswordModalClose = () => {
+    setShowDeletePasswordModal(false);
+    setDeletePasswordInput('');
+    setDeletePasswordError('');
+    // Only reset these when user explicitly cancels (not when transitioning to confirmation modal)
+    if (!isTransitioningToConfirmation.current) {
+      setRegisterToDelete(null);
+      setDeleteType('single');
+    }
+  };
+
+  const handleDeleteModalClose = () => {
+    setShowDeleteModal(false);
     setRegisterToDelete(null);
     setDeleteType('single');
   };
 
-  const deleteRegister = async () => {
-    if (!registerToDelete) return;
-
-    try {
-      await api.delete(`/api/programs/${registerToDelete.id}`, { withCredentials: true });
-      setRegisters((prev) => prev.filter((r) => r.id !== registerToDelete.id));
-      setSelectedRegisters((prev) => prev.filter((id) => id !== registerToDelete.id));
-      showNotification('success', 'Registro eliminado correctamente');
-    } catch (err) {
-      console.error('Error deleting register:', err);
-      showNotification('danger', 'Error al eliminar el registro');
-    } finally {
-      setShowDeleteModal(false);
-      setRegisterToDelete(null);
-    }
-  };
-
-  const deleteSelectedRegisters = async () => {
-    if (selectedRegisters.length === 0) return;
-
-    try {
-      await api.post('/api/programs/bulk-delete', { ids: selectedRegisters }, { withCredentials: true });
-      setRegisters((prev) => prev.filter((r) => !selectedRegisters.includes(r.id)));
-      setSelectedRegisters([]);
-      showNotification('success', `${selectedRegisters.length} registro(s) eliminado(s)`);
-    } catch (err) {
-      console.error('Error deleting registers:', err);
-      showNotification('danger', 'Error al eliminar los registros');
-    } finally {
-      setShowDeleteModal(false);
-    }
-  };
-
-  const handleConfirmDelete = () => {
+  const executeDelete = async () => {
     if (deleteType === 'single') {
-      deleteRegister();
+      if (!registerToDelete) return;
+      
+      try {
+        await api.delete(`/api/programs/${registerToDelete.id}`, { withCredentials: true });
+        setRegisters((prev) => prev.filter((r) => r.id !== registerToDelete.id));
+        setSelectedRegisters((prev) => prev.filter((id) => id !== registerToDelete.id));
+        showNotification('success', 'Registro eliminado correctamente');
+      } catch (err) {
+        console.error('Error deleting register:', err);
+        showNotification('danger', 'Error al eliminar el registro');
+      }
     } else {
-      deleteSelectedRegisters();
+      if (selectedRegisters.length === 0) return;
+      
+      try {
+        await api.post('/api/programs/bulk-delete', { ids: selectedRegisters }, { withCredentials: true });
+        setRegisters((prev) => prev.filter((r) => !selectedRegisters.includes(r.id)));
+        setSelectedRegisters([]);
+        showNotification('success', `${selectedRegisters.length} registro(s) eliminado(s)`);
+      } catch (err) {
+        console.error('Error deleting registers:', err);
+        showNotification('danger', 'Error al eliminar los registros');
+      }
     }
+    
+    setShowDeleteModal(false);
+    setRegisterToDelete(null);
+    setDeleteType('single');
   };
 
   // Format functions
@@ -353,17 +669,57 @@ const Registers = () => {
         </CAlert>
       )}
 
+      {showExportWarning && (
+        <CAlert 
+          className="mx-5" 
+          color="warning" 
+          dismissible 
+          onClose={() => setShowExportWarning(false)}
+        >
+          <div className="d-flex align-items-center">
+            <CIcon icon={cilWarning} className="me-2" size="lg" />
+            <div>
+              <strong>¡Atención!</strong>{' '}
+              {daysSinceLastExport === -1 
+                ? 'Nunca se ha realizado una exportación de datos. Se recomienda exportar los registros periódicamente como respaldo.'
+                : `Han pasado ${daysSinceLastExport} días desde la última exportación de datos. Se recomienda realizar una exportación como respaldo.`
+              }
+            </div>
+          </div>
+        </CAlert>
+      )}
+
       <CCard className="mb-4 mx-5">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>Lista de Registros (Programas)</strong>
-          <CButton
-            color="primary"
-            className="app-button"
-            onClick={() => navigate('/registers/registerForm')}
-          >
-            <CIcon icon={cilPlus} className="me-2" />
-            Nuevo registro
-          </CButton>
+          <div className="d-flex gap-2">
+            <CButton
+              color="success"
+              onClick={handleExportClick}
+              disabled={exportLoading}
+              style={{ color: 'white' }}
+            >
+              {exportLoading ? (
+                <>
+                  <CSpinner size="sm" className="me-2" />
+                  Exportando...
+                </>
+              ) : (
+                <>
+                  <CIcon icon={cilCloudDownload} className="me-2" />
+                  Exportar CSV
+                </>
+              )}
+            </CButton>
+            <CButton
+              color="primary"
+              className="app-button"
+              onClick={() => navigate('/registers/registerForm')}
+            >
+              <CIcon icon={cilPlus} className="me-2" />
+              Nuevo registro
+            </CButton>
+          </div>
         </CCardHeader>
         <CCardBody>
           {/* Search and filters */}
@@ -403,7 +759,7 @@ const Registers = () => {
             </CCol>
             <CCol md={4} className="text-end">
               {selectedRegisters.length > 0 && (
-                <CButton color="danger" variant="outline" onClick={confirmBulkDelete}>
+                <CButton color="danger" variant="outline" onClick={handleBulkDeleteClick}>
                   <CIcon icon={cilTrash} className="me-2" />
                   Eliminar seleccionados ({selectedRegisters.length})
                 </CButton>
@@ -518,7 +874,7 @@ const Registers = () => {
                           color="primary"
                           variant="ghost"
                           size="sm"
-                          onClick={() => navigate(`/registers/registerForm/${register.id}`)}
+                          onClick={() => handleEditClick(register)}
                           title="Editar registro"
                           className="me-1"
                         >
@@ -528,7 +884,7 @@ const Registers = () => {
                           color="danger"
                           variant="ghost"
                           size="sm"
-                          onClick={() => confirmDeleteRegister(register)}
+                          onClick={() => handleDeleteClick(register)}
                           title="Eliminar registro"
                         >
                           <CIcon icon={cilTrash} />
@@ -548,12 +904,14 @@ const Registers = () => {
       </CCard>
 
       {/* Delete Confirmation Modal */}
-      <CModal visible={showDeleteModal} onClose={() => {
-        setShowDeleteModal(false);
-        setRegisterToDelete(null);
-        setDeleteType('single');
-      }} alignment="center">
-        <CModalHeader>
+      <CModal 
+        visible={showDeleteModal} 
+        onClose={handleDeleteModalClose} 
+        alignment="center"
+        backdrop="static"
+        keyboard={false}
+      >
+        <CModalHeader closeButton={false}>
           <CModalTitle className="d-flex align-items-center">
             <CIcon icon={cilWarning} className="text-danger me-2" size="lg" />
             Confirmar eliminación
@@ -581,14 +939,14 @@ const Registers = () => {
           )}
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => {
-            setShowDeleteModal(false);
-            setRegisterToDelete(null);
-            setDeleteType('single');
-          }}>
+          <CButton color="secondary" onClick={handleDeleteModalClose}>
             Cancelar
           </CButton>
-          <CButton color="danger" onClick={handleConfirmDelete}>
+          <CButton 
+            color="danger" 
+            onClick={executeDelete}
+            style={{ color: 'white' }}
+          >
             <CIcon icon={cilTrash} className="me-2" />
             Eliminar
           </CButton>
@@ -596,8 +954,14 @@ const Registers = () => {
       </CModal>
 
       {/* Password Modal for Delete */}
-      <CModal visible={showPasswordModal} onClose={handlePasswordModalClose} alignment="center">
-        <CModalHeader>
+      <CModal 
+        visible={showDeletePasswordModal} 
+        onClose={handleDeletePasswordModalClose} 
+        alignment="center"
+        backdrop="static"
+        keyboard={false}
+      >
+        <CModalHeader closeButton={false}>
           <CModalTitle className="d-flex align-items-center">
             <CIcon icon={cilLockLocked} className="text-danger me-2" size="lg" />
             Autorización requerida
@@ -613,29 +977,136 @@ const Registers = () => {
           <CFormInput
             type="password"
             autoComplete="new-password"
-            value={passwordInput}
+            value={deletePasswordInput}
             onChange={(e) => {
-              setPasswordInput(e.target.value);
-              setPasswordError('');
+              setDeletePasswordInput(e.target.value);
+              setDeletePasswordError('');
             }}
             onKeyPress={(e) => {
               if (e.key === 'Enter') {
-                handlePasswordSubmit();
+                handleDeletePasswordSubmit();
               }
             }}
-            invalid={!!passwordError}
+            invalid={!!deletePasswordError}
           />
-          {passwordError && (
-            <div className="text-danger mt-2 small">{passwordError}</div>
+          {deletePasswordError && (
+            <div className="text-danger mt-2 small">{deletePasswordError}</div>
           )}
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={handlePasswordModalClose}>
+          <CButton color="secondary" onClick={handleDeletePasswordModalClose}>
             Cancelar
           </CButton>
-          <CButton color="danger" onClick={handlePasswordSubmit}>
+          <CButton 
+            color="danger" 
+            onClick={handleDeletePasswordSubmit}
+            style={{ color: 'white' }}
+          >
             <CIcon icon={cilTrash} className="me-2" />
             Continuar
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* Password Modal for Edit */}
+      <CModal 
+        visible={showEditPasswordModal} 
+        onClose={handleEditPasswordModalClose} 
+        alignment="center"
+        backdrop="static"
+        keyboard={false}
+      >
+        <CModalHeader closeButton={false}>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilLockLocked} className="text-primary me-2" size="lg" />
+            Autorización requerida
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="mb-3">
+            Ingresa la contraseña para editar el registro <strong>"{registerToEdit?.ip_name}"</strong>:
+          </p>
+          <CFormInput
+            type="password"
+            autoComplete="new-password"
+            value={editPasswordInput}
+            onChange={(e) => {
+              setEditPasswordInput(e.target.value);
+              setEditPasswordError('');
+            }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleEditPasswordSubmit();
+              }
+            }}
+            invalid={!!editPasswordError}
+          />
+          {editPasswordError && (
+            <div className="text-danger mt-2 small">{editPasswordError}</div>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={handleEditPasswordModalClose}>
+            Cancelar
+          </CButton>
+          <CButton 
+            color="primary" 
+            onClick={handleEditPasswordSubmit}
+          >
+            <CIcon icon={cilPencil} className="me-2" />
+            Continuar
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* Password Modal for Export */}
+      <CModal 
+        visible={showExportPasswordModal} 
+        onClose={handleExportPasswordModalClose} 
+        alignment="center"
+        backdrop="static"
+        keyboard={false}
+      >
+        <CModalHeader closeButton={false}>
+          <CModalTitle className="d-flex align-items-center">
+            <CIcon icon={cilLockLocked} className="text-success me-2" size="lg" />
+            Autorización requerida
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="mb-3">
+            Ingresa la contraseña para exportar <strong>{registers.length} registros</strong> a CSV:
+          </p>
+          <CFormInput
+            type="password"
+            autoComplete="new-password"
+            value={exportPasswordInput}
+            onChange={(e) => {
+              setExportPasswordInput(e.target.value);
+              setExportPasswordError('');
+            }}
+            onKeyPress={(e) => {
+              if (e.key === 'Enter') {
+                handleExportPasswordSubmit();
+              }
+            }}
+            invalid={!!exportPasswordError}
+          />
+          {exportPasswordError && (
+            <div className="text-danger mt-2 small">{exportPasswordError}</div>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={handleExportPasswordModalClose}>
+            Cancelar
+          </CButton>
+          <CButton 
+            color="success" 
+            onClick={handleExportPasswordSubmit}
+            style={{ color: 'white' }}
+          >
+            <CIcon icon={cilCloudDownload} className="me-2" />
+            Exportar
           </CButton>
         </CModalFooter>
       </CModal>

@@ -143,6 +143,9 @@ export const AuthProvider = ({ children }) => {
       setPermissions({});
       localStorage.removeItem('user');
       localStorage.removeItem('permissions');
+      // Clear bills authentication
+      sessionStorage.removeItem('billsAuth');
+      sessionStorage.removeItem('billsAuthTimestamp');
       window.location.href = '/login';
     }
   }, []);
