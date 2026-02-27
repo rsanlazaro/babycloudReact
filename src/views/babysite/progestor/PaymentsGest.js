@@ -19,24 +19,68 @@ import { useUser } from '../../../context/AuthContext';
 import { useBillsAuth } from '../../../context/BillsAuthContext';
 import api from '../../../services/api';
 
-// ─── SDG order for "last paid SDG" calculation ───────────────────────────────
-const FIXED_ROWS_ORDER = [
-  'beta_positiva','sdg6','sdg8','sdg10','sdg12','sdg16',
-  'sdg20','sdg22','sdg26','sdg32','sdg34','sdg35','sdg36','sdg37','sdg38',
+// ─── SDG order for "last paid stage" calculation ─────────────────────────────
+// Ordered from earliest to latest across all payment sections
+const STAGE_ORDER = [
+  // Fase 1 – Transferencias (represented by last successful one)
+  // Fase 2
+  'beta_positiva', 'sdg6', 'sdg8', 'sdg10',
+  // Fases de pagos
+  'sdg12', 'sdg16', 'sdg20', 'sdg22', 'sdg26',
+  'sdg32', 'sdg34', 'sdg35', 'sdg36', 'sdg37', 'sdg38',
+  // Puerperio
+  'puerperio1', 'puerperio2', 'puerperio3',
 ];
-const SDG_LABELS = {
-  beta_positiva: 'Beta+', sdg6: 'SDG 6', sdg8: 'SDG 8', sdg10: 'SDG 10',
-  sdg12: 'SDG 12', sdg16: 'SDG 16', sdg20: 'SDG 20', sdg22: 'SDG 22',
-  sdg26: 'SDG 26', sdg32: 'SDG 32', sdg34: 'SDG 34', sdg35: 'SDG 35',
-  sdg36: 'SDG 36', sdg37: 'SDG 37', sdg38: 'SDG 38',
+
+const STAGE_LABELS = {
+  beta_positiva: 'Beta+',
+  sdg6:  'SDG 6',  sdg8:  'SDG 8',  sdg10: 'SDG 10',
+  sdg12: 'SDG 12', sdg16: 'SDG 16', sdg20: 'SDG 20',
+  sdg22: 'SDG 22', sdg26: 'SDG 26', sdg32: 'SDG 32',
+  sdg34: 'SDG 34', sdg35: 'SDG 35', sdg36: 'SDG 36',
+  sdg37: 'SDG 37', sdg38: 'SDG 38',
+  puerperio1: 'Puerperio 1', puerperio2: 'Puerperio 2', puerperio3: 'Puerperio 3',
 };
 
-const getLastSDG = (row_states) => {
-  if (!row_states) return null;
+const parseJSON = (v) => {
+  if (!v) return null;
+  if (typeof v === 'object') return v;
+  try { return JSON.parse(v); } catch { return null; }
+};
+
+const getLastPaidStage = (payment) => {
+  const rowStates       = parseJSON(payment.row_states);
+  const puerperioStates = parseJSON(payment.puerperio_states);
+  const transferencias  = parseJSON(payment.transferencias);
+
+  // Debug log — remove once confirmed working
+  if (process.env.NODE_ENV !== 'production') {
+    const completedStages = [];
+    for (const id of STAGE_ORDER) {
+      const isPuerperio = id.startsWith('puerperio');
+      const states = isPuerperio ? puerperioStates : rowStates;
+      if (states?.[id]?.completed) completedStages.push(id);
+    }
+    if (!rowStates && !puerperioStates) {
+      console.log(`[SDG debug] payment ${payment.id}: row_states=${JSON.stringify(payment.row_states)}, puerperio_states=${JSON.stringify(payment.puerperio_states)}`);
+    } else if (completedStages.length === 0) {
+      console.log(`[SDG debug] payment ${payment.id}: row_states parsed OK but no completed stages found. keys=${Object.keys(rowStates || {}).join(',')}`);
+    }
+  }
+
   let last = null;
-  FIXED_ROWS_ORDER.forEach(id => {
-    if (row_states[id]?.completed) last = id;
-  });
+  for (const id of STAGE_ORDER) {
+    const isPuerperio = id.startsWith('puerperio');
+    const states = isPuerperio ? puerperioStates : rowStates;
+    if (states?.[id]?.completed) last = id;
+  }
+
+  // Fallback: show last completed transferencia if no named stage paid yet
+  if (!last && Array.isArray(transferencias)) {
+    const lastCompletedT = [...transferencias].reverse().find(t => t.completed);
+    if (lastCompletedT) return `T${lastCompletedT.id}`;
+  }
+
   return last;
 };
 
@@ -313,8 +357,8 @@ const PaymentsGest = () => {
                     </CTableDataCell>
                   </CTableRow>
                 ) : filteredAndSortedPayments.map(payment => {
-                  const lastSDGId    = getLastSDG(payment.row_states);
-                  const lastSDGLabel = lastSDGId ? SDG_LABELS[lastSDGId] : null;
+                  const lastSDGId    = getLastPaidStage(payment);
+                  const lastSDGLabel = lastSDGId ? (STAGE_LABELS[lastSDGId] || lastSDGId) : null;
                   return (
                     <CTableRow key={payment.id}>
                       <CTableDataCell><strong>{payment.gesca || '-'}</strong></CTableDataCell>
@@ -331,8 +375,12 @@ const PaymentsGest = () => {
                       </CTableDataCell>
                       <CTableDataCell>
                         {lastSDGLabel
-                          ? <CBadge color="primary">{lastSDGLabel}</CBadge>
-                          : <span className="text-muted small">Ninguno</span>}
+                          ? <CBadge color={
+                              lastSDGId?.startsWith('puerperio') ? 'success' :
+                              lastSDGId?.startsWith('T')          ? 'secondary' :
+                              'primary'
+                            }>{lastSDGLabel}</CBadge>
+                          : <span className="text-muted small">—</span>}
                       </CTableDataCell>
                       <CTableDataCell>
                         <CButton color="primary" variant="ghost" size="sm" className="me-1"

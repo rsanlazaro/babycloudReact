@@ -1,8 +1,8 @@
 // src/views/pages/programs/PaymentsGestForm.js
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
-  CCard, CCardBody, CCardHeader, CCol, CContainer, CRow,
+  CCol, CContainer, CRow,
   CButton, CFormInput, CFormSelect, CFormLabel, CFormCheck,
   CAlert, CTable, CTableHead, CTableRow, CTableHeaderCell,
   CTableBody, CTableDataCell, CModal, CModalHeader, CModalTitle,
@@ -10,7 +10,7 @@ import {
   CAccordionHeader, CAccordionBody,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilArrowLeft, cilSave, cilPlus, cilTrash, cilWarning, cilLockLocked, cilLockUnlocked, cilChevronBottom } from '@coreui/icons';
+import { cilArrowLeft, cilSave, cilPlus, cilTrash, cilWarning, cilLockLocked, cilLockUnlocked } from '@coreui/icons';
 import api from '../../../services/api';
 import { useBillsAuth } from '../../../context/BillsAuthContext';
 
@@ -18,12 +18,80 @@ import { useBillsAuth } from '../../../context/BillsAuthContext';
 // NumInput — defined OUTSIDE component to avoid React remount / focus loss
 // ─────────────────────────────────────────────────────────────────────────────
 const NumInput = ({ value, onChange, placeholder = '', disabled = false, width = '110px' }) => (
-  <CFormInput
-    type="number" size="sm" className="no-spinners"
+  <CFormInput type="number" size="sm" className="no-spinners"
     style={{ width }} value={value} onChange={onChange}
-    placeholder={placeholder} disabled={disabled}
-  />
+    placeholder={placeholder} disabled={disabled} />
 );
+
+// LockedFormInput — individual field with pending-lock warning behaviour.
+// Flow for a non-empty edited field:
+//   1. User focuses the field → prefocus value is recorded
+//   2. User types / selects something different from prefocus value → dirty
+//   3. User blurs or presses Enter → if dirty AND non-empty → PENDING state
+//   4. Pending shows orange warning + "Bloquear" button
+//   5. User clicks "Bloquear" → field locks  |  presses Escape → pending cancelled
+// Empty fields are NEVER locked regardless of what the user does.
+// Must be defined outside component to avoid React remount / focus loss.
+const LockedFormInput = ({ name, label, value, type = 'text', locked, pending, disabled, onChange, onBecameDirty, onLockRequest }) => {
+  const preFocusValue = React.useRef(value);
+
+  return (
+    <div>
+      <CFormLabel className="mb-1 small d-flex align-items-center gap-1">
+        {label}
+        {locked && <CIcon icon={cilLockLocked} size="sm" className="text-warning" />}
+      </CFormLabel>
+      <div className="d-flex gap-1">
+        <CFormInput
+          type={type} name={name} value={value}
+          disabled={locked || disabled}
+          onFocus={() => { preFocusValue.current = value; }}
+          onChange={e => {
+            // Mark dirty as soon as value changes from what it was at focus time
+            if (e.target.value !== preFocusValue.current) onBecameDirty(name);
+            onChange(e);
+          }}
+          onBlur={() => onLockRequest(name, 'blur')}
+          onKeyDown={e => {
+            if (e.key === 'Enter')  { e.preventDefault(); onLockRequest(name, 'enter'); }
+            if (e.key === 'Escape') { e.preventDefault(); onLockRequest(name, 'escape'); }
+          }}
+          style={{
+            flex: 1,
+            borderColor: pending ? 'var(--cui-warning)' : undefined,
+            boxShadow:   pending ? '0 0 0 2px color-mix(in srgb, var(--cui-warning) 30%, transparent)' : undefined,
+          }}
+        />
+        {/* Locked: show unlock button */}
+        {locked && (
+          <CButton size="sm" color="warning" variant="ghost" style={{ padding: '0 8px' }}
+            title="Editar este campo (requiere contraseña)"
+            onClick={() => onLockRequest(name, 'unlock')}>
+            <CIcon icon={cilLockLocked} size="sm" />
+          </CButton>
+        )}
+        {/* Pending: show confirm-lock button */}
+        {pending && !locked && (
+          <CButton size="sm" color="warning" style={{ padding: '0 8px', whiteSpace: 'nowrap' }}
+            title="Confirmar bloqueo"
+            onClick={() => onLockRequest(name, 'confirm')}>
+            <CIcon icon={cilLockLocked} size="sm" className="me-1" />Bloquear
+          </CButton>
+        )}
+      </div>
+      {/* Pending warning message */}
+      {pending && !locked && (
+        <div className="d-flex align-items-center gap-1 mt-1 px-2 py-1 rounded"
+          style={{ backgroundColor: 'color-mix(in srgb, var(--cui-warning) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--cui-warning) 40%, transparent)' }}>
+          <CIcon icon={cilWarning} size="sm" className="text-warning flex-shrink-0" />
+          <small className="text-warning">
+            ¿Bloquear este campo? Haz clic en <strong>Bloquear</strong> para confirmar, o presiona <kbd>Esc</kbd> para cancelar.
+          </small>
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -54,20 +122,33 @@ const BG_CONDITIONS = [
   { id: 'seguimientoMedico',      label: 'Seguimiento médico',      amount: 5000 },
   { id: 'tresPenalizaciones',     label: '3 Penalizaciones',        amount: 5000 },
 ];
-const BG_MAX = 20000;
 
 const PUERPERIO_ROWS = [
-  { id: 'puerperio1', concepto: 'Puerperio 1 - Nacimiento',        calculatedP1: true },
-  { id: 'puerperio2', concepto: 'Puerperio 2 - Firma de registro', schemeBased: true  },
-  { id: 'puerperio3', concepto: 'Puerperio 3 - Salida de IPs',     schemeBased: true  },
+  { id: 'puerperio1', concepto: 'Puerperio 1 - Nacimiento'        },
+  { id: 'puerperio2', concepto: 'Puerperio 2 - Firma de registro' },
+  { id: 'puerperio3', concepto: 'Puerperio 3 - Salida de IPs'     },
 ];
 
-const EXTRATO_MOTIVOS = [
-  'Reembolso', 'Bonificación', 'Pago extraordinario', 'Adelanto', 'Otro',
-];
+const EXTRATO_MOTIVOS = ['Reembolso', 'Bonificación', 'Pago extraordinario', 'Adelanto', 'Otro'];
 
 const UNLOCK_PASSWORD = 'adm@bbcloud10';
 const SCHEME_PASSWORD = 'adm@bbcloud1';
+const ULTIMAS_FIRMAS  = 14500; // fixed total for last section
+
+// Fixed parcialidad distributions (max 3)
+const PARC_AMOUNTS = {
+  1: [14500],
+  2: [10000, 4500],
+  3: [5000, 5000, 4500],
+};
+
+// Form fields eligible for individual locking
+const FORM_FIELDS = ['gesca', 'ip', 'banco', 'clabe', 'country', 'insurance', 'policy', 'manager', 'fum', 'giro_semana'];
+const initLockedFields = (locked) => {
+  const s = {};
+  FORM_FIELDS.forEach(f => { s[f] = locked; });
+  return s;
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -79,20 +160,6 @@ const fmt = (v) => {
 const getRowImporte = (row, sv) => row.schemeImporte ? (row.schemeImporte[sv] ?? null) : (row.importe ?? null);
 const getRowBono    = (row, sv) => row.schemeBono    ? (row.schemeBono[sv]    ?? 0)    : (row.bonoTransporte ?? 0);
 
-const computeParcialidades = (n, total) => {
-  const safeTotal  = Math.max(0, total || 0);
-  if (n <= 1) return [safeTotal];
-  const last       = 4500;
-  const distribute = Math.max(0, safeTotal - last);
-  if (n === 2) return [distribute, last];
-  const count      = n - 1;
-  const perRaw     = distribute / count;
-  const perRounded = Math.round(perRaw / 500) * 500;
-  const others     = Array(count - 1).fill(perRounded);
-  const lastOther  = Math.max(0, distribute - perRounded * (count - 1));
-  return [...others, lastOther, last];
-};
-
 const initRS  = () => ({ penalizacion: '', reembolso: '', completed: false });
 const initFRS = () => {
   const s = {};
@@ -102,7 +169,7 @@ const initFRS = () => {
 const initPS  = () => { const s = {}; PUERPERIO_ROWS.forEach(r => { s[r.id] = initRS(); }); return s; };
 const initT   = () => Array.from({ length: 6 }, (_, i) => ({ id: i + 1, penalizacion: '', reembolso: '', completed: false, successful: false }));
 const initBG  = () => ({ puntualidad: false, tresReagendamientos: false, tresInasistencias: false, seguimientoPsicologico: false, seguimientoMedico: false, tresPenalizaciones: false, extra: '' });
-const initBS  = () => ({ transfer1: initRS(), vih: initRS(), gemelar: initRS() });
+const initBS  = () => ({ vih: initRS(), gemelar: initRS() });
 const initAyudaState = () => ({ penalizacion: '', reembolso: '', completed: false });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -118,17 +185,32 @@ const PaymentsGestForm = () => {
   const [saving,  setSaving]  = useState(false);
   const [alert,   setAlert]   = useState({ show: false, type: '', message: '' });
 
+  // ── Scheme gate ───────────────────────────────────────────────────────────
+  const [schemeSelected, setSchemeSelected] = useState(isEditMode);
+  const [schemeLocked,   setSchemeLocked]   = useState(isEditMode);
+  const [showSchemePasswordModal, setShowSchemePasswordModal] = useState(false);
+  const [schemePasswordInput,     setSchemePasswordInput]     = useState('');
+  const [schemePasswordError,     setSchemePasswordError]     = useState('');
+
+  // ── Per-field locking ─────────────────────────────────────────────────────
+  // New mode: all unlocked. Edit mode: starts unlocked, fetchPayment sets locked
+  // state based on which fields actually have values (empty fields stay editable).
+  const [lockedFields,      setLockedFields]      = useState(() => initLockedFields(false));
+  const [pendingLockFields, setPendingLockFields] = useState({});   // fields showing the "lock?" warning
+  const dirtyFields = useRef({});                      // tracks which fields have been edited
+  // fieldUnlockTarget: { name, label } — the field currently asking for password
+  const [fieldUnlockTarget, setFieldUnlockTarget] = useState(null);
+  const [fieldUnlockPassword, setFieldUnlockPassword] = useState('');
+  const [fieldUnlockError,    setFieldUnlockError]    = useState('');
+  const [showFieldUnlockModal, setShowFieldUnlockModal] = useState(false);
+
   const [formData, setFormData] = useState({
     gesca: '', ip: '', banco: '', clabe: '', country: '',
     insurance: '', policy: '', manager: '', fum: '',
-    giro_semana: '', scheme_value: '375000', status: 'active',
+    giro_semana: '', scheme_value: '', status: 'active',
   });
 
-  const [schemeLocked, setSchemeLocked] = useState(false);
-  const [showSchemePasswordModal, setShowSchemePasswordModal] = useState(false);
-  const [schemePasswordInput, setSchemePasswordInput] = useState('');
-  const [schemePasswordError, setSchemePasswordError] = useState('');
-
+  // ── Payment states ────────────────────────────────────────────────────────
   const [transferencias,  setTransferencias]  = useState(initT());
   const [rowStates,       setRowStates]       = useState(initFRS());
   const [puerperioStates, setPuerperioStates] = useState(initPS());
@@ -136,10 +218,9 @@ const PaymentsGestForm = () => {
   const [bonoGemelar,     setBonoGemelar]     = useState(false);
   const [bonoStates,      setBonoStates]      = useState(initBS());
   const [bgConditions,    setBgConditions]    = useState(initBG());
-  // ── Buena Gestante pago-completado state ──────────────────────────────────
   const [bgState,         setBgState]         = useState(initRS());
   const [parcCount,       setParcCount]       = useState(1);
-  const [parcCompleted,   setParcCompleted]   = useState([false, false, false, false]);
+  const [parcCompleted,   setParcCompleted]   = useState([false, false, false]);
   const [ayudaMaternidad, setAyudaMaternidad] = useState(false);
   const [ayudaAmount,     setAyudaAmount]     = useState('');
   const [ayudaState,      setAyudaState]      = useState(initAyudaState());
@@ -147,18 +228,16 @@ const PaymentsGestForm = () => {
   const [newExtrato,      setNewExtrato]      = useState({ fecha: '', motivo: '', valor: '' });
   const [extratoAlert,    setExtratoAlert]    = useState({ show: false, type: '', message: '' });
 
+  // ── Delete modals ─────────────────────────────────────────────────────────
   const [showDeleteModal,         setShowDeleteModal]         = useState(false);
   const [deleteTarget,            setDeleteTarget]            = useState({ type: '', id: null, label: '', autoKey: '', isAuto: false });
   const [showDeletePasswordModal, setShowDeletePasswordModal] = useState(false);
   const [deletePasswordInput,     setDeletePasswordInput]     = useState('');
   const [deletePasswordError,     setDeletePasswordError]     = useState('');
 
+  // ── Date & unlock row modals ──────────────────────────────────────────────
   const [showDateModal, setShowDateModal] = useState(false);
-  const [dateModalInfo, setDateModalInfo] = useState({
-    label: '', autoKey: '', category: 'scheme',
-    fecha: new Date().toISOString().split('T')[0],
-    valor: 0, confirm: null,
-  });
+  const [dateModalInfo, setDateModalInfo] = useState({ label: '', autoKey: '', category: 'scheme', fecha: new Date().toISOString().split('T')[0], valor: 0, confirm: null });
 
   const [showUnlockModal,     setShowUnlockModal]     = useState(false);
   const [unlockPasswordInput, setUnlockPasswordInput] = useState('');
@@ -173,68 +252,64 @@ const PaymentsGestForm = () => {
   ];
 
   // ── Calculations ──────────────────────────────────────────────────────────
-
-  const sv = formData.scheme_value;
+  const sv          = formData.scheme_value || '375000';
+  const schemeValue = useMemo(() => parseFloat(formData.scheme_value) || 375000, [formData.scheme_value]);
 
   const visibleTransferencias = useMemo(() => {
     const idx = transferencias.findIndex(t => t.successful);
     return idx === -1 ? transferencias : transferencias.slice(0, idx + 1);
   }, [transferencias]);
 
-  const transferenciasTotal = useMemo(
-    () => transferencias.filter(t => t.successful).length * 1000, [transferencias]);
-
-  const schemeValue = useMemo(() => parseFloat(formData.scheme_value) || 375000, [formData.scheme_value]);
-
-  const p1Amount = useMemo(() => 50000, []);
-  const p2Amount = useMemo(() => sv === '375000' ?  50000 :  55000, [sv]);
-
-  const ayudaAmountNum = useMemo(() => (ayudaMaternidad ? parseFloat(ayudaAmount) || 0 : 0), [ayudaMaternidad, ayudaAmount]);
-  const p3BaseAmount = useMemo(() => sv === '375000' ? 100000 : 120000, [sv]);
-  const p3Amount = useMemo(() => Math.max(0, p3BaseAmount - ayudaAmountNum), [p3BaseAmount, ayudaAmountNum]);
-
-  const t1Exitosa    = useMemo(() => transferencias[0]?.successful === true, [transferencias]);
-  const sdg36Reached = useMemo(() => rowStates.sdg36?.reached === true, [rowStates]);
-
+  const t1Exitosa      = useMemo(() => transferencias[0]?.successful === true, [transferencias]);
+  const sdg36Reached   = useMemo(() => rowStates.sdg36?.reached === true, [rowStates]);
   const sdg20Completed = useMemo(() => rowStates.sdg20?.completed === true, [rowStates]);
   const sdg36Completed = useMemo(() => rowStates.sdg36?.completed === true, [rowStates]);
 
-  const schemePhasesTotal = useMemo(() => {
-    let t = transferenciasTotal + p1Amount;
-    FIXED_ROWS.forEach(r => {
+  // Fixed importe sums per section (used to derive p3)
+  const fase2Total = useMemo(() => {
+    let t = 0;
+    FIXED_ROWS.filter(r => r.section === 2).forEach(r => {
       const imp = getRowImporte(r, sv);
       if (imp !== null) t += imp;
     });
-    t += p2Amount + p3Amount + BG_MAX;
     return t;
-  }, [sv, transferenciasTotal, p1Amount, p2Amount, p3Amount]);
+  }, [sv]);
 
-  const ultimasFirmasTotal = useMemo(
-    () => Math.max(0, schemeValue - schemePhasesTotal),
-    [schemeValue, schemePhasesTotal]
+  const fasesPagosTotal = useMemo(() => {
+    let t = 0;
+    FIXED_ROWS.filter(r => r.section === 3).forEach(r => {
+      const imp = getRowImporte(r, sv);
+      if (imp !== null) t += imp;
+    });
+    return t;
+  }, [sv]);
+
+  const p1Amount = 50000;
+  const p2Amount = useMemo(() => sv === '375000' ? 50000 : 55000, [sv]);
+
+  // P3 is dynamically derived so that: fase2 + fasesPagos + p1 + p2 + p3 + ULTIMAS_FIRMAS === schemeValue
+  const p3BaseAmount = useMemo(
+    () => Math.max(0, schemeValue - fase2Total - fasesPagosTotal - p1Amount - p2Amount - ULTIMAS_FIRMAS),
+    [schemeValue, fase2Total, fasesPagosTotal, p2Amount]
   );
+  const ayudaAmountNum = useMemo(() => (ayudaMaternidad ? parseFloat(ayudaAmount) || 0 : 0), [ayudaMaternidad, ayudaAmount]);
+  const p3Amount       = useMemo(() => Math.max(0, p3BaseAmount - ayudaAmountNum), [p3BaseAmount, ayudaAmountNum]);
 
   const vihBonus     = useMemo(() => bonoVIH     ? 50000 : 0, [bonoVIH]);
   const gemelarBonus = useMemo(() => bonoGemelar ? 20000 : 0, [bonoGemelar]);
-
-  const t1BonusGross  = useMemo(() => t1Exitosa ? 5000 : 0, [t1Exitosa]);
-  const sdg36Bonus    = useMemo(() => (t1Exitosa && sdg36Reached) ? 5000 : 0, [t1Exitosa, sdg36Reached]);
-  const t1Penalty     = useMemo(() => (t1Exitosa && !sdg36Reached) ? -5000 : 0, [t1Exitosa, sdg36Reached]);
-  const t1NetBonus    = useMemo(() => t1BonusGross + sdg36Bonus + t1Penalty, [t1BonusGross, sdg36Bonus, t1Penalty]);
-
+  const t1BonusGross = useMemo(() => t1Exitosa ? 5000 : 0, [t1Exitosa]);
+  const sdg36Bonus   = useMemo(() => (t1Exitosa && sdg36Reached) ? 5000 : 0, [t1Exitosa, sdg36Reached]);
+  const t1Penalty    = useMemo(() => (t1Exitosa && !sdg36Reached) ? -5000 : 0, [t1Exitosa, sdg36Reached]);
+  const t1NetBonus   = useMemo(() => t1BonusGross + sdg36Bonus + t1Penalty, [t1BonusGross, sdg36Bonus, t1Penalty]);
   const bgExtraBonus = useMemo(() => parseFloat(bgConditions.extra) || 0, [bgConditions]);
+  const totalBonos   = useMemo(() => t1NetBonus + vihBonus + gemelarBonus + bgExtraBonus, [t1NetBonus, vihBonus, gemelarBonus, bgExtraBonus]);
 
-  const totalBonos = useMemo(
-    () => t1NetBonus + vihBonus + gemelarBonus + bgExtraBonus,
-    [t1NetBonus, vihBonus, gemelarBonus, bgExtraBonus]
-  );
-
-  const bgTotal = useMemo(() => {
+  // CDO. GESCA: checked = deduction from scheme
+  const bgDeduction = useMemo(() => {
     let t = 0;
     BG_CONDITIONS.forEach(c => { if (bgConditions[c.id]) t += c.amount; });
     return t;
   }, [bgConditions]);
-  const bgDiscounted = useMemo(() => Math.max(0, BG_MAX - bgTotal), [bgTotal]);
 
   const bonoTransporteTotal = useMemo(() => {
     let t = 0;
@@ -247,17 +322,27 @@ const PaymentsGestForm = () => {
     visibleTransferencias.forEach(x => { t += parseFloat(x.penalizacion) || 0; });
     FIXED_ROWS.forEach(r     => { t += parseFloat(rowStates[r.id]?.penalizacion)       || 0; });
     PUERPERIO_ROWS.forEach(r => { t += parseFloat(puerperioStates[r.id]?.penalizacion) || 0; });
-    ['transfer1', 'vih', 'gemelar'].forEach(k => { t += parseFloat(bonoStates[k]?.penalizacion) || 0; });
+    ['vih', 'gemelar'].forEach(k => { t += parseFloat(bonoStates[k]?.penalizacion) || 0; });
     t += parseFloat(ayudaState.penalizacion) || 0;
-    t += parseFloat(bgState.penalizacion)    || 0;  // ── BG penalizacion
+    t += parseFloat(bgState.penalizacion)    || 0;
+    return t;
+  }, [visibleTransferencias, rowStates, puerperioStates, bonoStates, ayudaState, bgState]);
+
+  const totalReembolso = useMemo(() => {
+    let t = 0;
+    visibleTransferencias.forEach(x => { t += parseFloat(x.reembolso) || 0; });
+    FIXED_ROWS.forEach(r     => { t += parseFloat(rowStates[r.id]?.reembolso)       || 0; });
+    PUERPERIO_ROWS.forEach(r => { t += parseFloat(puerperioStates[r.id]?.reembolso) || 0; });
+    ['vih', 'gemelar'].forEach(k => { t += parseFloat(bonoStates[k]?.reembolso) || 0; });
+    t += parseFloat(ayudaState.reembolso) || 0;
+    t += parseFloat(bgState.reembolso)    || 0;
     return t;
   }, [visibleTransferencias, rowStates, puerperioStates, bonoStates, ayudaState, bgState]);
 
   const effectiveSchemeValue = useMemo(
-    () => schemeValue - bgDiscounted - totalPenalizaciones,
-    [schemeValue, bgDiscounted, totalPenalizaciones]
+    () => schemeValue - bgDeduction - totalPenalizaciones,
+    [schemeValue, bgDeduction, totalPenalizaciones]
   );
-
   const grandTotal = useMemo(
     () => effectiveSchemeValue + bonoTransporteTotal + totalBonos,
     [effectiveSchemeValue, bonoTransporteTotal, totalBonos]
@@ -269,24 +354,13 @@ const PaymentsGestForm = () => {
   );
   const montoRestante = useMemo(() => grandTotal - pagosRealizados, [grandTotal, pagosRealizados]);
 
-  const schemeValuePaid = useMemo(
-    () => extratoGastos.filter(e => e.category === 'scheme').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0),
-    [extratoGastos]
-  );
-  const schemeValueRemaining    = useMemo(() => effectiveSchemeValue - schemeValuePaid, [effectiveSchemeValue, schemeValuePaid]);
-
-  const bonoTransportePaid      = useMemo(
-    () => extratoGastos.filter(e => e.category === 'bonoTransporte').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0),
-    [extratoGastos]
-  );
+  const schemeValuePaid      = useMemo(() => extratoGastos.filter(e => e.category === 'scheme').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0), [extratoGastos]);
+  const schemeValueRemaining = useMemo(() => effectiveSchemeValue - schemeValuePaid, [effectiveSchemeValue, schemeValuePaid]);
+  const bonoTransportePaid      = useMemo(() => extratoGastos.filter(e => e.category === 'bonoTransporte').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0), [extratoGastos]);
   const bonoTransporteRemaining = useMemo(() => bonoTransporteTotal - bonoTransportePaid, [bonoTransporteTotal, bonoTransportePaid]);
-
-  const bonosTotalesPaid        = useMemo(
-    () => extratoGastos.filter(e => e.category === 'bono').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0),
-    [extratoGastos]
-  );
-  const bonosTotalesRemaining   = useMemo(() => totalBonos - bonosTotalesPaid, [totalBonos, bonosTotalesPaid]);
-  const grandTotalRemaining     = useMemo(() => grandTotal - pagosRealizados, [grandTotal, pagosRealizados]);
+  const bonosTotalesPaid      = useMemo(() => extratoGastos.filter(e => e.category === 'bono').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0), [extratoGastos]);
+  const bonosTotalesRemaining = useMemo(() => totalBonos - bonosTotalesPaid, [totalBonos, bonosTotalesPaid]);
+  const grandTotalRemaining   = useMemo(() => grandTotal - pagosRealizados, [grandTotal, pagosRealizados]);
 
   const getPuerperioImporte = (rowId) => {
     if (rowId === 'puerperio1') return p1Amount;
@@ -295,48 +369,37 @@ const PaymentsGestForm = () => {
     return 0;
   };
 
+  // Fixed parcialidad amounts (no dynamic calculation)
+  const parcAmounts = PARC_AMOUNTS[parcCount] || PARC_AMOUNTS[1];
+
   // ── Data fetch ────────────────────────────────────────────────────────────
-  useEffect(() => { if (isEditMode) fetchPayment(); }, [id]);
+  useEffect(() => {
+    if (isEditMode) {
+      fetchPayment();
+      setSchemeSelected(true);
+      setSchemeLocked(true);
+      // lockedFields will be set inside fetchPayment based on which values are non-empty
+    }
+  }, [id]);
 
   useEffect(() => {
     setExtratoGastos(prev => {
       let next = prev.filter(e => e.autoKey !== 'bonus_t1' && e.autoKey !== 'bonus_sdg36' && e.autoKey !== 'penalty_sdg36');
-
       if (t1Exitosa && sdg20Completed) {
-        const sdg20Entry = extratoGastos.find(e => e.autoKey === 'fixed_sdg20');
-        const fecha = sdg20Entry?.fecha || new Date().toISOString().split('T')[0];
-        next = [...next, {
-          id: `auto_bonus_t1_${Date.now()}`, fecha,
-          movimiento: 'Bono T1 exitosa', motivo: 'Bono Transfer 1',
-          valor: 5000, autoKey: 'bonus_t1', category: 'bono', isAuto: true,
-        }];
+        const fecha = prev.find(e => e.autoKey === 'fixed_sdg20')?.fecha || new Date().toISOString().split('T')[0];
+        next = [...next, { id: `auto_bonus_t1_${Date.now()}`, fecha, movimiento: 'Bono T1 exitosa', motivo: 'Bono Transfer 1', valor: 5000, autoKey: 'bonus_t1', category: 'bono', isAuto: true }];
       }
-
       if (t1Exitosa && sdg36Completed) {
-        const sdg36Entry = extratoGastos.find(e => e.autoKey === 'fixed_sdg36');
-        const fecha = sdg36Entry?.fecha || new Date().toISOString().split('T')[0];
+        const fecha = prev.find(e => e.autoKey === 'fixed_sdg36')?.fecha || new Date().toISOString().split('T')[0];
         if (sdg36Reached) {
-          next = [...next, {
-            id: `auto_bonus_sdg36_${Date.now()}`, fecha,
-            movimiento: 'Bono SDG 36 alcanzado', motivo: 'Bono adicional SDG36',
-            valor: 5000, autoKey: 'bonus_sdg36', category: 'bono', isAuto: true,
-          }];
+          next = [...next, { id: `auto_bonus_sdg36_${Date.now()}`, fecha, movimiento: 'Bono SDG 36 alcanzado', motivo: 'Bono adicional SDG36', valor: 5000, autoKey: 'bonus_sdg36', category: 'bono', isAuto: true }];
         } else {
-          next = [...next, {
-            id: `auto_penalty_sdg36_${Date.now()}`, fecha,
-            movimiento: 'Penalización SDG 36 no alcanzado', motivo: 'Penalización T1',
-            valor: -5000, autoKey: 'penalty_sdg36', category: 'bono', isAuto: true,
-          }];
+          next = [...next, { id: `auto_penalty_sdg36_${Date.now()}`, fecha, movimiento: 'Penalización SDG 36 no alcanzado', motivo: 'Penalización T1', valor: -5000, autoKey: 'penalty_sdg36', category: 'bono', isAuto: true }];
         }
       }
-
       return next;
     });
   }, [t1Exitosa, sdg36Reached, sdg20Completed, sdg36Completed]);
-
-  useEffect(() => {
-    if (isEditMode) setSchemeLocked(true);
-  }, [isEditMode]);
 
   const fetchPayment = async () => {
     try {
@@ -351,20 +414,33 @@ const PaymentsGestForm = () => {
         giro_semana: data.giro_semana || '',
         scheme_value: String(data.scheme_value || '375000'), status: data.status || 'active',
       });
-      if (data.transferencias)         setTransferencias(data.transferencias);
-      if (data.row_states)             setRowStates(data.row_states);
-      if (data.puerperio_states)       setPuerperioStates(data.puerperio_states);
-      if (data.bono_vih !== undefined)      setBonoVIH(data.bono_vih);
-      if (data.bono_gemelar !== undefined)  setBonoGemelar(data.bono_gemelar);
-      if (data.bono_states)    setBonoStates(data.bono_states);
-      if (data.bg_conditions)  setBgConditions(data.bg_conditions);
-      if (data.bg_state)       setBgState(data.bg_state);          // ── restore BG state
-      if (data.parc_count)     setParcCount(data.parc_count);
-      if (data.parc_completed) setParcCompleted(data.parc_completed);
-      if (data.extrato_gastos) setExtratoGastos(data.extrato_gastos);
+      if (data.transferencias)               setTransferencias(data.transferencias);
+      if (data.row_states)                   setRowStates(data.row_states);
+      if (data.puerperio_states)             setPuerperioStates(data.puerperio_states);
+      if (data.bono_vih !== undefined)       setBonoVIH(data.bono_vih);
+      if (data.bono_gemelar !== undefined)   setBonoGemelar(data.bono_gemelar);
+      if (data.bono_states)                  setBonoStates(data.bono_states);
+      if (data.bg_conditions)                setBgConditions(data.bg_conditions);
+      if (data.bg_state)                     setBgState(data.bg_state);
+      if (data.parc_count)                   setParcCount(Math.min(3, data.parc_count)); // cap at 3
+      if (data.parc_completed)               setParcCompleted(data.parc_completed.slice(0, 3));
+      if (data.extrato_gastos)               setExtratoGastos(data.extrato_gastos);
       if (data.ayuda_maternidad !== undefined) setAyudaMaternidad(data.ayuda_maternidad);
-      if (data.ayuda_amount !== undefined) setAyudaAmount(String(data.ayuda_amount || ''));
-      if (data.ayuda_state) setAyudaState(data.ayuda_state);
+      if (data.ayuda_amount !== undefined)   setAyudaAmount(String(data.ayuda_amount || ''));
+      if (data.ayuda_state)                  setAyudaState(data.ayuda_state);
+
+      // Only lock fields that actually have a value — empty fields stay editable
+      const newLocked = {};
+      const loadedData = {
+        gesca: data.gesca, ip: data.ip, banco: data.banco, clabe: data.clabe,
+        country: data.country, insurance: data.insurance, policy: data.policy,
+        manager: data.manager, fum: data.fum, giro_semana: data.giro_semana,
+      };
+      FORM_FIELDS.forEach(f => {
+        const v = loadedData[f];
+        newLocked[f] = v !== null && v !== undefined && String(v).trim() !== '';
+      });
+      setLockedFields(newLocked);
     } catch {
       setAlert({ show: true, type: 'danger', message: 'Error al cargar el esquema de pago' });
     } finally {
@@ -372,32 +448,104 @@ const PaymentsGestForm = () => {
     }
   };
 
-  // ── Handlers ──────────────────────────────────────────────────────────────
-  const handleFormChange     = (e) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
+  // ── Per-field lock handlers ───────────────────────────────────────────────
+  const handleFormChange = (e) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
 
-  const handleSchemeChange = (newValue) => {
-    if (schemeLocked) {
-      setSchemePasswordInput('');
-      setSchemePasswordError('');
-      setShowSchemePasswordModal(true);
-    } else {
-      setFormData(p => ({ ...p, scheme_value: newValue }));
+  const handleFieldDirty = (name) => { dirtyFields.current[name] = true; };
+
+  const FIELD_LABELS = {
+    gesca: 'GESCA', ip: 'IP', banco: 'Banco', clabe: 'Clabe', country: 'País',
+    insurance: 'Seguro', policy: 'Póliza', manager: 'Gestor', fum: 'FUM', giro_semana: 'Giro de semana',
+  };
+
+  const handleFieldLockRequest = (name, action) => {
+    const currentValue = formData[name];
+    const isEmpty = !currentValue || String(currentValue).trim() === '';
+
+    if (action === 'unlock') {
+      // User clicked the 🔒 icon on an already-locked field → open password modal
+      setFieldUnlockTarget({ name, label: FIELD_LABELS[name] || name });
+      setFieldUnlockPassword('');
+      setFieldUnlockError('');
+      setShowFieldUnlockModal(true);
+      return;
     }
+
+    if (action === 'escape') {
+      // Cancel pending lock
+      setPendingLockFields(p => { const n = { ...p }; delete n[name]; return n; });
+      dirtyFields.current[name] = false;
+      return;
+    }
+
+    if (action === 'confirm') {
+      // User explicitly clicked "Bloquear" button — always lock if not empty
+      if (!isEmpty) {
+        setLockedFields(p => ({ ...p, [name]: true }));
+      }
+      setPendingLockFields(p => { const n = { ...p }; delete n[name]; return n; });
+      dirtyFields.current[name] = false;
+      return;
+    }
+
+    // action === 'blur' or 'enter'
+    if (!dirtyFields.current[name]) return;   // untouched — do nothing
+    if (isEmpty) {
+      // Empty field: never lock, just clear dirty flag
+      dirtyFields.current[name] = false;
+      return;
+    }
+    // Non-empty dirty field → enter pending state (show warning)
+    setPendingLockFields(p => ({ ...p, [name]: true }));
+  };
+
+  const confirmFieldUnlock = () => {
+    if (fieldUnlockPassword !== UNLOCK_PASSWORD) {
+      setFieldUnlockError('Contraseña incorrecta'); return;
+    }
+    const name = fieldUnlockTarget.name;
+    setLockedFields(p => ({ ...p, [name]: false }));
+    setPendingLockFields(p => { const n = { ...p }; delete n[name]; return n; });
+    dirtyFields.current[name] = false;
+    setShowFieldUnlockModal(false);
+    setFieldUnlockTarget(null);
+    setFieldUnlockPassword('');
+    setFieldUnlockError('');
+    authenticateBills();
+  };
+
+  // ── Scheme handlers ───────────────────────────────────────────────────────
+  const handleSchemeDropdownChange = (newValue) => {
+    if (!newValue || schemeLocked) return;
+    // Just update the value; user must click "Confirmar" to lock + enable sections
+    setFormData(p => ({ ...p, scheme_value: newValue }));
+  };
+
+  const handleSchemeConfirm = () => {
+    if (!formData.scheme_value) return;
+    setSchemeSelected(true);
+    setSchemeLocked(true);
+  };
+
+  const handleSchemeChangeRequest = () => {
+    // Already locked: prompt password to unlock
+    setSchemePasswordInput(''); setSchemePasswordError('');
+    setShowSchemePasswordModal(true);
   };
 
   const confirmSchemeChange = () => {
     if (schemePasswordInput !== SCHEME_PASSWORD) {
-      setSchemePasswordError('Contraseña incorrecta');
-      return;
+      setSchemePasswordError('Contraseña incorrecta'); return;
     }
-    const newValue = formData.scheme_value === '375000' ? '400000' : '375000';
-    setFormData(p => ({ ...p, scheme_value: newValue }));
+    // Unlock the scheme selector so user can pick a new value and re-confirm
+    setSchemeLocked(false);
+    setSchemeSelected(false);
     setShowSchemePasswordModal(false);
-    setSchemePasswordInput('');
-    setSchemePasswordError('');
+    setSchemePasswordInput(''); setSchemePasswordError('');
     authenticateBills();
   };
 
+  // ── Row / payment handlers ────────────────────────────────────────────────
   const updateTransferencia  = (i, f, v) => setTransferencias(p => p.map((t, idx) => idx === i ? { ...t, [f]: v } : t));
   const updateRowState       = (rid, f, v) => setRowStates(p => ({ ...p, [rid]: { ...p[rid], [f]: v } }));
   const updatePuerperioState = (rid, f, v) => setPuerperioStates(p => ({ ...p, [rid]: { ...p[rid], [f]: v } }));
@@ -407,8 +555,9 @@ const PaymentsGestForm = () => {
   const updateAyudaState     = (f, v)      => setAyudaState(p => ({ ...p, [f]: v }));
 
   const handleParcCountChange = (n) => {
-    setParcCount(n);
-    setParcCompleted(prev => prev.map((v, i) => i >= n ? false : v));
+    const capped = Math.min(3, n);
+    setParcCount(capped);
+    setParcCompleted(prev => prev.map((v, i) => i >= capped ? false : v));
   };
 
   const openDateModal = ({ autoKey, label, importe, bonoVal, penalizacion, reembolso, category, commitTrue }) => {
@@ -427,99 +576,65 @@ const PaymentsGestForm = () => {
     setShowDateModal(false);
   };
 
-  const cancelDateModal = () => setShowDateModal(false);
-
   const openUnlockModal = ({ autoKey, label, uncomplete }) => {
     setUnlockTarget({ autoKey, label, uncomplete });
-    setUnlockPasswordInput('');
-    setUnlockPasswordError('');
+    setUnlockPasswordInput(''); setUnlockPasswordError('');
     setShowUnlockModal(true);
   };
 
   const confirmUnlock = () => {
-    if (unlockPasswordInput !== UNLOCK_PASSWORD) {
-      setUnlockPasswordError('Contraseña incorrecta');
-      return;
-    }
+    if (unlockPasswordInput !== UNLOCK_PASSWORD) { setUnlockPasswordError('Contraseña incorrecta'); return; }
     setExtratoGastos(prev => prev.filter(e => e.autoKey !== unlockTarget.autoKey));
     unlockTarget.uncomplete && unlockTarget.uncomplete();
     setShowUnlockModal(false);
-    setUnlockPasswordInput('');
-    setUnlockPasswordError('');
+    setUnlockPasswordInput(''); setUnlockPasswordError('');
   };
 
   const addExtratoEntry = () => {
     if (!newExtrato.fecha || !newExtrato.motivo || !newExtrato.valor) {
       setExtratoAlert({ show: true, type: 'warning', message: 'Completa todos los campos' });
-      setTimeout(() => setExtratoAlert({ show: false }), 4000);
-      return;
+      setTimeout(() => setExtratoAlert({ show: false }), 4000); return;
     }
     setExtratoGastos(p => [...p, { id: Date.now(), ...newExtrato, valor: parseFloat(newExtrato.valor), isAuto: false, category: 'manual', movimiento: 'pago gestante' }]);
     setNewExtrato({ fecha: '', motivo: '', valor: '' });
   };
 
   const confirmDeleteExtrato = (entry) => {
-    setDeleteTarget({
-      type:    'extrato',
-      id:      entry.id,
-      label:   entry.movimiento || entry.motivo || 'entrada',
-      autoKey: entry.autoKey || null,
-      isAuto:  entry.isAuto || false,
-    });
-    setDeletePasswordInput('');
-    setDeletePasswordError('');
+    setDeleteTarget({ type: 'extrato', id: entry.id, label: entry.movimiento || entry.motivo || 'entrada', autoKey: entry.autoKey || null, isAuto: entry.isAuto || false });
+    setDeletePasswordInput(''); setDeletePasswordError('');
     setShowDeletePasswordModal(true);
   };
 
   const uncompleteByAutoKey = (autoKey) => {
     if (!autoKey) return;
-    if (autoKey.startsWith('transferencia_')) {
-      const tId = parseInt(autoKey.split('_')[1]);
-      const idx = transferencias.findIndex(t => t.id === tId);
-      if (idx !== -1) updateTransferencia(idx, 'completed', false);
-    } else if (autoKey.startsWith('fixed_')) {
-      updateRowState(autoKey.replace('fixed_', ''), 'completed', false);
-    } else if (autoKey.startsWith('puerperio_')) {
-      updatePuerperioState(autoKey.replace('puerperio_', ''), 'completed', false);
-    } else if (autoKey === 'bono_vih') {
-      updateBonoState('vih', 'completed', false);
-    } else if (autoKey === 'bono_gemelar') {
-      updateBonoState('gemelar', 'completed', false);
-    } else if (autoKey.startsWith('parcialidad_')) {
-      const i = parseInt(autoKey.split('_')[1]);
-      setParcCompleted(prev => prev.map((v, j) => j === i ? false : v));
-    } else if (autoKey === 'ayuda_maternidad') {
-      updateAyudaState('completed', false);
-    } else if (autoKey === 'buena_gestante') {
-      updateBgState('completed', false);
-    }
+    if      (autoKey.startsWith('transferencia_')) { const idx = transferencias.findIndex(t => t.id === parseInt(autoKey.split('_')[1])); if (idx !== -1) updateTransferencia(idx, 'completed', false); }
+    else if (autoKey.startsWith('fixed_'))         { updateRowState(autoKey.replace('fixed_', ''), 'completed', false); }
+    else if (autoKey.startsWith('puerperio_'))     { updatePuerperioState(autoKey.replace('puerperio_', ''), 'completed', false); }
+    else if (autoKey === 'bono_vih')               { updateBonoState('vih', 'completed', false); }
+    else if (autoKey === 'bono_gemelar')           { updateBonoState('gemelar', 'completed', false); }
+    else if (autoKey.startsWith('parcialidad_'))   { const i = parseInt(autoKey.split('_')[1]); setParcCompleted(prev => prev.map((v, j) => j === i ? false : v)); }
+    else if (autoKey === 'ayuda_maternidad')        { updateAyudaState('completed', false); }
+    else if (autoKey === 'buena_gestante')          { updateBgState('completed', false); }
   };
 
   const handleDeletePasswordSubmit = () => {
-    if (deletePasswordInput !== UNLOCK_PASSWORD) {
-      setDeletePasswordError('Contraseña incorrecta');
-      return;
-    }
+    if (deletePasswordInput !== UNLOCK_PASSWORD) { setDeletePasswordError('Contraseña incorrecta'); return; }
     authenticateBills();
     setShowDeletePasswordModal(false);
-    setDeletePasswordInput('');
-    setDeletePasswordError('');
+    setDeletePasswordInput(''); setDeletePasswordError('');
     setShowDeleteModal(true);
   };
 
   const handleDeletePasswordModalClose = () => {
     setShowDeletePasswordModal(false);
-    setDeletePasswordInput('');
-    setDeletePasswordError('');
+    setDeletePasswordInput(''); setDeletePasswordError('');
     setDeleteTarget({ type: '', id: null, label: '', autoKey: '', isAuto: false });
   };
 
   const executeDelete = () => {
     if (deleteTarget.type === 'extrato') {
       setExtratoGastos(p => p.filter(e => e.id !== deleteTarget.id));
-      if (deleteTarget.isAuto && deleteTarget.autoKey) {
-        uncompleteByAutoKey(deleteTarget.autoKey);
-      }
+      if (deleteTarget.isAuto && deleteTarget.autoKey) uncompleteByAutoKey(deleteTarget.autoKey);
     }
     setShowDeleteModal(false);
     setDeleteTarget({ type: '', id: null, label: '', autoKey: '', isAuto: false });
@@ -527,19 +642,20 @@ const PaymentsGestForm = () => {
 
   const savePayment = async () => {
     if (!formData.gesca || !formData.ip) {
-      setAlert({ show: true, type: 'danger', message: 'Completa los campos obligatorios: GESCA e IP' });
-      return;
+      setAlert({ show: true, type: 'danger', message: 'Completa los campos obligatorios: GESCA e IP' }); return;
+    }
+    if (!formData.scheme_value) {
+      setAlert({ show: true, type: 'danger', message: 'Selecciona un esquema antes de guardar' }); return;
     }
     setSaving(true);
     const payload = {
       ...formData, scheme_value: parseFloat(formData.scheme_value),
       transferencias, row_states: rowStates, puerperio_states: puerperioStates,
       bono_vih: bonoVIH, bono_gemelar: bonoGemelar, bono_states: bonoStates,
-      bg_conditions: bgConditions, bg_state: bgState,   // ── include BG state
+      bg_conditions: bgConditions, bg_state: bgState,
       parc_count: parcCount, parc_completed: parcCompleted,
       ayuda_maternidad: ayudaMaternidad, ayuda_amount: parseFloat(ayudaAmount) || 0,
-      ayuda_state: ayudaState,
-      extrato_gastos: extratoGastos,
+      ayuda_state: ayudaState, extrato_gastos: extratoGastos,
     };
     try {
       if (isEditMode) {
@@ -558,12 +674,13 @@ const PaymentsGestForm = () => {
     }
   };
 
-  // ── Shared styles ──────────────────────────────────────────────────────────
-  const cs       = { verticalAlign: 'middle' };
-  const hs       = { verticalAlign: 'middle', whiteSpace: 'nowrap' };
-  const hsc      = { ...hs, textAlign: 'center' };
+  // ── Shared styles ─────────────────────────────────────────────────────────
+  const cs         = { verticalAlign: 'middle' };
+  const hs         = { verticalAlign: 'middle', whiteSpace: 'nowrap' };
+  const hsc        = { ...hs, textAlign: 'center' };
   const rowLocked  = { backgroundColor: 'color-mix(in srgb, var(--cui-success) 10%, transparent)' };
   const rowPrimary = { backgroundColor: 'color-mix(in srgb, var(--cui-primary) 12%, transparent)' };
+  const disabledSection = !schemeSelected ? { opacity: 0.4, pointerEvents: 'none', userSelect: 'none' } : {};
 
   if (loading) {
     return (
@@ -575,7 +692,6 @@ const PaymentsGestForm = () => {
 
   const section2Rows = FIXED_ROWS.filter(r => r.section === 2);
   const section3Rows = FIXED_ROWS.filter(r => r.section === 3);
-  const parcAmounts  = computeParcialidades(parcCount, ultimasFirmasTotal);
 
   const TheadFull = () => (
     <CTableRow>
@@ -591,22 +707,12 @@ const PaymentsGestForm = () => {
   const CompletedCell = ({ completed, autoKey, label, importe, bonoVal, penalizacion, reembolso, category, onCommitTrue, onUncomplete }) => (
     <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
       <div className="d-flex align-items-center justify-content-center gap-1">
-        <CFormCheck
-          checked={completed}
-          disabled={completed}
-          onChange={() => {
-            if (!completed) {
-              openDateModal({ autoKey, label, importe: importe || 0, bonoVal: bonoVal || 0, penalizacion, reembolso, category, commitTrue: onCommitTrue });
-            }
-          }}
-        />
+        <CFormCheck checked={completed} disabled={completed}
+          onChange={() => { if (!completed) openDateModal({ autoKey, label, importe: importe || 0, bonoVal: bonoVal || 0, penalizacion, reembolso, category, commitTrue: onCommitTrue }); }} />
         {completed && (
-          <CButton
-            size="sm" color="warning" variant="ghost"
-            title="Clic para re-editar (requiere contraseña)"
-            style={{ padding: '2px 6px' }}
-            onClick={() => openUnlockModal({ autoKey, label, uncomplete: onUncomplete })}
-          >
+          <CButton size="sm" color="warning" variant="ghost" style={{ padding: '2px 6px' }}
+            title="Re-editar (requiere contraseña)"
+            onClick={() => openUnlockModal({ autoKey, label, uncomplete: onUncomplete })}>
             <CIcon icon={cilLockLocked} size="sm" />
           </CButton>
         )}
@@ -615,53 +721,59 @@ const PaymentsGestForm = () => {
   );
 
   const renderFixedRow = (row) => {
-    const state  = rowStates[row.id] || initRS();
+    const state   = rowStates[row.id] || initRS();
     const baseImp = getRowImporte(row, sv);
-    const imp    = (row.id === 'sdg20' && t1Exitosa && baseImp !== null) ? baseImp + 5000 : baseImp;
-    const bono   = getRowBono(row, sv);
-    const locked = state.completed;
+    const imp     = (row.id === 'sdg20' && t1Exitosa && baseImp !== null) ? baseImp + 5000 : baseImp;
+    const bono    = getRowBono(row, sv);
+    const locked  = state.completed;
     return (
       <CTableRow key={row.id} style={locked ? rowLocked : undefined}>
         <CTableDataCell style={cs}>
           <strong>{row.concepto}</strong>
-          {row.id === 'sdg20' && t1Exitosa && (
-            <small className="d-block text-muted">$20,000 + $5,000 bono T1</small>
-          )}
+          {row.id === 'sdg20' && t1Exitosa && <small className="d-block text-muted">$20,000 + $5,000 bono T1</small>}
           {row.hasReached && (
             <div className="d-flex align-items-center mt-1 gap-2 flex-wrap">
               <CFormCheck checked={state.reached ?? false} disabled={locked} onChange={e => updateRowState(row.id, 'reached', e.target.checked)} />
               <small className="text-muted">¿Proceso llegó a SDG 36?</small>
-              {t1Exitosa && state.reached && <CBadge color="primary" className="ms-1">+$10,000 bonos T1+SDG36</CBadge>}
-              {t1Exitosa && !state.reached && <CBadge color="danger" className="ms-1">Penalización −$5,000 (bono neto: $0)</CBadge>}
+              {t1Exitosa &&  state.reached && <CBadge color="primary" className="ms-1">+$10,000 bonos T1+SDG36</CBadge>}
+              {t1Exitosa && !state.reached && <CBadge color="danger"  className="ms-1">Penalización −$5,000 (bono neto: $0)</CBadge>}
               {!t1Exitosa && state.reached && <CBadge color="secondary" className="ms-1">SDG 36 alcanzado</CBadge>}
             </div>
           )}
         </CTableDataCell>
         <CTableDataCell style={cs}>
-          {imp !== null
-            ? <span className="fw-semibold" style={{ color: 'var(--cui-primary)' }}>{fmt(imp)}</span>
-            : <span className="text-muted">—</span>}
+          {imp !== null ? <span className="fw-semibold" style={{ color: 'var(--cui-primary)' }}>{fmt(imp)}</span> : <span className="text-muted">—</span>}
         </CTableDataCell>
         <CTableDataCell style={cs}>
-          {bono
-            ? <span className="fw-semibold" style={{ color: 'var(--cui-primary)' }}>{fmt(bono)}</span>
-            : <span className="text-muted">—</span>}
+          {bono ? <span className="fw-semibold" style={{ color: 'var(--cui-primary)' }}>{fmt(bono)}</span> : <span className="text-muted">—</span>}
         </CTableDataCell>
         <CTableDataCell style={cs}><NumInput disabled={locked} value={state.penalizacion} onChange={e => updateRowState(row.id, 'penalizacion', e.target.value)} /></CTableDataCell>
         <CTableDataCell style={cs}><NumInput disabled={locked} value={state.reembolso}    onChange={e => updateRowState(row.id, 'reembolso',    e.target.value)} /></CTableDataCell>
-        <CompletedCell
-          completed={locked}
-          autoKey={`fixed_${row.id}`}
-          label={row.concepto}
-          importe={imp} bonoVal={bono}
-          penalizacion={state.penalizacion} reembolso={state.reembolso}
-          category="scheme"
-          onCommitTrue={() => updateRowState(row.id, 'completed', true)}
-          onUncomplete={() => updateRowState(row.id, 'completed', false)}
-        />
+        <CompletedCell completed={locked} autoKey={`fixed_${row.id}`} label={row.concepto}
+          importe={imp} bonoVal={bono} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
+          onCommitTrue={() => updateRowState(row.id, 'completed', true)} onUncomplete={() => updateRowState(row.id, 'completed', false)} />
       </CTableRow>
     );
   };
+
+  const SummarySquare = ({ label, sublabel, value, color = 'primary', negative = false }) => (
+    <div className="p-3 rounded h-100" style={{
+      border: `1px solid ${negative ? 'var(--cui-danger)' : 'var(--cui-border-color)'}`,
+      backgroundColor: negative ? 'color-mix(in srgb, var(--cui-danger) 5%, transparent)' : undefined,
+    }}>
+      <small className="text-muted d-block mb-0" style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</small>
+      {sublabel && <small className="fw-semibold d-block mb-1" style={{ fontSize: '0.8rem' }}>{sublabel}</small>}
+      <h5 className={`mb-0 fw-bold text-${negative ? 'danger' : color}`}>{fmt(value)}</h5>
+    </div>
+  );
+
+  // Props shared by all LockedFormInput fields
+  const fieldProps = {
+    onChange:      handleFormChange,
+    onBecameDirty: handleFieldDirty,
+    onLockRequest: handleFieldLockRequest,
+  };
+  const fieldPending = (name) => !!pendingLockFields[name];
 
   return (
     <CContainer fluid>
@@ -669,49 +781,28 @@ const PaymentsGestForm = () => {
         .no-spinners::-webkit-outer-spin-button,
         .no-spinners::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         .no-spinners { -moz-appearance: textfield; }
-
-        .form-check-input:checked {
-          background-color: var(--cui-primary) !important;
-          border-color:     var(--cui-primary) !important;
-        }
-        .form-check-input:focus {
-          border-color: var(--cui-primary) !important;
-          box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--cui-primary) 25%, transparent) !important;
-        }
-
+        .form-check-input:checked { background-color: var(--cui-primary) !important; border-color: var(--cui-primary) !important; }
+        .form-check-input:focus   { border-color: var(--cui-primary) !important; box-shadow: 0 0 0 0.25rem color-mix(in srgb, var(--cui-primary) 25%, transparent) !important; }
         .gest-table td, .gest-table th { vertical-align: middle !important; }
-
-        /* ── Accordion headers: neutral gray, dark-mode compatible ──
-           --cui-tertiary-bg is light gray in light mode and a dark tone
-           in dark mode — no hardcoded colours needed. */
-        .accordion-button,
-        .accordion-button:not(.collapsed) {
+        .accordion-button, .accordion-button:not(.collapsed) {
           background-color: var(--cui-tertiary-bg, #f8f9fa) !important;
-          color:            var(--cui-body-color)            !important;
-          box-shadow:       none                             !important;
+          color: var(--cui-body-color) !important;
+          box-shadow: none !important;
         }
-        .accordion-button:hover {
-          background-color: var(--cui-secondary-bg, #e9ecef) !important;
-        }
-        .accordion-button::after {
-          filter: none !important;
-        }
-
+        .accordion-button:hover { background-color: var(--cui-secondary-bg, #e9ecef) !important; }
+        .accordion-button::after { filter: none !important; }
         .summary-table th {
-          font-size: 0.8rem; font-weight: 600; text-transform: uppercase;
-          letter-spacing: 0.04em; white-space: nowrap; padding: 0.6rem 1rem;
+          font-size: 0.8rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+          white-space: nowrap; padding: 0.6rem 1rem;
           background-color: color-mix(in srgb, var(--cui-primary) 15%, transparent);
-          color: var(--cui-primary);
-          border-bottom: 2px solid var(--cui-primary);
+          color: var(--cui-primary); border-bottom: 2px solid var(--cui-primary);
         }
-        .summary-table td { font-size: 1rem; font-weight: 600; padding: 0.75rem 1rem; white-space: nowrap; }
-        .summary-table .row-base td { color: var(--cui-primary); }
-        .summary-table .row-actual td { font-style: italic; }
-
-        .form-row-equal { display: grid; gap: 1rem; }
-        .form-row-equal.cols-2 { grid-template-columns: repeat(2, 1fr); }
-        .form-row-equal.cols-3 { grid-template-columns: repeat(3, 1fr); }
-        .form-row-equal.cols-4 { grid-template-columns: repeat(4, 1fr); }
+        .summary-table td       { font-size: 1rem; font-weight: 600; padding: 0.75rem 1rem; white-space: nowrap; }
+        .summary-table .row-base   td { color: var(--cui-primary); }
+        .summary-table .row-actual td { font-size: 0.78rem; font-style: italic; color: var(--cui-secondary-color); font-weight: 400; }
+        .form-row-equal           { display: grid; gap: 1rem; }
+        .form-row-equal.cols-2    { grid-template-columns: repeat(2, 1fr); }
+        .form-row-equal.cols-3    { grid-template-columns: repeat(3, 1fr); }
       `}</style>
 
       {alert.show && (
@@ -726,83 +817,110 @@ const PaymentsGestForm = () => {
           <CButton color="secondary" variant="outline" onClick={() => navigate('/progestor/payments-gest')} className="me-3">
             <CIcon icon={cilArrowLeft} className="me-2" />Volver a Esquemas
           </CButton>
-          <CButton color="primary" className="app-button" onClick={savePayment} disabled={saving}>
-            {saving
-              ? <><CSpinner size="sm" className="me-2" />Guardando...</>
-              : <><CIcon icon={cilSave} className="me-2" />{isEditMode ? 'Actualizar esquema' : 'Guardar esquema'}</>}
+          <CButton color="primary" className="app-button" onClick={savePayment} disabled={saving || !schemeSelected}>
+            {saving ? <><CSpinner size="sm" className="me-2" />Guardando...</> : <><CIcon icon={cilSave} className="me-2" />{isEditMode ? 'Actualizar esquema' : 'Guardar esquema'}</>}
           </CButton>
         </CCol>
       </CRow>
 
       <CAccordion activeItemKey={1} alwaysOpen className="mx-5">
 
-        {/* ═══ 1. Datos del programa ══════════════════════════════════════════ */}
+        {/* ═══ 1. Datos del esquema ════════════════════════════════════════ */}
         <CAccordionItem itemKey={1}>
-          <CAccordionHeader>
-            <strong>Datos del programa</strong>
-          </CAccordionHeader>
-          <CAccordionBody>
-            <CRow className="mb-3">
-              <CCol md={3}>
-                <CFormLabel className="mb-1 small">Estado</CFormLabel>
-                <CFormSelect name="status" value={formData.status} onChange={handleFormChange}>
+          <CAccordionHeader><strong>Datos del esquema</strong></CAccordionHeader>
+          <CAccordionBody style={{ paddingBottom: '2rem' }}>
+
+            {/* ── Scheme selector ── */}
+            <div className="p-3 rounded mb-4" style={{
+              border: `2px solid ${schemeSelected ? 'var(--cui-success)' : 'var(--cui-primary)'}`,
+              backgroundColor: schemeSelected
+                ? 'color-mix(in srgb, var(--cui-success) 6%, transparent)'
+                : 'color-mix(in srgb, var(--cui-primary) 6%, transparent)',
+            }}>
+              <div className="d-flex align-items-center gap-3 flex-wrap">
+                <div>
+                  <CFormLabel className="mb-1 fw-semibold d-flex align-items-center gap-2">
+                    {schemeSelected ? '✓ Esquema confirmado' : '① Selecciona y confirma el esquema para continuar'}
+                    {schemeLocked && <CIcon icon={cilLockLocked} size="sm" className="text-warning" />}
+                  </CFormLabel>
+                  <div className="d-flex gap-2 align-items-center flex-wrap">
+                    <CFormSelect
+                      style={{ width: '210px' }}
+                      name="scheme_value"
+                      value={formData.scheme_value}
+                      onChange={e => handleSchemeDropdownChange(e.target.value)}
+                      disabled={schemeLocked}
+                    >
+                      {!formData.scheme_value && <option value="">— Seleccionar —</option>}
+                      <option value="375000">Esquema $375,000</option>
+                      <option value="400000">Esquema $400,000</option>
+                    </CFormSelect>
+
+                    {/* Confirmar button — only visible when not yet locked */}
+                    {!schemeLocked && (
+                      <CButton
+                        color="success"
+                        size="sm"
+                        disabled={!formData.scheme_value}
+                        onClick={handleSchemeConfirm}
+                        title="Confirmar esquema y habilitar secciones"
+                      >
+                        <CIcon icon={cilSave} className="me-1" size="sm" />Confirmar selección
+                      </CButton>
+                    )}
+
+                    {/* Change button — only visible when locked */}
+                    {schemeLocked && (
+                      <CButton
+                        color="warning"
+                        variant="outline"
+                        size="sm"
+                        onClick={handleSchemeChangeRequest}
+                        title="Cambiar esquema (requiere contraseña)"
+                      >
+                        <CIcon icon={cilLockLocked} className="me-1" size="sm" />Cambiar
+                      </CButton>
+                    )}
+
+                    {!schemeSelected && !formData.scheme_value && (
+                      <small className="text-muted">Selecciona un esquema y haz clic en <strong>Confirmar selección</strong>.</small>
+                    )}
+                    {!schemeSelected && formData.scheme_value && (
+                      <small className="text-warning fw-semibold">← Haz clic en Confirmar selección para continuar</small>
+                    )}
+                  </div>
+                </div>
+                <CFormSelect name="status" value={formData.status} onChange={handleFormChange} style={{ width: '160px' }}>
                   {statusOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </CFormSelect>
-              </CCol>
-              <CCol md={3}>
-                <CFormLabel className="mb-1 small d-flex align-items-center gap-2">
-                  Selección de programa
-                  {schemeLocked && <CIcon icon={cilLockLocked} size="sm" className="text-warning" title="Bloqueado - requiere contraseña para cambiar" />}
-                </CFormLabel>
-                <div className="d-flex gap-2">
-                  <CFormSelect
-                    name="scheme_value"
-                    value={formData.scheme_value}
-                    onChange={(e) => handleSchemeChange(e.target.value)}
-                    disabled={schemeLocked}
-                  >
-                    <option value="375000">$375,000</option>
-                    <option value="400000">$400,000</option>
-                  </CFormSelect>
-                  {schemeLocked && (
-                    <CButton
-                      color="warning" variant="outline" size="sm"
-                      onClick={() => { setSchemePasswordInput(''); setSchemePasswordError(''); setShowSchemePasswordModal(true); }}
-                      title="Cambiar programa (requiere contraseña)"
-                    >
-                      <CIcon icon={cilLockLocked} />
-                    </CButton>
-                  )}
-                </div>
-              </CCol>
-            </CRow>
+              </div>
+            </div>
 
+            {/* ── Form fields — each locks individually ── */}
             <div className="form-row-equal cols-2 mb-3">
-              <div><CFormLabel className="mb-1 small">GESCA *</CFormLabel><CFormInput name="gesca" value={formData.gesca} onChange={handleFormChange} /></div>
-              <div><CFormLabel className="mb-1 small">IP *</CFormLabel><CFormInput name="ip" value={formData.ip} onChange={handleFormChange} /></div>
+              <LockedFormInput name="gesca" label="GESCA *"   value={formData.gesca} locked={lockedFields.gesca} pending={fieldPending('gesca')} {...fieldProps} />
+              <LockedFormInput name="ip"    label="IP *"      value={formData.ip}    locked={lockedFields.ip}    pending={fieldPending('ip')}    {...fieldProps} />
             </div>
             <div className="form-row-equal cols-2 mb-3">
-              <div><CFormLabel className="mb-1 small">Banco</CFormLabel><CFormInput name="banco" value={formData.banco} onChange={handleFormChange} /></div>
-              <div><CFormLabel className="mb-1 small">Clabe</CFormLabel><CFormInput name="clabe" value={formData.clabe} onChange={handleFormChange} /></div>
+              <LockedFormInput name="banco" label="Banco"     value={formData.banco} locked={lockedFields.banco} pending={fieldPending('banco')} {...fieldProps} />
+              <LockedFormInput name="clabe" label="Clabe"     value={formData.clabe} locked={lockedFields.clabe} pending={fieldPending('clabe')} {...fieldProps} />
             </div>
             <div className="form-row-equal cols-3 mb-3">
-              <div><CFormLabel className="mb-1 small">País</CFormLabel><CFormInput name="country" value={formData.country} onChange={handleFormChange} /></div>
-              <div><CFormLabel className="mb-1 small">Seguro</CFormLabel><CFormInput name="insurance" value={formData.insurance} onChange={handleFormChange} /></div>
-              <div><CFormLabel className="mb-1 small">Póliza</CFormLabel><CFormInput name="policy" value={formData.policy} onChange={handleFormChange} /></div>
+              <LockedFormInput name="country"   label="País"   value={formData.country}   locked={lockedFields.country}   pending={fieldPending('country')}   {...fieldProps} />
+              <LockedFormInput name="insurance" label="Seguro" value={formData.insurance} locked={lockedFields.insurance} pending={fieldPending('insurance')} {...fieldProps} />
+              <LockedFormInput name="policy"    label="Póliza" value={formData.policy}    locked={lockedFields.policy}    pending={fieldPending('policy')}    {...fieldProps} />
             </div>
             <div className="form-row-equal cols-3">
-              <div><CFormLabel className="mb-1 small">Gestor</CFormLabel><CFormInput name="manager" value={formData.manager} onChange={handleFormChange} /></div>
-              <div><CFormLabel className="mb-1 small">FUM</CFormLabel><CFormInput type="date" name="fum" value={formData.fum} onChange={handleFormChange} /></div>
-              <div><CFormLabel className="mb-1 small">Giro de semana</CFormLabel><CFormInput name="giro_semana" value={formData.giro_semana} onChange={handleFormChange} /></div>
+              <LockedFormInput name="manager"     label="Gestor"         value={formData.manager}     locked={lockedFields.manager}     pending={fieldPending('manager')}     {...fieldProps} />
+              <LockedFormInput name="fum"         label="FUM"            value={formData.fum}         locked={lockedFields.fum}         pending={fieldPending('fum')}         type="date" {...fieldProps} />
+              <LockedFormInput name="giro_semana" label="Giro de semana" value={formData.giro_semana} locked={lockedFields.giro_semana} pending={fieldPending('giro_semana')} {...fieldProps} />
             </div>
           </CAccordionBody>
         </CAccordionItem>
 
-        {/* ═══ Fase 1 — Transferencias ════════════════════════════════════════ */}
-        <CAccordionItem itemKey={2}>
-          <CAccordionHeader>
-            <strong>Fase 1 / Transferencias &gt; Latido SDG8</strong>
-          </CAccordionHeader>
+        {/* ═══ Fase 1 — Transferencias ════════════════════════════════════ */}
+        <CAccordionItem itemKey={2} style={disabledSection}>
+          <CAccordionHeader><strong>Fase 1 / Transferencias &gt; Latido SDG8</strong></CAccordionHeader>
           <CAccordionBody>
             <div className="table-responsive">
               <CTable hover striped className="gest-table">
@@ -819,31 +937,24 @@ const PaymentsGestForm = () => {
                 </CTableHead>
                 <CTableBody>
                   {visibleTransferencias.map((trans, idx) => {
-                    const locked   = trans.completed;
-                    const autoKey  = `transferencia_${trans.id}`;
+                    const locked  = trans.completed;
+                    const autoKey = `transferencia_${trans.id}`;
                     return (
                       <CTableRow key={trans.id} style={locked ? rowLocked : trans.successful ? rowPrimary : undefined}>
                         <CTableDataCell style={cs}>
                           <strong>Transferencia {trans.id}</strong>
                           {trans.successful && <CBadge color="primary" className="ms-2">Exitosa</CBadge>}
                         </CTableDataCell>
-                        <CTableDataCell style={cs}>
-                          <span className="fw-semibold" style={{ color: 'var(--cui-primary)' }}>{fmt(1000)}</span>
-                        </CTableDataCell>
+                        <CTableDataCell style={cs}><span className="fw-semibold" style={{ color: 'var(--cui-primary)' }}>{fmt(1000)}</span></CTableDataCell>
                         <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
                         <CTableDataCell style={cs}><NumInput disabled={locked} value={trans.penalizacion} onChange={e => updateTransferencia(idx, 'penalizacion', e.target.value)} /></CTableDataCell>
                         <CTableDataCell style={cs}><NumInput disabled={locked} value={trans.reembolso}    onChange={e => updateTransferencia(idx, 'reembolso',    e.target.value)} /></CTableDataCell>
                         <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
                           <CFormCheck checked={trans.successful} disabled={locked} onChange={e => updateTransferencia(idx, 'successful', e.target.checked)} />
                         </CTableDataCell>
-                        <CompletedCell
-                          completed={locked} autoKey={autoKey} label={`Transferencia ${trans.id}`}
-                          importe={1000} bonoVal={0}
-                          penalizacion={trans.penalizacion} reembolso={trans.reembolso}
-                          category="scheme"
-                          onCommitTrue={() => updateTransferencia(idx, 'completed', true)}
-                          onUncomplete={() => updateTransferencia(idx, 'completed', false)}
-                        />
+                        <CompletedCell completed={locked} autoKey={autoKey} label={`Transferencia ${trans.id}`}
+                          importe={1000} bonoVal={0} penalizacion={trans.penalizacion} reembolso={trans.reembolso} category="scheme"
+                          onCommitTrue={() => updateTransferencia(idx, 'completed', true)} onUncomplete={() => updateTransferencia(idx, 'completed', false)} />
                       </CTableRow>
                     );
                   })}
@@ -853,11 +964,9 @@ const PaymentsGestForm = () => {
           </CAccordionBody>
         </CAccordionItem>
 
-        {/* ═══ Fase 2 ═══════════════════════════════════════════════════════ */}
-        <CAccordionItem itemKey={3}>
-          <CAccordionHeader>
-            <strong>Fase 2 / Beta positiva &gt; SDG 10</strong>
-          </CAccordionHeader>
+        {/* ═══ Fase 2 ════════════════════════════════════════════════════ */}
+        <CAccordionItem itemKey={3} style={disabledSection}>
+          <CAccordionHeader><strong>Fase 2 / Beta positiva &gt; SDG 10</strong></CAccordionHeader>
           <CAccordionBody>
             <div className="table-responsive">
               <CTable hover striped className="gest-table">
@@ -868,11 +977,9 @@ const PaymentsGestForm = () => {
           </CAccordionBody>
         </CAccordionItem>
 
-        {/* ═══ Fases de pagos ════════════════════════════════════════════════ */}
-        <CAccordionItem itemKey={4}>
-          <CAccordionHeader>
-            <strong>Fases de pagos &gt; Descripción del Esquema</strong>
-          </CAccordionHeader>
+        {/* ═══ Fases de pagos ════════════════════════════════════════════ */}
+        <CAccordionItem itemKey={4} style={disabledSection}>
+          <CAccordionHeader><strong>Fases de pagos &gt; Descripción del Esquema</strong></CAccordionHeader>
           <CAccordionBody>
             <div className="table-responsive">
               <CTable hover striped className="gest-table">
@@ -883,8 +990,8 @@ const PaymentsGestForm = () => {
           </CAccordionBody>
         </CAccordionItem>
 
-        {/* ═══ Bonos adicionales ══════════════════════════════════════════════ */}
-        <CAccordionItem itemKey={5}>
+        {/* ═══ Bonos adicionales ══════════════════════════════════════════ */}
+        <CAccordionItem itemKey={5} style={disabledSection}>
           <CAccordionHeader>
             <strong>Bonos adicionales</strong>
             <small className="text-muted ms-2">— montos extra al valor del esquema</small>
@@ -903,19 +1010,15 @@ const PaymentsGestForm = () => {
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
-                  {/* Transfer 1 + SDG36 */}
+                  {/* T1 / SDG36 automatic */}
                   {(() => {
-                    const statusLabel = !t1Exitosa ? 'T1 no exitosa'
-                      : sdg36Reached  ? 'T1 + SDG36 (+$10,000)'
-                      :                 'T1 exitosa, SDG36 no alcanzado ($0 neto)';
-                    const statusColor = !t1Exitosa ? 'secondary'
-                      : sdg36Reached  ? 'primary'
-                      :                 'danger';
+                    const statusLabel = !t1Exitosa ? 'T1 no exitosa' : sdg36Reached ? 'T1 + SDG36 (+$10,000)' : 'T1 exitosa, SDG36 no alcanzado ($0 neto)';
+                    const statusColor = !t1Exitosa ? 'secondary' : sdg36Reached ? 'primary' : 'danger';
                     return (
                       <CTableRow style={{ opacity: t1Exitosa ? 1 : 0.5 }}>
                         <CTableDataCell style={cs}>
                           <strong>Transfer 1 / SDG 36 (automático)</strong>
-                          <small className="d-block text-muted">Aparece automáticamente al confirmar pago de SDG20 y SDG36</small>
+                          <small className="d-block text-muted">Aparece automáticamente al confirmar SDG20 y SDG36</small>
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
                           <span className="fw-semibold" style={{ color: t1NetBonus > 0 ? 'var(--cui-primary)' : t1NetBonus < 0 ? 'var(--cui-danger)' : undefined }}>
@@ -977,13 +1080,21 @@ const PaymentsGestForm = () => {
           </CAccordionBody>
         </CAccordionItem>
 
-        {/* ═══ Puerperio ════════════════════════════════════════════════════ */}
-        <CAccordionItem itemKey={6}>
+        {/* ═══ Puerperio ════════════════════════════════════════════════ */}
+        <CAccordionItem itemKey={6} style={disabledSection}>
           <CAccordionHeader>
             <strong>Puerperio</strong>
             <CBadge color="secondary" className="ms-2">Esquema: {fmt(schemeValue)}</CBadge>
           </CAccordionHeader>
           <CAccordionBody>
+            {/* Balance verification */}
+            {schemeSelected && (
+              <CAlert color="info" className="py-2 mb-3" style={{ fontSize: '0.85rem' }}>
+                <strong>Verificación de totales:</strong> Fase 2 ({fmt(fase2Total)}) + Fases de pagos ({fmt(fasesPagosTotal)}) + P1 ({fmt(p1Amount)}) + P2 ({fmt(p2Amount)}) + P3 ({fmt(p3Amount)}) + Últimas firmas ({fmt(ULTIMAS_FIRMAS)}) = <strong>{fmt(fase2Total + fasesPagosTotal + p1Amount + p2Amount + p3Amount + ULTIMAS_FIRMAS)}</strong>
+                {' '}{Math.round(fase2Total + fasesPagosTotal + p1Amount + p2Amount + p3Amount + ULTIMAS_FIRMAS) === schemeValue ? <CBadge color="success">✓ Cuadra</CBadge> : <CBadge color="warning">Diferencia</CBadge>}
+              </CAlert>
+            )}
+
             {/* P1 / P2 / P3 */}
             <div className="table-responsive mb-4">
               <CTable hover striped className="gest-table">
@@ -1005,7 +1116,8 @@ const PaymentsGestForm = () => {
                       <CTableRow key={row.id} style={locked ? rowLocked : undefined}>
                         <CTableDataCell style={cs}>
                           <strong>{row.concepto}</strong>
-                          {row.schemeBased && <small className="d-block text-muted">Según esquema seleccionado</small>}
+                          {row.id === 'puerperio2' && <small className="d-block text-muted">Según esquema seleccionado</small>}
+                          {row.id === 'puerperio3' && <small className="d-block text-muted">Calculado para cuadrar el total del esquema</small>}
                           {row.id === 'puerperio3' && ayudaMaternidad && ayudaAmountNum > 0 && (
                             <small className="d-block text-danger">Base: {fmt(p3BaseAmount)} − Ayuda maternidad: {fmt(ayudaAmountNum)}</small>
                           )}
@@ -1023,8 +1135,8 @@ const PaymentsGestForm = () => {
               </CTable>
             </div>
 
-            {/* ── Ayuda maternidad ── */}
-            <div className="mb-4 p-3 rounded" style={{ border: `1px solid ${ayudaMaternidad ? 'var(--cui-primary)' : 'var(--cui-border-color)'}`, transition: 'border-color 0.2s' }}>
+            {/* Ayuda maternidad */}
+            <div className="mb-4 p-3 rounded" style={{ border: `1px solid ${ayudaMaternidad ? 'var(--cui-primary)' : 'var(--cui-border-color)'}` }}>
               <div className="d-flex align-items-center gap-3 flex-wrap mb-3">
                 <div className="d-flex align-items-center gap-2">
                   <CFormCheck id="ayuda-maternidad" checked={ayudaMaternidad} disabled={ayudaState.completed}
@@ -1041,7 +1153,7 @@ const PaymentsGestForm = () => {
                     {ayudaAmountNum > 0 && <CBadge color="danger">−{fmt(ayudaAmountNum)} de Puerperio 3</CBadge>}
                   </>
                 )}
-                {!ayudaMaternidad && <small className="text-muted">Al activar, el monto se descuenta de Puerperio 3 y se registra en Extrato Gastos.</small>}
+                {!ayudaMaternidad && <small className="text-muted">Al activar, el monto se descuenta de Puerperio 3.</small>}
               </div>
               {ayudaMaternidad && ayudaAmountNum > 0 && (
                 <div className="table-responsive">
@@ -1074,47 +1186,39 @@ const PaymentsGestForm = () => {
               )}
             </div>
 
-            {/* ── Buena Gestante ── */}
+            {/* CDO. GESCA */}
             <div className="mb-4 p-3 rounded" style={{ border: '1px solid var(--cui-border-color)' }}>
-              <div className="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+              <div className="d-flex justify-content-between align-items-start mb-1 flex-wrap gap-2">
                 <div>
-                  <h6 className="mb-0 d-inline">Buena Gestante</h6>
-                  <small className="text-muted ms-2">(parte del esquema — máx. {fmt(BG_MAX)})</small>
+                  <h6 className="mb-0">CDO. GESCA</h6>
+                  <small className="text-muted">Pago Cualitativo (HIM, cuidados, deberes y obligaciones de la gestante)</small>
                 </div>
-                <div className="d-flex align-items-center gap-2">
-                  <CBadge color="primary">Aprobado: {fmt(bgTotal)}</CBadge>
-                  {bgDiscounted > 0 && <CBadge color="danger">Descuento: −{fmt(bgDiscounted)}</CBadge>}
+                <div className="d-flex align-items-center gap-2 flex-wrap">
+                  {bgDeduction > 0 ? <CBadge color="danger">Descuento: −{fmt(bgDeduction)}</CBadge> : <CBadge color="success">Sin descuentos</CBadge>}
                   {bgExtraBonus > 0 && <CBadge color="success">Bono Extra: +{fmt(bgExtraBonus)}</CBadge>}
                 </div>
               </div>
               <small className="text-muted d-block mb-3">
-                Condiciones marcadas = se pagan. No marcadas = se descuentan del total del esquema. <strong>Bono extra es adicional</strong> y aparece en la columna de Bonos Totales.
+                Condiciones <strong>marcadas = descuento</strong> sobre el total del esquema.
               </small>
-
-              {/* Condition checkboxes — locked while BG pago is completed */}
               <CRow className="g-2 mb-3">
                 {BG_CONDITIONS.map(cond => (
                   <CCol md={4} key={cond.id}>
                     <div className="d-flex align-items-center justify-content-between p-2 rounded" style={{
                       border: '1px solid var(--cui-border-color)',
-                      backgroundColor: bgConditions[cond.id]
-                        ? 'color-mix(in srgb, var(--cui-primary) 10%, transparent)'
-                        : 'color-mix(in srgb, var(--cui-danger) 6%, transparent)',
+                      backgroundColor: bgConditions[cond.id] ? 'color-mix(in srgb, var(--cui-danger) 8%, transparent)' : 'color-mix(in srgb, var(--cui-success) 5%, transparent)',
                       transition: 'background-color 0.2s',
                     }}>
                       <div className="d-flex align-items-center gap-2">
-                        <CFormCheck
-                          checked={bgConditions[cond.id]} id={`bg-${cond.id}`}
-                          disabled={bgState.completed}
-                          onChange={e => updateBgCondition(cond.id, e.target.checked)}
-                        />
+                        <CFormCheck checked={bgConditions[cond.id]} id={`bg-${cond.id}`}
+                          disabled={bgState.completed} onChange={e => updateBgCondition(cond.id, e.target.checked)} />
                         <label htmlFor={`bg-${cond.id}`} className="mb-0"
                           style={{ cursor: bgState.completed ? 'default' : 'pointer', fontSize: '0.875rem' }}>
                           {cond.label}
                         </label>
                       </div>
-                      <CBadge color={bgConditions[cond.id] ? 'primary' : 'danger'} className="ms-2 flex-shrink-0">
-                        {bgConditions[cond.id] ? '+' : '−'}{fmt(cond.amount)}
+                      <CBadge color={bgConditions[cond.id] ? 'danger' : 'success'} className="ms-2 flex-shrink-0">
+                        {bgConditions[cond.id] ? `−${fmt(cond.amount)}` : '✓'}
                       </CBadge>
                     </div>
                   </CCol>
@@ -1122,22 +1226,18 @@ const PaymentsGestForm = () => {
                 <CCol md={4}>
                   <div className="p-2 rounded h-100" style={{ border: '1px solid var(--cui-success)', backgroundColor: 'color-mix(in srgb, var(--cui-success) 8%, transparent)' }}>
                     <small className="text-success d-block mb-1 fw-semibold">
-                      <CIcon icon={cilPlus} size="sm" className="me-1" />
-                      Bono Extra (aparece en Bonos Totales)
+                      <CIcon icon={cilPlus} size="sm" className="me-1" />Bono Extra (aparece en Bonos Totales)
                     </small>
-                    <NumInput value={bgConditions.extra} placeholder="0"
-                      disabled={bgState.completed}
+                    <NumInput value={bgConditions.extra} placeholder="0" disabled={bgState.completed}
                       onChange={e => updateBgCondition('extra', e.target.value)} width="100%" />
                   </div>
                 </CCol>
               </CRow>
-
-              {/* ── BG pago completado row — same pattern as all other rows ── */}
               <CTable hover striped className="gest-table mb-0">
                 <CTableHead>
                   <CTableRow>
                     <CTableHeaderCell style={{ ...hs, minWidth: '260px' }}>Concepto</CTableHeaderCell>
-                    <CTableHeaderCell style={hs}>Importe aprobado</CTableHeaderCell>
+                    <CTableHeaderCell style={hs}>Descuento CDO. GESCA</CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Penalización</CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Reembolso</CTableHeaderCell>
                     <CTableHeaderCell style={hsc}>Pago completado</CTableHeaderCell>
@@ -1146,51 +1246,34 @@ const PaymentsGestForm = () => {
                 <CTableBody>
                   <CTableRow style={bgState.completed ? rowLocked : undefined}>
                     <CTableDataCell style={cs}>
-                      <strong>Buena Gestante</strong>
-                      <small className="d-block text-muted">
-                        {bgDiscounted > 0
-                          ? `${fmt(BG_MAX)} máx − ${fmt(bgDiscounted)} desc. = ${fmt(bgTotal)} aprobado`
-                          : 'Todas las condiciones aprobadas'}
-                      </small>
+                      <strong>CDO. GESCA</strong>
+                      <small className="d-block text-muted">{bgDeduction > 0 ? `Descuento total: −${fmt(bgDeduction)}` : 'Sin descuentos activos'}</small>
                     </CTableDataCell>
                     <CTableDataCell style={cs}>
-                      <span className="fw-semibold" style={{ color: bgTotal > 0 ? 'var(--cui-primary)' : 'var(--cui-secondary)' }}>
-                        {fmt(bgTotal)}
+                      <span className="fw-semibold" style={{ color: bgDeduction > 0 ? 'var(--cui-danger)' : 'var(--cui-success)' }}>
+                        {bgDeduction > 0 ? `−${fmt(bgDeduction)}` : '—'}
                       </span>
                     </CTableDataCell>
-                    <CTableDataCell style={cs}>
-                      <NumInput disabled={bgState.completed} value={bgState.penalizacion}
-                        onChange={e => updateBgState('penalizacion', e.target.value)} />
-                    </CTableDataCell>
-                    <CTableDataCell style={cs}>
-                      <NumInput disabled={bgState.completed} value={bgState.reembolso}
-                        onChange={e => updateBgState('reembolso', e.target.value)} />
-                    </CTableDataCell>
-                    <CompletedCell
-                      completed={bgState.completed}
-                      autoKey="buena_gestante"
-                      label="Buena Gestante"
-                      importe={bgTotal}
-                      bonoVal={0}
-                      penalizacion={bgState.penalizacion}
-                      reembolso={bgState.reembolso}
-                      category="scheme"
-                      onCommitTrue={() => updateBgState('completed', true)}
-                      onUncomplete={() => updateBgState('completed', false)}
-                    />
+                    <CTableDataCell style={cs}><NumInput disabled={bgState.completed} value={bgState.penalizacion} onChange={e => updateBgState('penalizacion', e.target.value)} /></CTableDataCell>
+                    <CTableDataCell style={cs}><NumInput disabled={bgState.completed} value={bgState.reembolso}    onChange={e => updateBgState('reembolso',    e.target.value)} /></CTableDataCell>
+                    <CompletedCell completed={bgState.completed} autoKey="buena_gestante" label="CDO. GESCA"
+                      importe={-bgDeduction} bonoVal={0} penalizacion={bgState.penalizacion} reembolso={bgState.reembolso} category="scheme"
+                      onCommitTrue={() => updateBgState('completed', true)} onUncomplete={() => updateBgState('completed', false)} />
                   </CTableRow>
                 </CTableBody>
               </CTable>
             </div>
 
-            {/* ── Parcialidades ── */}
+            {/* Parcialidades — fixed amounts, max 3 */}
             <div className="p-3 rounded" style={{ border: '1px solid var(--cui-border-color)' }}>
               <div className="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
-                <h6 className="mb-0">Últimas firmas — {fmt(ultimasFirmasTotal)} en parcialidades</h6>
+                <h6 className="mb-0">Últimas firmas — {fmt(ULTIMAS_FIRMAS)} en parcialidades</h6>
                 <div className="d-flex align-items-center gap-2">
                   <CFormLabel className="mb-0">Parcialidades:</CFormLabel>
                   <CFormSelect style={{ width: '80px' }} value={parcCount} onChange={e => handleParcCountChange(parseInt(e.target.value))}>
-                    {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
+                    <option value={1}>1</option>
+                    <option value={2}>2</option>
+                    <option value={3}>3</option>
                   </CFormSelect>
                 </div>
               </div>
@@ -1221,13 +1304,13 @@ const PaymentsGestForm = () => {
                     );
                   })}
                   <CTableRow>
-                    <CTableDataCell style={cs}><em className="text-muted">Buena Gestante (referencia)</em></CTableDataCell>
+                    <CTableDataCell style={cs}><em className="text-muted">CDO. GESCA (referencia)</em></CTableDataCell>
                     <CTableDataCell style={cs}>
-                      <span className="fw-semibold" style={{ color: bgTotal > 0 ? 'var(--cui-success)' : 'var(--cui-danger)' }}>
-                        {bgTotal > 0 ? fmt(bgTotal) : `−${fmt(bgDiscounted)}`}
+                      <span className="fw-semibold" style={{ color: bgDeduction > 0 ? 'var(--cui-danger)' : 'var(--cui-success)' }}>
+                        {bgDeduction > 0 ? `−${fmt(bgDeduction)}` : '✓ Sin descuento'}
                       </span>
                     </CTableDataCell>
-                    <CTableDataCell style={{ ...cs, textAlign: 'center' }}><small className="text-muted">ver sección BG</small></CTableDataCell>
+                    <CTableDataCell style={{ ...cs, textAlign: 'center' }}><small className="text-muted">ver sección CDO. GESCA</small></CTableDataCell>
                   </CTableRow>
                 </CTableBody>
               </CTable>
@@ -1235,11 +1318,9 @@ const PaymentsGestForm = () => {
           </CAccordionBody>
         </CAccordionItem>
 
-        {/* ═══ Resumen del esquema ═══════════════════════════════════════════ */}
-        <CAccordionItem itemKey={7}>
-          <CAccordionHeader>
-            <strong>Resumen del esquema</strong>
-          </CAccordionHeader>
+        {/* ═══ Resumen del esquema ════════════════════════════════════════ */}
+        <CAccordionItem itemKey={7} style={disabledSection}>
+          <CAccordionHeader><strong>Resumen del esquema</strong></CAccordionHeader>
           <CAccordionBody>
             <div className="table-responsive mb-4">
               <table className="table summary-table mb-0" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
@@ -1257,14 +1338,14 @@ const PaymentsGestForm = () => {
                     <td className="text-muted small">Total a pagar</td>
                     <td>
                       {fmt(effectiveSchemeValue)}
-                      {bgDiscounted > 0 && <div><small className="text-danger">−{fmt(bgDiscounted)} BG</small></div>}
+                      {bgDeduction > 0 && <div><small className="text-danger">−{fmt(bgDeduction)} CDO.GESCA</small></div>}
                     </td>
                     <td>{fmt(bonoTransporteTotal)}</td>
                     <td>{totalBonos > 0 ? fmt(totalBonos) : <span className="text-muted">—</span>}</td>
                     <td>{fmt(grandTotal)}</td>
                   </tr>
                   <tr className="row-actual">
-                    <td className="text-muted small">Restante</td>
+                    <td className="text-muted">Restante</td>
                     <td style={{ color: schemeValueRemaining <= 0 ? 'var(--cui-success)' : 'var(--cui-warning)' }}>
                       {schemeValueRemaining <= 0 ? '✓ ' : ''}{fmt(Math.max(0, schemeValueRemaining))}
                     </td>
@@ -1272,8 +1353,7 @@ const PaymentsGestForm = () => {
                       {bonoTransporteRemaining <= 0 ? '✓ ' : ''}{fmt(Math.max(0, bonoTransporteRemaining))}
                     </td>
                     <td style={{ color: bonosTotalesRemaining <= 0 ? 'var(--cui-success)' : (totalBonos === 0 ? undefined : 'var(--cui-warning)') }}>
-                      {totalBonos === 0 ? <span className="text-muted">—</span>
-                        : bonosTotalesRemaining <= 0 ? '✓ ' + fmt(0) : fmt(bonosTotalesRemaining)}
+                      {totalBonos === 0 ? <span className="text-muted">—</span> : bonosTotalesRemaining <= 0 ? '✓ ' + fmt(0) : fmt(bonosTotalesRemaining)}
                     </td>
                     <td style={{ color: grandTotalRemaining <= 0 ? 'var(--cui-success)' : 'var(--cui-warning)' }}>
                       {grandTotalRemaining <= 0 ? '✓ ' : ''}{fmt(Math.max(0, grandTotalRemaining))}
@@ -1283,39 +1363,46 @@ const PaymentsGestForm = () => {
               </table>
             </div>
 
-            <CRow className="g-3">
-              <CCol md={6}>
-                <div className="p-3 rounded h-100" style={{ border: '1px solid var(--cui-border-color)' }}>
-                  <small className="text-muted d-block mb-1">Pagos realizados</small>
-                  <h4 className="mb-0 fw-bold" style={{ color: 'var(--cui-primary)' }}>{fmt(pagosRealizados)}</h4>
-                  <small className="text-muted">Suma de entradas en Extrato Gastos</small>
-                </div>
-              </CCol>
-              <CCol md={6}>
-                <div className="p-3 rounded h-100" style={{
-                  border: `2px solid ${montoRestante <= 0 ? 'var(--cui-success)' : 'var(--cui-warning)'}`,
-                  backgroundColor: montoRestante <= 0
-                    ? 'color-mix(in srgb, var(--cui-success) 10%, transparent)'
-                    : 'color-mix(in srgb, var(--cui-warning) 10%, transparent)',
-                }}>
-                  <small className="text-muted d-block mb-1">Monto restante</small>
-                  <h4 className={`mb-0 fw-bold ${montoRestante <= 0 ? 'text-success' : 'text-warning'}`}>
-                    {montoRestante <= 0 ? '✓ ' : ''}{fmt(Math.abs(montoRestante))}
-                  </h4>
-                  {montoRestante <= 0
-                    ? <small className="text-success">Programa completamente cubierto</small>
-                    : <small className="text-muted">Total − Pagos realizados</small>}
-                </div>
-              </CCol>
+            {/* 5 summary squares: 3 + 2 centered */}
+            <CRow className="g-3 mb-3">
+              <CCol md={4}><SummarySquare label="Total pagado" sublabel="Esquema"    value={schemeValuePaid} /></CCol>
+              <CCol md={4}><SummarySquare label="Total pagado" sublabel="Transporte" value={bonoTransportePaid} /></CCol>
+              <CCol md={4}><SummarySquare label="Total pagado" sublabel="Bonos"      value={bonosTotalesPaid} /></CCol>
             </CRow>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem' }}>
+              <div style={{ flex: '0 0 calc(33.333% - 0.5rem)', maxWidth: 'calc(33.333% - 0.5rem)' }}>
+                <SummarySquare label="Total descontado" sublabel="Penalizaciones" value={totalPenalizaciones + bgDeduction} color="danger" negative />
+              </div>
+              <div style={{ flex: '0 0 calc(33.333% - 0.5rem)', maxWidth: 'calc(33.333% - 0.5rem)' }}>
+                <SummarySquare label="Total pagado" sublabel="Reembolso" value={totalReembolso} color="info" />
+              </div>
+            </div>
+
+            {/* Grand total */}
+            <div className="mt-3 p-3 rounded" style={{
+              border: `2px solid ${montoRestante <= 0 ? 'var(--cui-success)' : 'var(--cui-warning)'}`,
+              backgroundColor: montoRestante <= 0 ? 'color-mix(in srgb, var(--cui-success) 10%, transparent)' : 'color-mix(in srgb, var(--cui-warning) 10%, transparent)',
+            }}>
+              <div className="d-flex justify-content-between align-items-center">
+                <div>
+                  <small className="text-muted d-block">Pagos realizados / Monto restante</small>
+                  <span className="fw-semibold">{fmt(pagosRealizados)}</span>
+                  <span className="text-muted mx-2">/</span>
+                  <span className={`fw-bold h5 mb-0 ${montoRestante <= 0 ? 'text-success' : 'text-warning'}`}>
+                    {montoRestante <= 0 ? '✓ ' : ''}{fmt(Math.abs(montoRestante))}
+                  </span>
+                </div>
+                {montoRestante <= 0
+                  ? <CBadge color="success" style={{ fontSize: '0.9rem' }}>Esquema completamente cubierto</CBadge>
+                  : <CBadge color="warning" style={{ fontSize: '0.9rem' }}>Pendiente</CBadge>}
+              </div>
+            </div>
           </CAccordionBody>
         </CAccordionItem>
 
-        {/* ═══ Extrato Gastos ════════════════════════════════════════════════ */}
-        <CAccordionItem itemKey={8}>
-          <CAccordionHeader>
-            <strong>Extrato Gastos</strong>
-          </CAccordionHeader>
+        {/* ═══ Extrato Gastos ════════════════════════════════════════════ */}
+        <CAccordionItem itemKey={8} style={disabledSection}>
+          <CAccordionHeader><strong>Extrato Gastos</strong></CAccordionHeader>
           <CAccordionBody>
             {extratoAlert.show && (
               <CAlert color={extratoAlert.type} dismissible onClose={() => setExtratoAlert({ show: false })} className="mb-3">
@@ -1323,7 +1410,8 @@ const PaymentsGestForm = () => {
               </CAlert>
             )}
             <CRow className="mb-3 align-items-end g-2">
-              <CCol md={3}><CFormLabel className="small text-muted mb-1">Fecha</CFormLabel><CFormInput type="date" size="sm" value={newExtrato.fecha} onChange={e => setNewExtrato(p => ({ ...p, fecha: e.target.value }))} /></CCol>
+              <CCol md={3}><CFormLabel className="small text-muted mb-1">Fecha</CFormLabel>
+                <CFormInput type="date" size="sm" value={newExtrato.fecha} onChange={e => setNewExtrato(p => ({ ...p, fecha: e.target.value }))} /></CCol>
               <CCol md={2}><CFormLabel className="small text-muted mb-1">Movimiento</CFormLabel><CFormInput size="sm" value="pago gestante" disabled /></CCol>
               <CCol md={4}>
                 <CFormLabel className="small text-muted mb-1">Motivo</CFormLabel>
@@ -1332,7 +1420,8 @@ const PaymentsGestForm = () => {
                   {EXTRATO_MOTIVOS.map(m => <option key={m} value={m}>{m}</option>)}
                 </CFormSelect>
               </CCol>
-              <CCol md={2}><CFormLabel className="small text-muted mb-1">Valor (MXN)</CFormLabel><CFormInput type="number" size="sm" className="no-spinners" placeholder="0" value={newExtrato.valor} onChange={e => setNewExtrato(p => ({ ...p, valor: e.target.value }))} /></CCol>
+              <CCol md={2}><CFormLabel className="small text-muted mb-1">Valor (MXN)</CFormLabel>
+                <CFormInput type="number" size="sm" className="no-spinners" placeholder="0" value={newExtrato.valor} onChange={e => setNewExtrato(p => ({ ...p, valor: e.target.value }))} /></CCol>
               <CCol md={1}><CButton color="primary" size="sm" onClick={addExtratoEntry} className="w-100"><CIcon icon={cilPlus} /></CButton></CCol>
             </CRow>
             <div className="table-responsive">
@@ -1371,7 +1460,7 @@ const PaymentsGestForm = () => {
                           const isBonus   = bonusKeys.includes(entry.autoKey);
                           return (
                             <CButton color="danger" variant="ghost" size="sm" disabled={isBonus}
-                              title={isBonus ? 'Este registro se gestiona automáticamente con los bonos' : entry.isAuto ? 'Eliminar (desbloqueará la fila correspondiente)' : 'Eliminar'}
+                              title={isBonus ? 'Este registro se gestiona automáticamente' : entry.isAuto ? 'Eliminar (desbloqueará la fila correspondiente)' : 'Eliminar'}
                               onClick={() => !isBonus && confirmDeleteExtrato(entry)}>
                               <CIcon icon={cilTrash} size="sm" />
                             </CButton>
@@ -1396,13 +1485,31 @@ const PaymentsGestForm = () => {
 
       </CAccordion>
 
-      {/* ── Modal: scheme password ── */}
-      <CModal visible={showSchemePasswordModal} onClose={() => setShowSchemePasswordModal(false)} alignment="center" backdrop="static" keyboard={false}>
+      {/* ── Modal: per-field unlock ── */}
+      <CModal visible={showFieldUnlockModal} onClose={() => setShowFieldUnlockModal(false)} alignment="center" backdrop="static" keyboard={false}>
         <CModalHeader closeButton={false}>
-          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilLockLocked} className="text-warning me-2" size="lg" />Cambiar programa</CModalTitle>
+          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilLockLocked} className="text-warning me-2" size="lg" />Editar campo</CModalTitle>
         </CModalHeader>
         <CModalBody>
-          <p className="mb-3">El programa está bloqueado. Ingresa la contraseña para modificar:</p>
+          <p className="mb-3">Ingresa la contraseña para editar <strong>{fieldUnlockTarget?.label}</strong>:</p>
+          <CFormInput type="password" autoComplete="new-password" value={fieldUnlockPassword}
+            onChange={e => { setFieldUnlockPassword(e.target.value); setFieldUnlockError(''); }}
+            onKeyDown={e => { if (e.key === 'Enter') confirmFieldUnlock(); }} invalid={!!fieldUnlockError} />
+          {fieldUnlockError && <div className="text-danger mt-2 small">{fieldUnlockError}</div>}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={() => setShowFieldUnlockModal(false)}>Cancelar</CButton>
+          <CButton color="warning" onClick={confirmFieldUnlock}><CIcon icon={cilLockUnlocked} className="me-2" />Desbloquear</CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: scheme change password ── */}
+      <CModal visible={showSchemePasswordModal} onClose={() => setShowSchemePasswordModal(false)} alignment="center" backdrop="static" keyboard={false}>
+        <CModalHeader closeButton={false}>
+          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilLockLocked} className="text-warning me-2" size="lg" />Cambiar esquema</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="mb-3">El esquema está bloqueado. Ingresa la contraseña para modificar:</p>
           <CFormInput type="password" autoComplete="new-password" value={schemePasswordInput}
             onChange={e => { setSchemePasswordInput(e.target.value); setSchemePasswordError(''); }}
             onKeyDown={e => { if (e.key === 'Enter') confirmSchemeChange(); }} invalid={!!schemePasswordError} />
@@ -1415,7 +1522,7 @@ const PaymentsGestForm = () => {
       </CModal>
 
       {/* ── Modal: date picker ── */}
-      <CModal visible={showDateModal} onClose={cancelDateModal} alignment="center" backdrop="static">
+      <CModal visible={showDateModal} onClose={() => setShowDateModal(false)} alignment="center" backdrop="static">
         <CModalHeader>
           <CModalTitle>Fecha de pago — <span style={{ color: 'var(--cui-primary)' }}>{dateModalInfo.label}</span></CModalTitle>
         </CModalHeader>
@@ -1424,19 +1531,19 @@ const PaymentsGestForm = () => {
           <CFormInput type="date" value={dateModalInfo.fecha} onChange={e => setDateModalInfo(p => ({ ...p, fecha: e.target.value }))} />
           <div className="mt-3 p-2 rounded" style={{ background: 'color-mix(in srgb, var(--cui-primary) 8%, transparent)', border: '1px solid var(--cui-border-color)' }}>
             <small className="text-muted d-block">Valor que se registrará en Extrato Gastos</small>
-            <strong style={{ color: 'var(--cui-primary)' }}>{fmt(dateModalInfo.valor)}</strong>
+            <strong style={{ color: parseFloat(dateModalInfo.valor) < 0 ? 'var(--cui-danger)' : 'var(--cui-primary)' }}>{fmt(dateModalInfo.valor)}</strong>
             <small className="d-block text-muted mt-1">Importe + bono transporte − penalización + reembolso</small>
           </div>
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={cancelDateModal}>Cancelar</CButton>
+          <CButton color="secondary" onClick={() => setShowDateModal(false)}>Cancelar</CButton>
           <CButton color="primary" className="app-button" onClick={confirmDateModal} disabled={!dateModalInfo.fecha}>
             <CIcon icon={cilSave} className="me-2" />Confirmar pago
           </CButton>
         </CModalFooter>
       </CModal>
 
-      {/* ── Modal: unlock / re-edit ── */}
+      {/* ── Modal: row unlock ── */}
       <CModal visible={showUnlockModal} onClose={() => setShowUnlockModal(false)} alignment="center" backdrop="static" keyboard={false}>
         <CModalHeader closeButton={false}>
           <CModalTitle className="d-flex align-items-center"><CIcon icon={cilLockLocked} className="text-warning me-2" size="lg" />Desbloquear fila</CModalTitle>
