@@ -10,7 +10,7 @@ import {
   CAccordionHeader, CAccordionBody,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilArrowLeft, cilSave, cilPlus, cilTrash, cilWarning, cilLockLocked, cilLockUnlocked } from '@coreui/icons';
+import { cilArrowLeft, cilSave, cilPlus, cilTrash, cilWarning, cilLockLocked, cilLockUnlocked, cilPencil, cilDescription } from '@coreui/icons';
 import api from '../../../services/api';
 import { useBillsAuth } from '../../../context/BillsAuthContext';
 
@@ -23,75 +23,43 @@ const NumInput = ({ value, onChange, placeholder = '', disabled = false, width =
     placeholder={placeholder} disabled={disabled} />
 );
 
-// LockedFormInput — individual field with pending-lock warning behaviour.
-// Flow for a non-empty edited field:
-//   1. User focuses the field → prefocus value is recorded
-//   2. User types / selects something different from prefocus value → dirty
-//   3. User blurs or presses Enter → if dirty AND non-empty → PENDING state
-//   4. Pending shows orange warning + "Bloquear" button
-//   5. User clicks "Bloquear" → field locks  |  presses Escape → pending cancelled
-// Empty fields are NEVER locked regardless of what the user does.
+// LockedFormInput — Guardar / Editar (pencil) pattern.
+// - Unlocked + non-empty value → green "Guardar" button locks the field.
+// - Locked → orange "Editar" pencil button opens password modal to unlock.
+// - Empty fields can never be locked (Guardar button hidden when empty).
 // Must be defined outside component to avoid React remount / focus loss.
-const LockedFormInput = ({ name, label, value, type = 'text', locked, pending, disabled, onChange, onBecameDirty, onLockRequest }) => {
-  const preFocusValue = React.useRef(value);
-
-  return (
-    <div>
-      <CFormLabel className="mb-1 small d-flex align-items-center gap-1">
-        {label}
-        {locked && <CIcon icon={cilLockLocked} size="sm" className="text-warning" />}
-      </CFormLabel>
-      <div className="d-flex gap-1">
-        <CFormInput
-          type={type} name={name} value={value}
-          disabled={locked || disabled}
-          onFocus={() => { preFocusValue.current = value; }}
-          onChange={e => {
-            // Mark dirty as soon as value changes from what it was at focus time
-            if (e.target.value !== preFocusValue.current) onBecameDirty(name);
-            onChange(e);
-          }}
-          onBlur={() => onLockRequest(name, 'blur')}
-          onKeyDown={e => {
-            if (e.key === 'Enter')  { e.preventDefault(); onLockRequest(name, 'enter'); }
-            if (e.key === 'Escape') { e.preventDefault(); onLockRequest(name, 'escape'); }
-          }}
-          style={{
-            flex: 1,
-            borderColor: pending ? 'var(--cui-warning)' : undefined,
-            boxShadow:   pending ? '0 0 0 2px color-mix(in srgb, var(--cui-warning) 30%, transparent)' : undefined,
-          }}
-        />
-        {/* Locked: show unlock button */}
-        {locked && (
-          <CButton size="sm" color="warning" variant="ghost" style={{ padding: '0 8px' }}
-            title="Editar este campo (requiere contraseña)"
-            onClick={() => onLockRequest(name, 'unlock')}>
-            <CIcon icon={cilLockLocked} size="sm" />
-          </CButton>
-        )}
-        {/* Pending: show confirm-lock button */}
-        {pending && !locked && (
-          <CButton size="sm" color="warning" style={{ padding: '0 8px', whiteSpace: 'nowrap' }}
-            title="Confirmar bloqueo"
-            onClick={() => onLockRequest(name, 'confirm')}>
-            <CIcon icon={cilLockLocked} size="sm" className="me-1" />Bloquear
-          </CButton>
-        )}
-      </div>
-      {/* Pending warning message */}
-      {pending && !locked && (
-        <div className="d-flex align-items-center gap-1 mt-1 px-2 py-1 rounded"
-          style={{ backgroundColor: 'color-mix(in srgb, var(--cui-warning) 12%, transparent)', border: '1px solid color-mix(in srgb, var(--cui-warning) 40%, transparent)' }}>
-          <CIcon icon={cilWarning} size="sm" className="text-warning flex-shrink-0" />
-          <small className="text-warning">
-            ¿Bloquear este campo? Haz clic en <strong>Bloquear</strong> para confirmar, o presiona <kbd>Esc</kbd> para cancelar.
-          </small>
-        </div>
+const LockedFormInput = ({ name, label, value, type = 'text', locked, disabled, onChange, onLockRequest }) => (
+  <div>
+    <CFormLabel className="mb-1 small d-flex align-items-center gap-1">
+      {label}
+      {locked && <CIcon icon={cilLockLocked} size="sm" className="text-warning" />}
+    </CFormLabel>
+    <div className="d-flex gap-1">
+      <CFormInput
+        type={type} name={name} value={value}
+        disabled={locked || disabled}
+        onChange={onChange}
+        style={{ flex: 1 }}
+      />
+      {/* Non-empty & unlocked: show Guardar */}
+      {!locked && value && String(value).trim() !== '' && (
+        <CButton size="sm" color="success" style={{ padding: '0 10px', whiteSpace: 'nowrap' }}
+          title="Guardar y bloquear este campo"
+          onClick={() => onLockRequest(name, 'save')}>
+          <CIcon icon={cilSave} size="sm" className="me-1" />Guardar
+        </CButton>
+      )}
+      {/* Locked: show Editar pencil */}
+      {locked && (
+        <CButton size="sm" color="warning" variant="outline" style={{ padding: '0 8px' }}
+          title="Editar este campo (requiere contraseña)"
+          onClick={() => onLockRequest(name, 'unlock')}>
+          <CIcon icon={cilPencil} size="sm" />
+        </CButton>
       )}
     </div>
-  );
-};
+  </div>
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
@@ -196,8 +164,6 @@ const PaymentsGestForm = () => {
   // New mode: all unlocked. Edit mode: starts unlocked, fetchPayment sets locked
   // state based on which fields actually have values (empty fields stay editable).
   const [lockedFields,      setLockedFields]      = useState(() => initLockedFields(false));
-  const [pendingLockFields, setPendingLockFields] = useState({});   // fields showing the "lock?" warning
-  const dirtyFields = useRef({});                      // tracks which fields have been edited
   // fieldUnlockTarget: { name, label } — the field currently asking for password
   const [fieldUnlockTarget, setFieldUnlockTarget] = useState(null);
   const [fieldUnlockPassword, setFieldUnlockPassword] = useState('');
@@ -227,6 +193,17 @@ const PaymentsGestForm = () => {
   const [extratoGastos,   setExtratoGastos]   = useState([]);
   const [newExtrato,      setNewExtrato]      = useState({ fecha: '', motivo: '', valor: '' });
   const [extratoAlert,    setExtratoAlert]    = useState({ show: false, type: '', message: '' });
+
+  // ── Comments per row ──────────────────────────────────────────────────────
+  const [rowComments,       setRowComments]       = useState({});   // { [commentKey]: string }
+  const [lockedComments,    setLockedComments]    = useState({});   // { [commentKey]: bool }
+  const [showCommentModal,  setShowCommentModal]  = useState(false);
+  const [commentCtx,        setCommentCtx]        = useState({ key: '', label: '' });
+  const [commentDraft,      setCommentDraft]      = useState('');
+  const [commentEditMode,   setCommentEditMode]   = useState(true);
+  const [commentPwVisible,  setCommentPwVisible]  = useState(false);
+  const [commentPw,         setCommentPw]         = useState('');
+  const [commentPwError,    setCommentPwError]    = useState('');
 
   // ── Delete modals ─────────────────────────────────────────────────────────
   const [showDeleteModal,         setShowDeleteModal]         = useState(false);
@@ -428,6 +405,13 @@ const PaymentsGestForm = () => {
       if (data.ayuda_maternidad !== undefined) setAyudaMaternidad(data.ayuda_maternidad);
       if (data.ayuda_amount !== undefined)   setAyudaAmount(String(data.ayuda_amount || ''));
       if (data.ayuda_state)                  setAyudaState(data.ayuda_state);
+      if (data.row_comments) {
+        setRowComments(data.row_comments);
+        // Any key with a saved comment starts as locked
+        const locked = {};
+        Object.keys(data.row_comments).forEach(k => { if (data.row_comments[k]) locked[k] = true; });
+        setLockedComments(locked);
+      }
 
       // Only lock fields that actually have a value — empty fields stay editable
       const newLocked = {};
@@ -451,52 +435,23 @@ const PaymentsGestForm = () => {
   // ── Per-field lock handlers ───────────────────────────────────────────────
   const handleFormChange = (e) => setFormData(p => ({ ...p, [e.target.name]: e.target.value }));
 
-  const handleFieldDirty = (name) => { dirtyFields.current[name] = true; };
-
   const FIELD_LABELS = {
     gesca: 'GESCA', ip: 'IP', banco: 'Banco', clabe: 'Clabe', country: 'País',
     insurance: 'Seguro', policy: 'Póliza', manager: 'Gestor', fum: 'FUM', giro_semana: 'Giro de semana',
   };
 
   const handleFieldLockRequest = (name, action) => {
-    const currentValue = formData[name];
-    const isEmpty = !currentValue || String(currentValue).trim() === '';
-
-    if (action === 'unlock') {
-      // User clicked the 🔒 icon on an already-locked field → open password modal
+    if (action === 'save') {
+      const v = formData[name];
+      if (v && String(v).trim() !== '') {
+        setLockedFields(p => ({ ...p, [name]: true }));
+      }
+    } else if (action === 'unlock') {
       setFieldUnlockTarget({ name, label: FIELD_LABELS[name] || name });
       setFieldUnlockPassword('');
       setFieldUnlockError('');
       setShowFieldUnlockModal(true);
-      return;
     }
-
-    if (action === 'escape') {
-      // Cancel pending lock
-      setPendingLockFields(p => { const n = { ...p }; delete n[name]; return n; });
-      dirtyFields.current[name] = false;
-      return;
-    }
-
-    if (action === 'confirm') {
-      // User explicitly clicked "Bloquear" button — always lock if not empty
-      if (!isEmpty) {
-        setLockedFields(p => ({ ...p, [name]: true }));
-      }
-      setPendingLockFields(p => { const n = { ...p }; delete n[name]; return n; });
-      dirtyFields.current[name] = false;
-      return;
-    }
-
-    // action === 'blur' or 'enter'
-    if (!dirtyFields.current[name]) return;   // untouched — do nothing
-    if (isEmpty) {
-      // Empty field: never lock, just clear dirty flag
-      dirtyFields.current[name] = false;
-      return;
-    }
-    // Non-empty dirty field → enter pending state (show warning)
-    setPendingLockFields(p => ({ ...p, [name]: true }));
   };
 
   const confirmFieldUnlock = () => {
@@ -505,8 +460,6 @@ const PaymentsGestForm = () => {
     }
     const name = fieldUnlockTarget.name;
     setLockedFields(p => ({ ...p, [name]: false }));
-    setPendingLockFields(p => { const n = { ...p }; delete n[name]; return n; });
-    dirtyFields.current[name] = false;
     setShowFieldUnlockModal(false);
     setFieldUnlockTarget(null);
     setFieldUnlockPassword('');
@@ -640,6 +593,33 @@ const PaymentsGestForm = () => {
     setDeleteTarget({ type: '', id: null, label: '', autoKey: '', isAuto: false });
   };
 
+  // ── Comment handlers ──────────────────────────────────────────────────────
+  const openCommentModal = (key, label) => {
+    const existing = rowComments[key];
+    setCommentCtx({ key, label });
+    setCommentDraft(existing || '');
+    setCommentEditMode(!lockedComments[key]);   // locked comment → view mode, else edit mode
+    setCommentPwVisible(false);
+    setCommentPw('');
+    setCommentPwError('');
+    setShowCommentModal(true);
+  };
+
+  const saveComment = () => {
+    setRowComments(p => ({ ...p, [commentCtx.key]: commentDraft }));
+    setLockedComments(p => ({ ...p, [commentCtx.key]: true }));
+    setCommentEditMode(false);
+    setCommentPwVisible(false);
+  };
+
+  const confirmCommentUnlock = () => {
+    if (commentPw !== UNLOCK_PASSWORD) { setCommentPwError('Contraseña incorrecta'); return; }
+    setCommentEditMode(true);
+    setCommentPwVisible(false);
+    setCommentPw('');
+    setCommentPwError('');
+  };
+
   const savePayment = async () => {
     if (!formData.gesca || !formData.ip) {
       setAlert({ show: true, type: 'danger', message: 'Completa los campos obligatorios: GESCA e IP' }); return;
@@ -656,6 +636,7 @@ const PaymentsGestForm = () => {
       parc_count: parcCount, parc_completed: parcCompleted,
       ayuda_maternidad: ayudaMaternidad, ayuda_amount: parseFloat(ayudaAmount) || 0,
       ayuda_state: ayudaState, extrato_gastos: extratoGastos,
+      row_comments: rowComments,
     };
     try {
       if (isEditMode) {
@@ -704,7 +685,7 @@ const PaymentsGestForm = () => {
     </CTableRow>
   );
 
-  const CompletedCell = ({ completed, autoKey, label, importe, bonoVal, penalizacion, reembolso, category, onCommitTrue, onUncomplete }) => (
+  const CompletedCell = ({ completed, autoKey, label, importe, bonoVal, penalizacion, reembolso, category, onCommitTrue, onUncomplete, commentKey }) => (
     <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
       <div className="d-flex align-items-center justify-content-center gap-1">
         <CFormCheck checked={completed} disabled={completed}
@@ -713,7 +694,20 @@ const PaymentsGestForm = () => {
           <CButton size="sm" color="warning" variant="ghost" style={{ padding: '2px 6px' }}
             title="Re-editar (requiere contraseña)"
             onClick={() => openUnlockModal({ autoKey, label, uncomplete: onUncomplete })}>
-            <CIcon icon={cilLockLocked} size="sm" />
+            <CIcon icon={cilPencil} size="sm" />
+          </CButton>
+        )}
+        {commentKey && (
+          <CButton size="sm" color="secondary" variant="ghost" style={{ padding: '2px 6px', position: 'relative' }}
+            title="Ver / agregar comentario"
+            onClick={() => openCommentModal(commentKey, label)}>
+            <CIcon icon={cilDescription} size="sm" />
+            {rowComments[commentKey] && (
+              <span style={{
+                position: 'absolute', top: 0, right: 0, width: '7px', height: '7px',
+                borderRadius: '50%', backgroundColor: 'var(--cui-primary)', border: '1px solid white',
+              }} />
+            )}
           </CButton>
         )}
       </div>
@@ -751,6 +745,7 @@ const PaymentsGestForm = () => {
         <CTableDataCell style={cs}><NumInput disabled={locked} value={state.reembolso}    onChange={e => updateRowState(row.id, 'reembolso',    e.target.value)} /></CTableDataCell>
         <CompletedCell completed={locked} autoKey={`fixed_${row.id}`} label={row.concepto}
           importe={imp} bonoVal={bono} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
+          commentKey={`fixed_${row.id}`}
           onCommitTrue={() => updateRowState(row.id, 'completed', true)} onUncomplete={() => updateRowState(row.id, 'completed', false)} />
       </CTableRow>
     );
@@ -770,10 +765,8 @@ const PaymentsGestForm = () => {
   // Props shared by all LockedFormInput fields
   const fieldProps = {
     onChange:      handleFormChange,
-    onBecameDirty: handleFieldDirty,
     onLockRequest: handleFieldLockRequest,
   };
-  const fieldPending = (name) => !!pendingLockFields[name];
 
   return (
     <CContainer fluid>
@@ -878,7 +871,7 @@ const PaymentsGestForm = () => {
                         onClick={handleSchemeChangeRequest}
                         title="Cambiar esquema (requiere contraseña)"
                       >
-                        <CIcon icon={cilLockLocked} className="me-1" size="sm" />Cambiar
+                        <CIcon icon={cilPencil} className="me-1" size="sm" />Cambiar
                       </CButton>
                     )}
 
@@ -898,22 +891,22 @@ const PaymentsGestForm = () => {
 
             {/* ── Form fields — each locks individually ── */}
             <div className="form-row-equal cols-2 mb-3">
-              <LockedFormInput name="gesca" label="GESCA *"   value={formData.gesca} locked={lockedFields.gesca} pending={fieldPending('gesca')} {...fieldProps} />
-              <LockedFormInput name="ip"    label="IP *"      value={formData.ip}    locked={lockedFields.ip}    pending={fieldPending('ip')}    {...fieldProps} />
+              <LockedFormInput name="gesca" label="GESCA *"   value={formData.gesca} locked={lockedFields.gesca} {...fieldProps} />
+              <LockedFormInput name="ip"    label="IP *"      value={formData.ip}    locked={lockedFields.ip}    {...fieldProps} />
             </div>
             <div className="form-row-equal cols-2 mb-3">
-              <LockedFormInput name="banco" label="Banco"     value={formData.banco} locked={lockedFields.banco} pending={fieldPending('banco')} {...fieldProps} />
-              <LockedFormInput name="clabe" label="Clabe"     value={formData.clabe} locked={lockedFields.clabe} pending={fieldPending('clabe')} {...fieldProps} />
+              <LockedFormInput name="banco" label="Banco"     value={formData.banco} locked={lockedFields.banco} {...fieldProps} />
+              <LockedFormInput name="clabe" label="Clabe"     value={formData.clabe} locked={lockedFields.clabe} {...fieldProps} />
             </div>
             <div className="form-row-equal cols-3 mb-3">
-              <LockedFormInput name="country"   label="País"   value={formData.country}   locked={lockedFields.country}   pending={fieldPending('country')}   {...fieldProps} />
-              <LockedFormInput name="insurance" label="Seguro" value={formData.insurance} locked={lockedFields.insurance} pending={fieldPending('insurance')} {...fieldProps} />
-              <LockedFormInput name="policy"    label="Póliza" value={formData.policy}    locked={lockedFields.policy}    pending={fieldPending('policy')}    {...fieldProps} />
+              <LockedFormInput name="country"   label="País"   value={formData.country}   locked={lockedFields.country}   {...fieldProps} />
+              <LockedFormInput name="insurance" label="Seguro" value={formData.insurance} locked={lockedFields.insurance} {...fieldProps} />
+              <LockedFormInput name="policy"    label="Póliza" value={formData.policy}    locked={lockedFields.policy}    {...fieldProps} />
             </div>
             <div className="form-row-equal cols-3">
-              <LockedFormInput name="manager"     label="Gestor"         value={formData.manager}     locked={lockedFields.manager}     pending={fieldPending('manager')}     {...fieldProps} />
-              <LockedFormInput name="fum"         label="FUM"            value={formData.fum}         locked={lockedFields.fum}         pending={fieldPending('fum')}         type="date" {...fieldProps} />
-              <LockedFormInput name="giro_semana" label="Giro de semana" value={formData.giro_semana} locked={lockedFields.giro_semana} pending={fieldPending('giro_semana')} {...fieldProps} />
+              <LockedFormInput name="manager"     label="Gestor"         value={formData.manager}     locked={lockedFields.manager}     {...fieldProps} />
+              <LockedFormInput name="fum"         label="FUM"            value={formData.fum}         locked={lockedFields.fum}         type="date" {...fieldProps} />
+              <LockedFormInput name="giro_semana" label="Giro de semana" value={formData.giro_semana} locked={lockedFields.giro_semana} {...fieldProps} />
             </div>
           </CAccordionBody>
         </CAccordionItem>
@@ -931,7 +924,7 @@ const PaymentsGestForm = () => {
                     <CTableHeaderCell style={hs}>Bono transporte</CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Penalización</CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Reembolso</CTableHeaderCell>
-                    <CTableHeaderCell style={hsc}>Exitosa</CTableHeaderCell>
+                    <CTableHeaderCell style={hsc}>Beta positiva</CTableHeaderCell>
                     <CTableHeaderCell style={hsc}>Pago completado</CTableHeaderCell>
                   </CTableRow>
                 </CTableHead>
@@ -943,7 +936,7 @@ const PaymentsGestForm = () => {
                       <CTableRow key={trans.id} style={locked ? rowLocked : trans.successful ? rowPrimary : undefined}>
                         <CTableDataCell style={cs}>
                           <strong>Transferencia {trans.id}</strong>
-                          {trans.successful && <CBadge color="primary" className="ms-2">Exitosa</CBadge>}
+                          {trans.successful && <CBadge color="primary" className="ms-2">Beta positiva</CBadge>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}><span className="fw-semibold" style={{ color: 'var(--cui-primary)' }}>{fmt(1000)}</span></CTableDataCell>
                         <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
@@ -954,6 +947,7 @@ const PaymentsGestForm = () => {
                         </CTableDataCell>
                         <CompletedCell completed={locked} autoKey={autoKey} label={`Transferencia ${trans.id}`}
                           importe={1000} bonoVal={0} penalizacion={trans.penalizacion} reembolso={trans.reembolso} category="scheme"
+                          commentKey={`transferencia_${trans.id}`}
                           onCommitTrue={() => updateTransferencia(idx, 'completed', true)} onUncomplete={() => updateTransferencia(idx, 'completed', false)} />
                       </CTableRow>
                     );
@@ -1028,7 +1022,16 @@ const PaymentsGestForm = () => {
                         <CTableDataCell style={cs}><CBadge color={statusColor}>{statusLabel}</CBadge></CTableDataCell>
                         <CTableDataCell style={cs}><span className="text-muted small">Automático</span></CTableDataCell>
                         <CTableDataCell style={cs}><span className="text-muted small">Ver extrato</span></CTableDataCell>
-                        <CTableDataCell style={{ ...cs, textAlign: 'center' }}><span className="text-muted small">—</span></CTableDataCell>
+                        <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
+                          <CButton size="sm" color="secondary" variant="ghost" style={{ padding: '2px 6px', position: 'relative' }}
+                            title="Ver / agregar comentario"
+                            onClick={() => openCommentModal('bono_t1_sdg36', 'Transfer 1 / SDG 36')}>
+                            <CIcon icon={cilDescription} size="sm" />
+                            {rowComments['bono_t1_sdg36'] && (
+                              <span style={{ position: 'absolute', top: 0, right: 0, width: '7px', height: '7px', borderRadius: '50%', backgroundColor: 'var(--cui-primary)', border: '1px solid white' }} />
+                            )}
+                          </CButton>
+                        </CTableDataCell>
                       </CTableRow>
                     );
                   })()}
@@ -1049,6 +1052,7 @@ const PaymentsGestForm = () => {
                         <CTableDataCell style={cs}><NumInput disabled={locked || !bonoVIH} value={bonoStates.vih.reembolso}    onChange={e => updateBonoState('vih', 'reembolso',    e.target.value)} /></CTableDataCell>
                         <CompletedCell completed={bonoStates.vih.completed} autoKey="bono_vih" label="Bono VIH"
                           importe={50000} bonoVal={0} penalizacion={bonoStates.vih.penalizacion} reembolso={bonoStates.vih.reembolso} category="bono"
+                          commentKey="bono_vih"
                           onCommitTrue={() => updateBonoState('vih', 'completed', true)} onUncomplete={() => updateBonoState('vih', 'completed', false)} />
                       </CTableRow>
                     );
@@ -1070,6 +1074,7 @@ const PaymentsGestForm = () => {
                         <CTableDataCell style={cs}><NumInput disabled={locked || !bonoGemelar} value={bonoStates.gemelar.reembolso}    onChange={e => updateBonoState('gemelar', 'reembolso',    e.target.value)} /></CTableDataCell>
                         <CompletedCell completed={bonoStates.gemelar.completed} autoKey="bono_gemelar" label="Bono Gemelar"
                           importe={20000} bonoVal={0} penalizacion={bonoStates.gemelar.penalizacion} reembolso={bonoStates.gemelar.reembolso} category="bono"
+                          commentKey="bono_gemelar"
                           onCommitTrue={() => updateBonoState('gemelar', 'completed', true)} onUncomplete={() => updateBonoState('gemelar', 'completed', false)} />
                       </CTableRow>
                     );
@@ -1127,6 +1132,7 @@ const PaymentsGestForm = () => {
                         <CTableDataCell style={cs}><NumInput disabled={locked} value={state.reembolso}    onChange={e => updatePuerperioState(row.id, 'reembolso',    e.target.value)} /></CTableDataCell>
                         <CompletedCell completed={locked} autoKey={`puerperio_${row.id}`} label={row.concepto}
                           importe={importe} bonoVal={0} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
+                          commentKey={`puerperio_${row.id}`}
                           onCommitTrue={() => updatePuerperioState(row.id, 'completed', true)} onUncomplete={() => updatePuerperioState(row.id, 'completed', false)} />
                       </CTableRow>
                     );
@@ -1178,6 +1184,7 @@ const PaymentsGestForm = () => {
                         <CTableDataCell style={cs}><NumInput disabled={ayudaState.completed} value={ayudaState.reembolso}    onChange={e => updateAyudaState('reembolso',    e.target.value)} /></CTableDataCell>
                         <CompletedCell completed={ayudaState.completed} autoKey="ayuda_maternidad" label="Ayuda maternidad"
                           importe={ayudaAmountNum} bonoVal={0} penalizacion={ayudaState.penalizacion} reembolso={ayudaState.reembolso} category="scheme"
+                          commentKey="ayuda_maternidad"
                           onCommitTrue={() => updateAyudaState('completed', true)} onUncomplete={() => updateAyudaState('completed', false)} />
                       </CTableRow>
                     </CTableBody>
@@ -1258,6 +1265,7 @@ const PaymentsGestForm = () => {
                     <CTableDataCell style={cs}><NumInput disabled={bgState.completed} value={bgState.reembolso}    onChange={e => updateBgState('reembolso',    e.target.value)} /></CTableDataCell>
                     <CompletedCell completed={bgState.completed} autoKey="buena_gestante" label="CDO. GESCA"
                       importe={-bgDeduction} bonoVal={0} penalizacion={bgState.penalizacion} reembolso={bgState.reembolso} category="scheme"
+                      commentKey="cdo_gesca"
                       onCommitTrue={() => updateBgState('completed', true)} onUncomplete={() => updateBgState('completed', false)} />
                   </CTableRow>
                 </CTableBody>
@@ -1298,6 +1306,7 @@ const PaymentsGestForm = () => {
                         <CTableDataCell style={cs}><span className="fw-semibold" style={{ color: 'var(--cui-primary)' }}>{fmt(amt)}</span></CTableDataCell>
                         <CompletedCell completed={locked} autoKey={autoKey} label={`Parcialidad ${i + 1}`}
                           importe={amt} bonoVal={0} penalizacion={0} reembolso={0} category="scheme"
+                          commentKey={`parcialidad_${i}`}
                           onCommitTrue={() => setParcCompleted(prev => prev.map((v, j) => j === i ? true : v))}
                           onUncomplete={() => setParcCompleted(prev => prev.map((v, j) => j === i ? false : v))} />
                       </CTableRow>
@@ -1458,12 +1467,24 @@ const PaymentsGestForm = () => {
                         {(() => {
                           const bonusKeys = ['bonus_t1', 'bonus_sdg36', 'penalty_sdg36', 'bono_vih', 'bono_gemelar'];
                           const isBonus   = bonusKeys.includes(entry.autoKey);
+                          const commentKey = `extrato_${entry.autoKey || entry.id}`;
                           return (
-                            <CButton color="danger" variant="ghost" size="sm" disabled={isBonus}
-                              title={isBonus ? 'Este registro se gestiona automáticamente' : entry.isAuto ? 'Eliminar (desbloqueará la fila correspondiente)' : 'Eliminar'}
-                              onClick={() => !isBonus && confirmDeleteExtrato(entry)}>
-                              <CIcon icon={cilTrash} size="sm" />
-                            </CButton>
+                            <div className="d-flex gap-1 align-items-center">
+                              <CButton color="secondary" variant="ghost" size="sm"
+                                style={{ padding: '2px 6px', position: 'relative' }}
+                                title="Ver / agregar comentario"
+                                onClick={() => openCommentModal(commentKey, entry.movimiento || entry.motivo || 'Entrada')}>
+                                <CIcon icon={cilDescription} size="sm" />
+                                {rowComments[commentKey] && (
+                                  <span style={{ position: 'absolute', top: 0, right: 0, width: '7px', height: '7px', borderRadius: '50%', backgroundColor: 'var(--cui-primary)', border: '1px solid white' }} />
+                                )}
+                              </CButton>
+                              <CButton color="danger" variant="ghost" size="sm" disabled={isBonus}
+                                title={isBonus ? 'Este registro se gestiona automáticamente' : entry.isAuto ? 'Eliminar (desbloqueará la fila correspondiente)' : 'Eliminar'}
+                                onClick={() => !isBonus && confirmDeleteExtrato(entry)}>
+                                <CIcon icon={cilTrash} size="sm" />
+                              </CButton>
+                            </div>
                           );
                         })()}
                       </CTableDataCell>
@@ -1488,7 +1509,7 @@ const PaymentsGestForm = () => {
       {/* ── Modal: per-field unlock ── */}
       <CModal visible={showFieldUnlockModal} onClose={() => setShowFieldUnlockModal(false)} alignment="center" backdrop="static" keyboard={false}>
         <CModalHeader closeButton={false}>
-          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilLockLocked} className="text-warning me-2" size="lg" />Editar campo</CModalTitle>
+          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilPencil} className="text-warning me-2" size="lg" />Editar campo</CModalTitle>
         </CModalHeader>
         <CModalBody>
           <p className="mb-3">Ingresa la contraseña para editar <strong>{fieldUnlockTarget?.label}</strong>:</p>
@@ -1546,7 +1567,7 @@ const PaymentsGestForm = () => {
       {/* ── Modal: row unlock ── */}
       <CModal visible={showUnlockModal} onClose={() => setShowUnlockModal(false)} alignment="center" backdrop="static" keyboard={false}>
         <CModalHeader closeButton={false}>
-          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilLockLocked} className="text-warning me-2" size="lg" />Desbloquear fila</CModalTitle>
+          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilPencil} className="text-warning me-2" size="lg" />Re-editar fila</CModalTitle>
         </CModalHeader>
         <CModalBody>
           <p className="mb-1">Para re-editar <strong>"{unlockTarget.label}"</strong> ingresa la contraseña de administrador:</p>
@@ -1592,6 +1613,64 @@ const PaymentsGestForm = () => {
         <CModalFooter>
           <CButton color="secondary" onClick={() => setShowDeleteModal(false)}>Cancelar</CButton>
           <CButton color="danger" onClick={executeDelete} style={{ color: 'white' }}><CIcon icon={cilTrash} className="me-2" />Eliminar</CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: row comment ── */}
+      <CModal visible={showCommentModal} onClose={() => setShowCommentModal(false)} alignment="center" size="lg">
+        <CModalHeader>
+          <CModalTitle className="d-flex align-items-center gap-2">
+            <CIcon icon={cilDescription} className="text-secondary" size="lg" />
+            Comentario — <span style={{ color: 'var(--cui-primary)' }}>{commentCtx.label}</span>
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          {commentEditMode ? (
+            <>
+              <CFormLabel className="mb-1 small text-muted">Escribe un comentario o nota para esta etapa:</CFormLabel>
+              <textarea
+                className="form-control"
+                rows={5}
+                value={commentDraft}
+                onChange={e => setCommentDraft(e.target.value)}
+                placeholder="Comentario opcional…"
+                style={{ resize: 'vertical', fontFamily: 'inherit' }}
+              />
+            </>
+          ) : (
+            <>
+              <div className="p-3 rounded mb-3" style={{ backgroundColor: 'var(--cui-tertiary-bg, #f8f9fa)', border: '1px solid var(--cui-border-color)', whiteSpace: 'pre-wrap', minHeight: '80px' }}>
+                {rowComments[commentCtx.key] || <span className="text-muted fst-italic">Sin comentario</span>}
+              </div>
+              {!commentPwVisible ? (
+                <CButton size="sm" color="warning" variant="outline"
+                  onClick={() => { setCommentPwVisible(true); setCommentPw(''); setCommentPwError(''); }}>
+                  <CIcon icon={cilPencil} className="me-1" size="sm" />Editar comentario
+                </CButton>
+              ) : (
+                <div className="mt-2">
+                  <CFormLabel className="small text-muted mb-1">Contraseña para editar:</CFormLabel>
+                  <div className="d-flex gap-2">
+                    <CFormInput type="password" size="sm" autoComplete="new-password"
+                      value={commentPw} onChange={e => { setCommentPw(e.target.value); setCommentPwError(''); }}
+                      onKeyDown={e => { if (e.key === 'Enter') confirmCommentUnlock(); }}
+                      invalid={!!commentPwError} placeholder="Contraseña…" style={{ maxWidth: '220px' }} />
+                    <CButton size="sm" color="warning" onClick={confirmCommentUnlock}>Confirmar</CButton>
+                    <CButton size="sm" color="secondary" variant="ghost" onClick={() => setCommentPwVisible(false)}>Cancelar</CButton>
+                  </div>
+                  {commentPwError && <div className="text-danger small mt-1">{commentPwError}</div>}
+                </div>
+              )}
+            </>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={() => setShowCommentModal(false)}>Cerrar</CButton>
+          {commentEditMode && (
+            <CButton color="primary" className="app-button" onClick={saveComment}>
+              <CIcon icon={cilSave} className="me-2" />Guardar comentario
+            </CButton>
+          )}
         </CModalFooter>
       </CModal>
 
