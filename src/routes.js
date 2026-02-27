@@ -23,7 +23,7 @@ const Guests = React.lazy(() => import('./views/babysite/progestor/Guests'))
 const Roles = React.lazy(() => import('./views/babysite/progestor/Roles'))
 const AccessRoles = React.lazy(() => import('./views/babysite/progestor/AccessRoles'))
 const Registers = React.lazy(() => import('./views/babysite/progestor/Registers'))
-const RegisterForm = React.lazy(() => import('./views/babysite/progestor/RegisterForm'))
+const RegisterForm = React.lazy(() => import('./views/babysite/progestor/Registerform'))
 const PaymentsGest = React.lazy(() => import('./views/babysite/progestor/PaymentsGest'))
 const PaymentsGestForm = React.lazy(() => import('./views/babysite/progestor/PaymentsGestForm')) 
 
