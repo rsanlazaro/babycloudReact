@@ -23,7 +23,9 @@ const Guests = React.lazy(() => import('./views/babysite/progestor/Guests'))
 const Roles = React.lazy(() => import('./views/babysite/progestor/Roles'))
 const AccessRoles = React.lazy(() => import('./views/babysite/progestor/AccessRoles'))
 const Registers = React.lazy(() => import('./views/babysite/progestor/Registers'))
-const RegisterForm = React.lazy(() => import('./views/babysite/progestor/Registerform'))
+const RegisterForm = React.lazy(() => import('./views/babysite/progestor/RegisterForm'))
+const PaymentsGest = React.lazy(() => import('./views/babysite/progestor/PaymentsGest'))
+const PaymentsGestForm = React.lazy(() => import('./views/babysite/progestor/PaymentsGestForm')) 
 
 // Babysite
 const sortGes = React.lazy(() => import('./views/babysite/babysite/SortGes'))
@@ -36,6 +38,9 @@ const routes = [
   { path: '/registers', name: 'Registers', element: Registers, requiresBillsAuth: true },
   { path: '/registers/registerForm', name: 'New Register', element: RegisterForm, requiresBillsAuth: true },
   { path: '/registers/registerForm/:id', name: 'Edit Register', element: RegisterForm, requiresBillsAuth: true },
+  { path: '/progestor/payments-gest', name: 'PaymentsGest', element: PaymentsGest },
+  { path: '/progestor/payments-gest/form', name: 'PaymentsGestForm', element: PaymentsGestForm },
+  { path: '/progestor/payments-gest/form/:id', name: 'PaymentsGestForm', element: PaymentsGestForm },
   { path: '/activity-history', name: 'ActivityHistory', element: ActivityHistory },
   { path: '/progestor/admin', name: 'Admin', element: Admin },
   { path: '/progestor/admin/reports', name: 'Reports', element: Reports },

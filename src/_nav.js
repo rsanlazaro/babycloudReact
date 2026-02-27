@@ -49,9 +49,9 @@ const _nav = [
       {
         component: CNavItem,
         name: 'Listado de pagos',
-        to: '/progestor/payments',
+        to: '/progestor/payments-gest',
         className: 'sidebar-component',
-        state: 'disabled',
+        state: 'enabled',
         permission: PERMISSIONS.LIST_PAYMENTS, // access_5
       },
       {
@@ -96,9 +96,9 @@ const _nav = [
       {
         component: CNavItem,
         name: 'Listado Sort_GES',
-        to: '/babysite/gestant',
+        to: '/babysite/sortGes',
         className: 'sidebar-component',
-        state: 'disabled',
+        state: 'enabled',
         permission: PERMISSIONS.LIST_SORT_GES, // access_27
       },
       {
