@@ -12,7 +12,7 @@ import {
 import CIcon from '@coreui/icons-react';
 import {
   cilSearch, cilPlus, cilTrash, cilArrowTop, cilArrowBottom,
-  cilPencil, cilWarning, cilLockLocked, cilCalendar,
+  cilWarning, cilCalendar, cilZoom,
 } from '@coreui/icons';
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../../../context/AuthContext';
@@ -103,11 +103,6 @@ const PaymentsGest = () => {
   const [deletePasswordInput,     setDeletePasswordInput]     = useState('');
   const [deletePasswordError,     setDeletePasswordError]     = useState('');
 
-  const [showEditPasswordModal, setShowEditPasswordModal] = useState(false);
-  const [editPasswordInput,     setEditPasswordInput]     = useState('');
-  const [editPasswordError,     setEditPasswordError]     = useState('');
-  const [paymentToEdit,         setPaymentToEdit]         = useState(null);
-
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
 
   const statusOptions = [
@@ -182,31 +177,8 @@ const PaymentsGest = () => {
   }, [payments, searchTerm, statusFilter, sortConfig]);
 
   // ── Edit handlers ──────────────────────────────────────────────────────────
-  const handleEditClick = (payment) => {
-    setPaymentToEdit(payment);
-    setEditPasswordInput('');
-    setEditPasswordError('');
-    setShowEditPasswordModal(true);
-  };
-
-  const handleEditPasswordSubmit = () => {
-    if (editPasswordInput === 'adm@bbcloud1') {
-      authenticateBills();
-      setShowEditPasswordModal(false);
-      setEditPasswordInput('');
-      setEditPasswordError('');
-      navigate(`/progestor/payments-gest/form/${paymentToEdit.id}`);
-      setPaymentToEdit(null);
-    } else {
-      setEditPasswordError('Contraseña incorrecta');
-    }
-  };
-
-  const handleEditPasswordModalClose = () => {
-    setShowEditPasswordModal(false);
-    setEditPasswordInput('');
-    setEditPasswordError('');
-    setPaymentToEdit(null);
+  const handleViewClick = (payment) => {
+    navigate(`/progestor/payments-gest/form/${payment.id}`);
   };
 
   // ── Delete handlers ────────────────────────────────────────────────────────
@@ -384,8 +356,8 @@ const PaymentsGest = () => {
                       </CTableDataCell>
                       <CTableDataCell>
                         <CButton color="primary" variant="ghost" size="sm" className="me-1"
-                          onClick={() => handleEditClick(payment)} title="Editar esquema">
-                          <CIcon icon={cilPencil} />
+                          onClick={() => handleViewClick(payment)} title="Ver esquema">
+                          <CIcon icon={cilZoom} />
                         </CButton>
                         <CButton color="danger" variant="ghost" size="sm"
                           onClick={() => handleDeleteClick(payment)} title="Eliminar esquema">
@@ -430,7 +402,7 @@ const PaymentsGest = () => {
       <CModal visible={showDeletePasswordModal} onClose={handleDeletePasswordModalClose} alignment="center" backdrop="static" keyboard={false}>
         <CModalHeader closeButton={false}>
           <CModalTitle className="d-flex align-items-center">
-            <CIcon icon={cilLockLocked} className="text-danger me-2" size="lg" />Autorización requerida
+            <CIcon icon={cilWarning} className="text-danger me-2" size="lg" />Autorización requerida
           </CModalTitle>
         </CModalHeader>
         <CModalBody>
@@ -449,31 +421,6 @@ const PaymentsGest = () => {
         </CModalFooter>
       </CModal>
 
-      {/* ── Password modal for edit ── */}
-      <CModal visible={showEditPasswordModal} onClose={handleEditPasswordModalClose} alignment="center" backdrop="static" keyboard={false}>
-        <CModalHeader closeButton={false}>
-          <CModalTitle className="d-flex align-items-center">
-            <CIcon icon={cilLockLocked} className="text-primary me-2" size="lg" />Autorización requerida
-          </CModalTitle>
-        </CModalHeader>
-        <CModalBody>
-          <p className="mb-3">
-            Ingresa la contraseña para editar el esquema de{' '}
-            <strong>"{paymentToEdit?.gesca || paymentToEdit?.ip}"</strong>:
-          </p>
-          <CFormInput type="password" autoComplete="new-password" value={editPasswordInput}
-            onChange={e => { setEditPasswordInput(e.target.value); setEditPasswordError(''); }}
-            onKeyDown={e => { if (e.key === 'Enter') handleEditPasswordSubmit(); }}
-            invalid={!!editPasswordError} />
-          {editPasswordError && <div className="text-danger mt-2 small">{editPasswordError}</div>}
-        </CModalBody>
-        <CModalFooter>
-          <CButton color="secondary" onClick={handleEditPasswordModalClose}>Cancelar</CButton>
-          <CButton color="primary" onClick={handleEditPasswordSubmit}>
-            <CIcon icon={cilPencil} className="me-2" />Continuar
-          </CButton>
-        </CModalFooter>
-      </CModal>
     </CContainer>
   );
 };
