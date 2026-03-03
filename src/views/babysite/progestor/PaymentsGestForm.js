@@ -91,7 +91,7 @@ const FIXED_ROWS = [
   { id: 'sdg8',          concepto: '8 SDG',         importe: 5000,  bonoTransporte: 500,  section: 2 },
   { id: 'sdg10',         concepto: '10 SDG',        importe: 5000,  bonoTransporte: 500,  section: 2 },
   { id: 'sdg12', concepto: '12 SDG', importe: 10000, bonoTransporte: 500, section: 3 },
-  { id: 'sdg16', concepto: '16 SDG', schemeImporte: { '375000': 20000, '400000': 15000 }, bonoTransporte: 500, section: 3 },
+  { id: 'sdg16', concepto: '16 SDG', importe: 20000, bonoTransporte: 500, section: 3 },
   { id: 'sdg20', concepto: '20 SDG', importe: 20000, bonoTransporte: 500, section: 3, triggersT1Bonus: true },
   { id: 'sdg22', concepto: '22 SDG', importe: 20000, bonoTransporte: 500, section: 3 },
   { id: 'sdg26', concepto: '26 SDG', importe: 20000, bonoTransporte: 500, section: 3 },
@@ -99,9 +99,15 @@ const FIXED_ROWS = [
   { id: 'sdg34', concepto: '34 SDG', importe: null,  bonoTransporte: 500, section: 3 },
   { id: 'sdg35', concepto: '35 SDG', importe: null,  bonoTransporte: 500, section: 3 },
   { id: 'sdg36', concepto: '36 SDG', importe: 24000, bonoTransporte: 650, section: 3, triggersSDG36Bonus: true },
-  { id: 'sdg37', concepto: '37 SDG', importe: null,  schemeBono: { '375000': 800, '400000': 850 }, section: 3 },
+  { id: 'sdg37', concepto: '37 SDG', importe: null,  bonoTransporte: 800, section: 3 },
   { id: 'sdg38', concepto: '38 SDG', importe: null,  bonoTransporte: 1000, section: 3 },
+  { id: 'sdg39', concepto: '39 SDG', importe: 0,     bonoTransporte: 0,    section: 3 },
+  { id: 'sdg40', concepto: '40 SDG', importe: 0,     bonoTransporte: 0,    section: 3 },
 ];
+
+// SDG rows blocked by Semana de parto: selected week and all subsequent get zeroed
+const BIRTH_WEEK_ORDER   = ['32', '34', '35', '36', '37', '38', '39', '40'];
+const BIRTH_WEEK_ROW_IDS = ['sdg32', 'sdg34', 'sdg35', 'sdg36', 'sdg37', 'sdg38', 'sdg39', 'sdg40'];
 
 const BG_CONDITIONS = [
   { id: 'puntualidad',            label: 'Puntualidad',             amount: 1500 },
@@ -120,19 +126,19 @@ const PUERPERIO_ROWS = [
 
 const EXTRATO_MOTIVOS = ['Reembolso', 'Bonificación', 'Pago extraordinario', 'Adelanto', 'Otro'];
 
-const UNLOCK_PASSWORD = 'adm@bbcloud10';
+const UNLOCK_PASSWORD = '26213256';
 const SCHEME_PASSWORD = 'adm@bbcloud1';
-const ULTIMAS_FIRMAS  = 14500; // fixed total for last section
+const ULTIMAS_FIRMAS  = 20000; // fixed total for last section
 
-// Fixed parcialidad distributions (max 3)
+// Fixed parcialidad distributions (max 3) — must sum to ULTIMAS_FIRMAS
 const PARC_AMOUNTS = {
-  1: [14500],
-  2: [10000, 4500],
-  3: [5000, 5000, 4500],
+  1: [20000],
+  2: [10000, 10000],
+  3: [7000, 7000, 6000],
 };
 
 // Form fields eligible for individual locking
-const FORM_FIELDS = ['gesca', 'ip', 'banco', 'clabe', 'country', 'insurance', 'policy', 'manager', 'fum', 'giro_semana'];
+const FORM_FIELDS = ['gesca', 'ip', 'banco', 'clabe', 'manager', 'fum', 'giro_semana'];
 const initLockedFields = (locked) => {
   const s = {};
   FORM_FIELDS.forEach(f => { s[f] = locked; });
@@ -159,7 +165,7 @@ const initFRS = () => {
 };
 const initPS  = () => { const s = {}; PUERPERIO_ROWS.forEach(r => { s[r.id] = initRS(); }); return s; };
 const initT   = () => Array.from({ length: 6 }, (_, i) => ({ id: i + 1, penalizacion: '', reembolso: '', completed: false, successful: false, realImporte: '' }));
-const initBG  = () => ({ puntualidad: false, tresReagendamientos: false, tresInasistencias: false, seguimientoPsicologico: false, seguimientoMedico: false, tresPenalizaciones: false, extra: '' });
+const initBG  = () => ({ puntualidad: true, tresReagendamientos: true, tresInasistencias: true, seguimientoPsicologico: true, seguimientoMedico: true, tresPenalizaciones: true });
 const initBS  = () => ({ vih: initRS(), gemelar: initRS() });
 const initAyudaState = () => ({ penalizacion: '', reembolso: '', completed: false, realImporte: '' });
 
@@ -202,9 +208,8 @@ const PaymentsGestForm = () => {
   const [showFieldUnlockModal, setShowFieldUnlockModal] = useState(false);
 
   const [formData, setFormData] = useState({
-    gesca: '', ip: '', banco: '', clabe: '', country: '',
-    insurance: '', policy: '', manager: '', fum: '',
-    giro_semana: '', scheme_value: '', status: 'active',
+    gesca: '', ip: '', banco: '', clabe: '',
+    manager: '', fum: '', giro_semana: '', scheme_value: '', status: 'active',
   });
 
   // ── Payment states ────────────────────────────────────────────────────────
@@ -216,6 +221,8 @@ const PaymentsGestForm = () => {
   const [bonoStates,      setBonoStates]      = useState(initBS());
   const [bgConditions,    setBgConditions]    = useState(initBG());
   const [bgState,         setBgState]         = useState(initRS());
+  const [bgExtraTitle,    setBgExtraTitle]    = useState('');
+  const [bgExtraImporte,  setBgExtraImporte]  = useState('');
   const [parcCount,       setParcCount]       = useState(1);
   const [parcCompleted,   setParcCompleted]   = useState([false, false, false]);
   const [parcRealAmounts, setParcRealAmounts] = useState(['', '', '']);
@@ -265,7 +272,7 @@ const PaymentsGestForm = () => {
   useEffect(() => {
     stateRef.current = {
       formData, transferencias, rowStates, puerperioStates,
-      bonoVIH, bonoGemelar, bonoStates, bgConditions, bgState,
+      bonoVIH, bonoGemelar, bonoStates, bgConditions, bgState, bgExtraTitle, bgExtraImporte,
       parcCount, parcCompleted, parcRealAmounts, semanaParto,
       ayudaMaternidad, ayudaAmount, ayudaState,
       extratoGastos, rowComments, schemeSelected,
@@ -275,6 +282,14 @@ const PaymentsGestForm = () => {
   // ── Calculations ──────────────────────────────────────────────────────────
   const sv          = formData.scheme_value || '375000';
   const schemeValue = useMemo(() => parseFloat(formData.scheme_value) || 375000, [formData.scheme_value]);
+
+  // Rows blocked by Semana de parto: the selected week + all subsequent SDG rows get zeroed
+  const blockedBirthRowIds = useMemo(() => {
+    if (!semanaParto) return new Set();
+    const idx = BIRTH_WEEK_ORDER.indexOf(semanaParto);
+    if (idx < 0) return new Set();
+    return new Set(BIRTH_WEEK_ROW_IDS.slice(idx));
+  }, [semanaParto]);
 
   const visibleTransferencias = useMemo(() => {
     const idx = transferencias.findIndex(t => t.successful);
@@ -296,45 +311,53 @@ const PaymentsGestForm = () => {
     return (!isNaN(n) && realField !== '') ? n : (planned ?? 0);
   };
 
-  // Transferencias paid (uses real importe when set)
+  // Transferencias paid — only importe (not reembolso) deducts from P1 pool
   const transferenciasPaid = useMemo(() => {
     return visibleTransferencias
       .filter(t => t.completed)
-      .reduce((sum, t) => sum + rVal(t.realImporte, 1000) - (parseFloat(t.penalizacion) || 0) + (parseFloat(t.reembolso) || 0), 0);
+      .reduce((sum, t) => sum + rVal(t.realImporte, 1000) - (parseFloat(t.penalizacion) || 0), 0);
   }, [visibleTransferencias]);
 
-  // P1 = 50,000 − transfers paid + 5,000 semana-parto bonus (T1 beta positiva & week ≥ 36)
-  const p1Amount = useMemo(
-    () => Math.max(0, 50000 - transferenciasPaid + (sdg36BonusApplied ? 5000 : 0)),
-    [transferenciasPaid, sdg36BonusApplied]
-  );
-  const p2Amount = useMemo(() => sv === '375000' ? 50000 : 55000, [sv]);
-
-  // CDO. GESCA deduction — must be defined before p3
-  const bgDeduction = useMemo(() => {
-    let t = 0;
-    BG_CONDITIONS.forEach(c => { if (bgConditions[c.id]) t += c.amount; });
-    return t;
-  }, [bgConditions]);
-
-  // T1 penalty on P3: 5k when T1 exitosa but week < 36 (or no week selected yet)
+  // T1 penalty: 5k when T1 exitosa but birth week < 36 (SDG36 not reached)
   const t1NoSDG36Penalty = useMemo(
     () => (t1Exitosa && semanaParto && !sdg36BonusApplied) ? 5000 : 0,
     [t1Exitosa, semanaParto, sdg36BonusApplied]
   );
 
+  // P1 = 50,000 − transfers paid + 5k bonus (SDG36 reached) − 5k penalty (SDG36 not reached)
+  const p1Amount = useMemo(
+    () => Math.max(0, 50000 - transferenciasPaid + (sdg36BonusApplied ? 5000 : 0) - t1NoSDG36Penalty),
+    [transferenciasPaid, sdg36BonusApplied, t1NoSDG36Penalty]
+  );
+  const p2Amount = useMemo(() => sv === '375000' ? 50000 : 55000, [sv]);
+
+  // CDO. GESCA deduction
+  const bgDeduction = useMemo(() => {
+    let t = 0;
+    BG_CONDITIONS.forEach(c => { if (!bgConditions[c.id]) t += c.amount; });
+    return t;
+  }, [bgConditions]);
+
   // Fixed importe sums per section (used to derive p3 base)
   const fase2Total = useMemo(() => {
     let t = 0;
-    FIXED_ROWS.filter(r => r.section === 2).forEach(r => { const imp = getRowImporte(r, sv); if (imp !== null) t += imp; });
+    FIXED_ROWS.filter(r => r.section === 2).forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) return;
+      const imp = getRowImporte(r, sv);
+      if (imp !== null) t += imp;
+    });
     return t;
-  }, [sv]);
+  }, [sv, blockedBirthRowIds]);
 
   const fasesPagosTotal = useMemo(() => {
     let t = 0;
-    FIXED_ROWS.filter(r => r.section === 3).forEach(r => { const imp = getRowImporte(r, sv); if (imp !== null) t += imp; });
+    FIXED_ROWS.filter(r => r.section === 3).forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) return;
+      const imp = getRowImporte(r, sv);
+      if (imp !== null) t += imp;
+    });
     return t;
-  }, [sv]);
+  }, [sv, blockedBirthRowIds]);
 
   // P3 raw base:
   //   - Uses 50,000 FIXED for P1 pool (transferencias are internal draws, don't change the balance)
@@ -346,30 +369,32 @@ const PaymentsGestForm = () => {
   // Alias for display in breakdown label (same value, clearer name)
   const p3BaseRaw = p3BaseNoDeductions;
   const ayudaAmountNum = useMemo(() => (ayudaMaternidad ? parseFloat(ayudaAmount) || 0 : 0), [ayudaMaternidad, ayudaAmount]);
-  // P3 = base − T1 penalty (SDG36 not reached) − ayuda maternidad
+  // P3 = base − ayuda maternidad (t1NoSDG36Penalty now flows to P1)
   const p3Amount = useMemo(
-    () => Math.max(0, p3BaseRaw - t1NoSDG36Penalty - ayudaAmountNum),
-    [p3BaseRaw, t1NoSDG36Penalty, ayudaAmountNum]
+    () => Math.max(0, p3BaseRaw - ayudaAmountNum),
+    [p3BaseRaw, ayudaAmountNum]
   );
 
   // ── Real-amount totals (uses user-entered realImporte, falls back to planned) ─
   const realFase2Total = useMemo(() => {
     let t = 0;
     FIXED_ROWS.filter(r => r.section === 2).forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) return;
       const planned = getRowImporte(r, sv);
       if (planned !== null) t += rVal(rowStates[r.id]?.realImporte, planned);
     });
     return t;
-  }, [sv, rowStates]);
+  }, [sv, rowStates, blockedBirthRowIds]);
 
   const realFasesPagosTotal = useMemo(() => {
     let t = 0;
     FIXED_ROWS.filter(r => r.section === 3).forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) return;
       const planned = getRowImporte(r, sv);
       if (planned !== null) t += rVal(rowStates[r.id]?.realImporte, planned);
     });
     return t;
-  }, [sv, rowStates]);
+  }, [sv, rowStates, blockedBirthRowIds]);
 
   const realP3Amount = useMemo(
     () => rVal(puerperioStates.puerperio3?.realImporte, p3Amount),
@@ -393,11 +418,12 @@ const PaymentsGestForm = () => {
   const bonoTransporteTotal = useMemo(() => {
     let t = 0;
     FIXED_ROWS.forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) return;
       const planned = getRowBono(r, sv) || 0;
       t += rVal(rowStates[r.id]?.realBono, planned);
     });
     return t;
-  }, [sv, rowStates]);
+  }, [sv, rowStates, blockedBirthRowIds]);
 
   const totalPenalizaciones = useMemo(() => {
     let t = 0;
@@ -410,16 +436,11 @@ const PaymentsGestForm = () => {
     return t;
   }, [visibleTransferencias, rowStates, puerperioStates, bonoStates, ayudaState, bgState]);
 
-  const totalReembolso = useMemo(() => {
-    let t = 0;
-    visibleTransferencias.forEach(x => { t += parseFloat(x.reembolso) || 0; });
-    FIXED_ROWS.forEach(r     => { t += parseFloat(rowStates[r.id]?.reembolso)       || 0; });
-    PUERPERIO_ROWS.forEach(r => { t += parseFloat(puerperioStates[r.id]?.reembolso) || 0; });
-    ['vih', 'gemelar'].forEach(k => { t += parseFloat(bonoStates[k]?.reembolso) || 0; });
-    t += parseFloat(ayudaState.reembolso) || 0;
-    t += parseFloat(bgState.reembolso)    || 0;
-    return t;
-  }, [visibleTransferencias, rowStates, puerperioStates, bonoStates, ayudaState, bgState]);
+  // totalReembolso: sum of reembolso amounts from completed extrato entries only
+  const totalReembolso = useMemo(
+    () => extratoGastos.reduce((s, e) => s + (parseFloat(e.reembolsoVal) || 0), 0),
+    [extratoGastos]
+  );
 
   const effectiveSchemeValue = useMemo(
     () => schemeValue - bgDeduction - totalPenalizaciones,
@@ -436,46 +457,44 @@ const PaymentsGestForm = () => {
   );
   const montoRestante = useMemo(() => grandTotal - pagosRealizados, [grandTotal, pagosRealizados]);
 
-  const schemeValuePaid      = useMemo(() => extratoGastos.filter(e => e.category === 'scheme').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0), [extratoGastos]);
+  const schemeValuePaid      = useMemo(() => extratoGastos.filter(e => e.category === 'scheme').reduce((s, e) => s + (parseFloat(e.valor) || 0) - (parseFloat(e.reembolsoVal) || 0) - (parseFloat(e.bonoValStored) || 0), 0), [extratoGastos]);
   const schemeValueRemaining = useMemo(() => effectiveSchemeValue - schemeValuePaid, [effectiveSchemeValue, schemeValuePaid]);
   // "Esquema real": actual amounts paid (from extrato entries using real importe inputs)
   const schemeRealPaid = schemeValuePaid;
   // "Esquema planeado pagado": planned amounts for rows that have been marked "pago completado"
   const schemePlannedPaid = useMemo(() => {
     let t = 0;
-    // transferencias
+    // transferencias — importe only (1000 each planned)
     visibleTransferencias.filter(x => x.completed).forEach(() => { t += 1000; });
-    // fixed rows
+    // fixed rows — importe only, NOT bono transporte
     FIXED_ROWS.forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) return;
       if (rowStates[r.id]?.completed) {
         const imp = getRowImporte(r, sv);
         if (imp !== null) t += imp;
-        t += getRowBono(r, sv) || 0;
       }
     });
-    // puerperio
+    // puerperio — importe only
     if (puerperioStates.puerperio1?.completed) t += p1Amount;
     if (puerperioStates.puerperio2?.completed) t += p2AdjustedAmount;
     if (puerperioStates.puerperio3?.completed) t += p3Amount;
-    // bonos
-    if (bonoVIH     && bonoStates.vih?.completed)     t += 50000;
-    if (bonoGemelar && bonoStates.gemelar?.completed)  t += 20000;
-    // ayuda
+    // ayuda maternidad — importe
     if (ayudaState.completed) t += ayudaAmountNum;
-    // parcialidades
+    // parcialidades — importe
     (PARC_AMOUNTS[parcCount] || PARC_AMOUNTS[1]).forEach((amt, i) => { if (parcCompleted[i]) t += amt; });
     return t;
-  }, [visibleTransferencias, rowStates, puerperioStates, bonoVIH, bonoGemelar, bonoStates,
-      ayudaState, ayudaAmountNum, parcCount, parcCompleted, p1Amount, p2Amount, p3Amount, sv]);
+  }, [visibleTransferencias, rowStates, puerperioStates, bonoStates,
+      ayudaState, ayudaAmountNum, parcCount, parcCompleted, p1Amount, p2AdjustedAmount, p3Amount, sv, blockedBirthRowIds]);
   const bonoTransportePaid = useMemo(() => {
     let t = 0;
     FIXED_ROWS.forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) return;
       if (rowStates[r.id]?.completed) {
         t += rVal(rowStates[r.id]?.realBono, getRowBono(r, sv) || 0);
       }
     });
     return t;
-  }, [rowStates, sv]);
+  }, [rowStates, sv, blockedBirthRowIds]);
   const bonoTransporteRemaining = useMemo(() => bonoTransporteTotal - bonoTransportePaid, [bonoTransporteTotal, bonoTransportePaid]);
   const bonosTotalesPaid      = useMemo(() => extratoGastos.filter(e => e.category === 'bono').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0), [extratoGastos]);
   const bonosTotalesRemaining = useMemo(() => totalBonos - bonosTotalesPaid, [totalBonos, bonosTotalesPaid]);
@@ -519,8 +538,7 @@ const PaymentsGestForm = () => {
       const data = res.data;
       setFormData({
         gesca: data.gesca || '', ip: data.ip || '', banco: data.banco || '',
-        clabe: data.clabe || '', country: data.country || '',
-        insurance: data.insurance || '', policy: data.policy || '',
+        clabe: data.clabe || '',
         manager: data.manager || '', fum: data.fum ? data.fum.split('T')[0] : '',
         giro_semana: data.giro_semana || '',
         scheme_value: String(data.scheme_value || '375000'), status: data.status || 'active',
@@ -533,6 +551,8 @@ const PaymentsGestForm = () => {
       if (data.bono_states)                  setBonoStates(data.bono_states);
       if (data.bg_conditions)                setBgConditions(data.bg_conditions);
       if (data.bg_state)                     setBgState(data.bg_state);
+      if (data.bg_extra_title)               setBgExtraTitle(data.bg_extra_title);
+      if (data.bg_extra_importe !== undefined) setBgExtraImporte(String(data.bg_extra_importe || ''));
       if (data.parc_count)                   setParcCount(Math.min(3, data.parc_count)); // cap at 3
       if (data.parc_completed)               setParcCompleted(data.parc_completed.slice(0, 3));
       if (data.parc_real_amounts)            setParcRealAmounts(data.parc_real_amounts.slice(0, 3));
@@ -553,7 +573,6 @@ const PaymentsGestForm = () => {
       const newLocked = {};
       const loadedData = {
         gesca: data.gesca, ip: data.ip, banco: data.banco, clabe: data.clabe,
-        country: data.country, insurance: data.insurance, policy: data.policy,
         manager: data.manager, fum: data.fum, giro_semana: data.giro_semana,
       };
       FORM_FIELDS.forEach(f => {
@@ -572,8 +591,8 @@ const PaymentsGestForm = () => {
   const handleFormChange = (e) => { setFormData(p => ({ ...p, [e.target.name]: e.target.value })); debouncedSave(); };
 
   const FIELD_LABELS = {
-    gesca: 'GESCA', ip: 'IP', banco: 'Banco', clabe: 'Clabe', country: 'País',
-    insurance: 'Seguro', policy: 'Póliza', manager: 'Gestor', fum: 'FUM', giro_semana: 'Giro de semana',
+    gesca: 'GESCA', ip: 'IP', banco: 'Banco', clabe: 'Clabe',
+    manager: 'Gestor', fum: 'FUM', giro_semana: 'Giro de semana',
   };
 
   const handleFieldLockRequest = (name, action) => {
@@ -654,16 +673,18 @@ const PaymentsGestForm = () => {
   };
 
   const openDateModal = ({ autoKey, label, importe, bonoVal, penalizacion, reembolso, category, commitTrue }) => {
-    const valor = (importe || 0) + (bonoVal || 0) - (parseFloat(penalizacion) || 0) + (parseFloat(reembolso) || 0);
-    setDateModalInfo({ label, autoKey, valor, category, fecha: new Date().toISOString().split('T')[0], confirm: commitTrue });
+    const reembolsoVal = parseFloat(reembolso) || 0;
+    const bonoValStored = parseFloat(bonoVal) || 0;
+    const valor = (importe || 0) + bonoValStored - (parseFloat(penalizacion) || 0) + reembolsoVal;
+    setDateModalInfo({ label, autoKey, valor, reembolsoVal, bonoValStored, category, fecha: new Date().toISOString().split('T')[0], confirm: commitTrue });
     setShowDateModal(true);
   };
 
   const confirmDateModal = () => {
-    const { label, autoKey, fecha, valor, category, confirm } = dateModalInfo;
+    const { label, autoKey, fecha, valor, reembolsoVal, bonoValStored, category, confirm } = dateModalInfo;
     setExtratoGastos(prev => [
       ...prev.filter(e => e.autoKey !== autoKey),
-      { id: `auto_${autoKey}_${Date.now()}`, fecha, valor, autoKey, category, movimiento: label, motivo: 'Pago de esquema', isAuto: true },
+      { id: `auto_${autoKey}_${Date.now()}`, fecha, valor, reembolsoVal: reembolsoVal || 0, bonoValStored: bonoValStored || 0, autoKey, category, movimiento: label, motivo: 'Pago de esquema', isAuto: true },
     ]);
     confirm && confirm();
     setShowDateModal(false);
@@ -781,6 +802,8 @@ const PaymentsGestForm = () => {
       bono_states:     s.bonoStates,
       bg_conditions:   s.bgConditions,
       bg_state:        s.bgState,
+      bg_extra_title:  s.bgExtraTitle || '',
+      bg_extra_importe: parseFloat(s.bgExtraImporte) || 0,
       parc_count:      s.parcCount,
       parc_completed:  s.parcCompleted,
       parc_real_amounts: s.parcRealAmounts,
@@ -898,38 +921,46 @@ const PaymentsGestForm = () => {
   );
 
   const renderFixedRow = (row) => {
+    const isBlocked  = blockedBirthRowIds.has(row.id);
     const state      = rowStates[row.id] || initRS();
-    const baseImp    = getRowImporte(row, sv);
+    const baseImp    = isBlocked ? 0 : getRowImporte(row, sv);
     const plannedImp = (row.id === 'sdg20' && t1Exitosa && baseImp !== null) ? baseImp + 5000 : baseImp;
-    const hasBono    = rowHasBono(row);
+    const hasBono    = !isBlocked && rowHasBono(row);
     const plannedBono = hasBono ? getRowBono(row, sv) : null;
     const realImp    = plannedImp !== null ? rVal(state.realImporte, plannedImp) : 0;
     const realBono   = hasBono ? rVal(state.realBono, plannedBono) : 0;
-    const locked     = state.completed;
+    const locked     = state.completed || isBlocked;
     return (
-      <CTableRow key={row.id} style={locked ? rowLocked : undefined}>
+      <CTableRow key={row.id} style={isBlocked ? { opacity: 0.45, backgroundColor: 'color-mix(in srgb, var(--cui-danger) 4%, transparent)' } : locked ? rowLocked : undefined}>
         <CTableDataCell style={cs}>
           <strong>{row.concepto}</strong>
           {row.id === 'sdg20' && t1Exitosa && <small className="d-block text-muted">$20,000 + $5,000 bono T1</small>}
+          {isBlocked && <CBadge color="secondary" className="ms-2">Bloqueado — semana de parto {semanaParto} SDG</CBadge>}
         </CTableDataCell>
         <CTableDataCell style={cs}>
-          {plannedImp !== null
-            ? <ImporteCell planned={plannedImp} realValue={state.realImporte ?? ''}
-                disabled={locked} onChange={e => updateRowState(row.id, 'realImporte', e.target.value)} />
-            : <span className="text-muted">—</span>}
+          {isBlocked
+            ? <span className="text-muted">$0</span>
+            : plannedImp !== null
+              ? <ImporteCell planned={plannedImp} realValue={state.realImporte ?? ''}
+                  disabled={locked} onChange={e => updateRowState(row.id, 'realImporte', e.target.value)} />
+              : <span className="text-muted">—</span>}
         </CTableDataCell>
         <CTableDataCell style={cs}>
-          {hasBono
-            ? <ImporteCell planned={plannedBono} realValue={state.realBono ?? ''}
-                disabled={locked} onChange={e => updateRowState(row.id, 'realBono', e.target.value)} />
-            : <span className="text-muted">—</span>}
+          {isBlocked
+            ? <span className="text-muted">$0</span>
+            : hasBono
+              ? <ImporteCell planned={plannedBono} realValue={state.realBono ?? ''}
+                  disabled={locked} onChange={e => updateRowState(row.id, 'realBono', e.target.value)} />
+              : <span className="text-muted">—</span>}
         </CTableDataCell>
         <CTableDataCell style={cs}><NumInput disabled={locked} value={state.penalizacion} onChange={e => updateRowState(row.id, 'penalizacion', e.target.value)} /></CTableDataCell>
         <CTableDataCell style={cs}><NumInput disabled={locked} value={state.reembolso}    onChange={e => updateRowState(row.id, 'reembolso',    e.target.value)} /></CTableDataCell>
-        <CompletedCell completed={locked} autoKey={`fixed_${row.id}`} label={row.concepto}
-          importe={realImp} bonoVal={realBono} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
-          commentKey={`fixed_${row.id}`}
-          onCommitTrue={() => updateRowState(row.id, 'completed', true)} onUncomplete={() => updateRowState(row.id, 'completed', false)} />
+        {isBlocked
+          ? <CTableDataCell style={{ ...cs, textAlign: 'center' }}><span className="text-muted small">—</span></CTableDataCell>
+          : <CompletedCell completed={locked} autoKey={`fixed_${row.id}`} label={row.concepto}
+              importe={realImp} bonoVal={realBono} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
+              commentKey={`fixed_${row.id}`}
+              onCommitTrue={() => updateRowState(row.id, 'completed', true)} onUncomplete={() => updateRowState(row.id, 'completed', false)} />}
       </CTableRow>
     );
   };
@@ -1097,11 +1128,6 @@ const PaymentsGestForm = () => {
               <LockedFormInput name="banco" label="Banco"     value={formData.banco} locked={lockedFields.banco} {...fieldProps} />
               <LockedFormInput name="clabe" label="Clabe"     value={formData.clabe} locked={lockedFields.clabe} {...fieldProps} />
             </div>
-            <div className="form-row-equal cols-3 mb-3">
-              <LockedFormInput name="country"   label="País"   value={formData.country}   locked={lockedFields.country}   {...fieldProps} />
-              <LockedFormInput name="insurance" label="Seguro" value={formData.insurance} locked={lockedFields.insurance} {...fieldProps} />
-              <LockedFormInput name="policy"    label="Póliza" value={formData.policy}    locked={lockedFields.policy}    {...fieldProps} />
-            </div>
             <div className="form-row-equal cols-3">
               <LockedFormInput name="manager"     label="Gestor"         value={formData.manager}     locked={lockedFields.manager}     {...fieldProps} />
               <LockedFormInput name="fum"         label="FUM"            value={formData.fum}         locked={lockedFields.fum}         type="date" {...fieldProps} />
@@ -1192,7 +1218,7 @@ const PaymentsGestForm = () => {
                 <CFormSelect style={{ width: '160px' }} value={semanaParto}
                   onChange={e => { setSemanaParto(e.target.value); debouncedSave(); }}>
                   <option value="">— Seleccionar —</option>
-                  {['32', '34', '35', '36', '37', '38'].map(w => (
+                  {['32', '34', '35', '36', '37', '38', '39', '40'].map(w => (
                     <option key={w} value={w}>{w} SDG</option>
                   ))}
                 </CFormSelect>
@@ -1377,12 +1403,11 @@ const PaymentsGestForm = () => {
                           <strong>{row.concepto}</strong>
                           {row.id === 'puerperio1' && (
                             <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
-                              <span className="text-muted">Contribución al esquema: $50,000</span>
-                              {transferenciasPaid > 0 && <span className="text-muted d-block">(pago neto: {fmt(p1Amount)} — transferencias ya descontadas)</span>}
-                              {sdg36BonusApplied && <span className="text-success d-block">+ $5,000 bono semana {semanaParto} SDG (aparte del esquema)</span>}
-                              {t1Exitosa && semanaParto && !sdg36BonusApplied && (
-                                <span className="text-muted d-block">sin bono: semana {semanaParto} &lt; 36</span>
-                              )}
+                              <span>$50,000</span>
+                              {transferenciasPaid > 0 && <span className="text-danger"> − {fmt(transferenciasPaid)} <small>(transferencias)</small></span>}
+                              {sdg36BonusApplied && <span className="text-success"> + $5,000 <small>(bono semana {semanaParto} SDG)</small></span>}
+                              {t1NoSDG36Penalty > 0 && <span className="text-danger"> − {fmt(t1NoSDG36Penalty)} <small>(sin SDG36)</small></span>}
+                              <strong className="ms-1">= {fmt(plannedImp)}</strong>
                             </div>
                           )}
                           {row.id === 'puerperio2' && (
@@ -1398,7 +1423,6 @@ const PaymentsGestForm = () => {
                               {bgDeduction > 0
                                 ? <span>Base esquema − CDO ({fmt(bgDeduction)}): {fmt(p3BaseRaw)}</span>
                                 : <span>Base: {fmt(p3BaseRaw)}</span>}
-                              {t1NoSDG36Penalty > 0 && <span className="text-danger"> − {fmt(t1NoSDG36Penalty)} <small>(T1 sin SDG36)</small></span>}
                               {ayudaAmountNum > 0 && <span className="text-danger"> − {fmt(ayudaAmountNum)} <small>(ayuda maternidad)</small></span>}
                               <strong className="ms-1">= {fmt(plannedImp)}</strong>
                             </div>
@@ -1488,36 +1512,36 @@ const PaymentsGestForm = () => {
                 </div>
               </div>
               <small className="text-muted d-block mb-3">
-                Condiciones <strong>marcadas = descuento</strong> sobre el total del esquema.
+                Botón <strong>ON</strong> = condición cumplida (sin descuento). Botón <strong>OFF</strong> = condición no cumplida (descuento aplicado a Puerperio 3).
               </small>
               <CRow className="g-2 mb-3">
-                {BG_CONDITIONS.map(cond => (
-                  <CCol md={4} key={cond.id}>
-                    <div className="d-flex align-items-center justify-content-between p-2 rounded" style={{
-                      border: '1px solid var(--cui-border-color)',
-                      backgroundColor: bgConditions[cond.id] ? 'color-mix(in srgb, var(--cui-danger) 8%, transparent)' : 'color-mix(in srgb, var(--cui-success) 5%, transparent)',
-                      transition: 'background-color 0.2s',
-                    }}>
-                      <div className="d-flex align-items-center gap-2">
-                        <CFormCheck checked={bgConditions[cond.id]} id={`bg-${cond.id}`}
-                          disabled={bgState.completed} onChange={e => updateBgCondition(cond.id, e.target.checked)} />
-                        <label htmlFor={`bg-${cond.id}`} className="mb-0"
-                          style={{ cursor: bgState.completed ? 'default' : 'pointer', fontSize: '0.875rem' }}>
-                          {cond.label}
-                        </label>
-                      </div>
-                      <CBadge color={bgConditions[cond.id] ? 'danger' : 'success'} className="ms-2 flex-shrink-0">
-                        {bgConditions[cond.id] ? `−${fmt(cond.amount)}` : '✓'}
-                      </CBadge>
-                    </div>
-                  </CCol>
-                ))}
+                {BG_CONDITIONS.map(cond => {
+                  const isOn = bgConditions[cond.id]; // ON = satisfied = no discount; OFF = not met = discount
+                  return (
+                    <CCol md={4} key={cond.id}>
+                      <CButton
+                        size="sm"
+                        color={isOn ? 'success' : 'danger'}
+                        variant={isOn ? undefined : 'outline'}
+                        disabled={bgState.completed}
+                        className="w-100 d-flex align-items-center justify-content-between px-3 py-2"
+                        style={{ borderRadius: '6px', textAlign: 'left', gap: '8px' }}
+                        onClick={() => updateBgCondition(cond.id, !isOn)}
+                      >
+                        <span style={{ fontSize: '0.85rem', fontWeight: 500 }}>{cond.label}</span>
+                        <span style={{ whiteSpace: 'nowrap' }}>
+                          {isOn ? <><strong>ON</strong> ✓</> : <><strong>OFF</strong> −{fmt(cond.amount)}</>}
+                        </span>
+                      </CButton>
+                    </CCol>
+                  );
+                })}
               </CRow>
               <CTable hover striped className="gest-table mb-0">
                 <CTableHead>
                   <CTableRow>
-                    <CTableHeaderCell style={{ ...hs, minWidth: '260px' }}>Concepto</CTableHeaderCell>
-                    <CTableHeaderCell style={hs}>Descuento CDO. GESCA</CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, minWidth: '260px' }}>Título de bonificación</CTableHeaderCell>
+                    <CTableHeaderCell style={hs}>Importe</CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Penalización</CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Reembolso</CTableHeaderCell>
                     <CTableHeaderCell style={hsc}>Pago completado</CTableHeaderCell>
@@ -1526,19 +1550,23 @@ const PaymentsGestForm = () => {
                 <CTableBody>
                   <CTableRow style={bgState.completed ? rowLocked : undefined}>
                     <CTableDataCell style={cs}>
-                      <strong>CDO. GESCA</strong>
-                      <small className="d-block text-muted">{bgDeduction > 0 ? `Descuento total: −${fmt(bgDeduction)}` : 'Sin descuentos activos'}</small>
+                      <strong>Bonificación extra</strong>
+                      <CFormInput
+                        size="sm" className="mt-1" placeholder="Título de bonificación…"
+                        value={bgExtraTitle} disabled={bgState.completed}
+                        onChange={e => { setBgExtraTitle(e.target.value); debouncedSave(); }}
+                        style={{ maxWidth: '280px' }}
+                      />
                     </CTableDataCell>
                     <CTableDataCell style={cs}>
-                      <span className="fw-semibold" style={{ color: bgDeduction > 0 ? 'var(--cui-danger)' : 'var(--cui-success)' }}>
-                        {bgDeduction > 0 ? `−${fmt(bgDeduction)}` : '—'}
-                      </span>
+                      <NumInput disabled={bgState.completed} value={bgExtraImporte}
+                        onChange={e => { setBgExtraImporte(e.target.value); debouncedSave(); }} />
                     </CTableDataCell>
                     <CTableDataCell style={cs}><NumInput disabled={bgState.completed} value={bgState.penalizacion} onChange={e => updateBgState('penalizacion', e.target.value)} /></CTableDataCell>
                     <CTableDataCell style={cs}><NumInput disabled={bgState.completed} value={bgState.reembolso}    onChange={e => updateBgState('reembolso',    e.target.value)} /></CTableDataCell>
-                    <CompletedCell completed={bgState.completed} autoKey="buena_gestante" label="CDO. GESCA"
-                      importe={-bgDeduction} bonoVal={0} penalizacion={bgState.penalizacion} reembolso={bgState.reembolso} category="scheme"
-                      commentKey="cdo_gesca"
+                    <CompletedCell completed={bgState.completed} autoKey="bonificacion_extra" label={bgExtraTitle || 'Bonificación extra'}
+                      importe={parseFloat(bgExtraImporte) || 0} bonoVal={0} penalizacion={bgState.penalizacion} reembolso={bgState.reembolso} category="bono"
+                      commentKey="bonificacion_extra"
                       onCommitTrue={() => updateBgState('completed', true)} onUncomplete={() => updateBgState('completed', false)} />
                   </CTableRow>
                 </CTableBody>
