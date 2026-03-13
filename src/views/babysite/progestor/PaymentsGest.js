@@ -84,6 +84,17 @@ const getLastPaidStage = (payment) => {
   return last;
 };
 
+// Returns a numeric sort index for a payment's last paid stage.
+// T# transferencias get index -1 (before named stages).
+// null (no payment yet) gets index -2.
+const getStageIndex = (payment) => {
+  const stageId = getLastPaidStage(payment);
+  if (!stageId) return -2;
+  if (stageId.startsWith('T')) return -1;
+  const idx = STAGE_ORDER.indexOf(stageId);
+  return idx === -1 ? -2 : idx;
+};
+
 const PaymentsGest = () => {
   const navigate = useNavigate();
   const { user: currentUser } = useUser();
@@ -161,12 +172,16 @@ const PaymentsGest = () => {
     }
 
     result.sort((a, b) => {
-      let aVal = a[sortConfig.key] || '';
-      let bVal = b[sortConfig.key] || '';
-      if (sortConfig.key === 'created_at') {
-        aVal = new Date(aVal); bVal = new Date(bVal);
+      let aVal, bVal;
+      if (sortConfig.key === 'sdg') {
+        aVal = getStageIndex(a);
+        bVal = getStageIndex(b);
+      } else if (sortConfig.key === 'created_at') {
+        aVal = new Date(a[sortConfig.key] || '');
+        bVal = new Date(b[sortConfig.key] || '');
       } else {
-        aVal = aVal.toString().toLowerCase(); bVal = bVal.toString().toLowerCase();
+        aVal = (a[sortConfig.key] || '').toString().toLowerCase();
+        bVal = (b[sortConfig.key] || '').toString().toLowerCase();
       }
       if (aVal < bVal) return sortConfig.direction === 'asc' ? -1 : 1;
       if (aVal > bVal) return sortConfig.direction === 'asc' ?  1 : -1;
@@ -315,7 +330,7 @@ const PaymentsGest = () => {
                   <SortableHeader label="Estado"   sortKey="status"     />
                   <CTableHeaderCell>Programa</CTableHeaderCell>
                   <SortableHeader label="Creado"   sortKey="created_at" />
-                  <CTableHeaderCell>SDG</CTableHeaderCell>
+                  <SortableHeader label="SDG"      sortKey="sdg"        />
                   <CTableHeaderCell style={{ width: '100px' }}>Acciones</CTableHeaderCell>
                 </CTableRow>
               </CTableHead>
