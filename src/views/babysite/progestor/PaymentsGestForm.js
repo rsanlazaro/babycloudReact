@@ -397,11 +397,15 @@ const PaymentsGestForm = () => {
   );
   // Alias for display in breakdown label (same value, clearer name)
   const p3BaseRaw = p3BaseNoDeductions;
-  const ayudaAmountNum = useMemo(() => (ayudaMaternidad ? parseFloat(ayudaAmount) || 0 : 0), [ayudaMaternidad, ayudaAmount]);
-  // P3 = base − ayuda maternidad (t1NoSDG36Penalty now flows to P1)
+  // ayudaAmountNum: driven by Importe field (realImporte) when completed, or entered value when pending
+  const ayudaAmountNum = useMemo(
+    () => parseFloat(ayudaState.realImporte) || parseFloat(ayudaAmount) || 0,
+    [ayudaState.realImporte, ayudaAmount]
+  );
+  // P3 = base − ayuda maternidad (only when ayuda row is marked as paid)
   const p3Amount = useMemo(
-    () => Math.max(0, p3BaseRaw - ayudaAmountNum),
-    [p3BaseRaw, ayudaAmountNum]
+    () => Math.max(0, p3BaseRaw - (ayudaState.completed ? ayudaAmountNum : 0)),
+    [p3BaseRaw, ayudaAmountNum, ayudaState]
   );
 
   // ── Real-amount totals (uses user-entered realImporte, falls back to planned) ─
@@ -434,8 +438,8 @@ const PaymentsGestForm = () => {
   // Uses planned p3Amount (NOT realP3Amount) so real transferencias never affect P2.
   // Target: schemeValue − bgDeduction (CDO is a permanent loss already baked into p3BaseRaw)
   const p2Adjustment = useMemo(
-    () => (schemeValue - bgDeduction) - (realFase2Total + realFasesPagosTotal + 50000 + p2Base + p3Amount + ULTIMAS_FIRMAS),
-    [schemeValue, bgDeduction, realFase2Total, realFasesPagosTotal, p2Base, p3Amount]
+    () => (schemeValue - bgDeduction) - (realFase2Total + realFasesPagosTotal + 50000 + p2Base + p3BaseRaw + ULTIMAS_FIRMAS),
+    [schemeValue, bgDeduction, realFase2Total, realFasesPagosTotal, p2Base, p3BaseRaw]
   );
   const vihBonus     = useMemo(() => bonoVIH     ? 50000 : 0, [bonoVIH]);
   const gemelarBonus = useMemo(() => bonoGemelar ? 20000 : 0, [bonoGemelar]);
@@ -529,20 +533,19 @@ const PaymentsGestForm = () => {
   const schemeRealPaid = schemeValuePaid;
   // ─── Puerperio summary memos ────────────────────────────────────────
   const totalPagadoPrograma = useMemo(() => {
+    // Importe only — bono transporte excluded
     let t = 0;
     visibleTransferencias.filter(x => x.completed).forEach(x => {
       t += rVal(x.realImporte, 1000) - (parseFloat(x.penalizacion) || 0) + (parseFloat(x.reembolso) || 0);
     });
-    visibleTransferencias.filter(x => x.transCompleted).forEach(x => {
-      t += rVal(x.transRealBono, 500) - (parseFloat(x.transPenalizacion) || 0) + (parseFloat(x.transReembolso) || 0);
-    });
+    // transCompleted rows: these are bono-transporte-only, excluded here
     FIXED_ROWS.forEach(r => {
       if (blockedBirthRowIds.has(r.id)) return;
       const state = rowStates[r.id];
       if (!state?.completed) return;
       const imp = getRowImporte(r, sv);
       t += rVal(state.realImporte, imp != null ? imp : 0) - (parseFloat(state.penalizacion) || 0) + (parseFloat(state.reembolso) || 0);
-      t += rVal(state.realBono, getRowBono(r, sv) || 0);
+      // bono transporte NOT included
     });
     return t;
   }, [visibleTransferencias, rowStates, blockedBirthRowIds, sv]);
@@ -584,13 +587,13 @@ const PaymentsGestForm = () => {
     if (puerperioStates.puerperio1?.completed) t += p1Amount;
     if (puerperioStates.puerperio2?.completed) t += p2AdjustedAmount;
     if (puerperioStates.puerperio3?.completed) t += p3Amount;
-    // ayuda maternidad — importe
+    // ayuda maternidad — counted when completed
     if (ayudaState.completed) t += ayudaAmountNum;
     // parcialidades — importe
     dynamicParcAmounts.forEach((amt, i) => { if (parcCompleted[i]) t += amt; });
     return t;
   }, [visibleTransferencias, rowStates, puerperioStates, bonoStates,
-      ayudaState, ayudaAmountNum, dynamicParcAmounts, parcCompleted, p1Amount, p2AdjustedAmount, p3Amount, sv, blockedBirthRowIds]);
+      ayudaState, ayudaAmountNum, dynamicParcAmounts, parcCompleted, p1Amount, p2AdjustedAmount, p3Amount, sv, blockedBirthRowIds, ayudaAmountNum]);
   const bonoTransportePaid = useMemo(() => {
     let t = 0;
     FIXED_ROWS.forEach(r => {
@@ -930,7 +933,7 @@ const PaymentsGestForm = () => {
   const autoSave = async (overrides = {}) => {
     const s = { ...stateRef.current, ...overrides };
     // guard: need minimum required fields + confirmed scheme
-    if (!s.formData?.gesca || !s.formData?.ip || !s.formData?.scheme_value) return;
+    if (!s.formData?.gesca || !s.formData?.scheme_value) return;
     if (!s.schemeSelected) return;
     if (isSavingRef.current) return;
 
@@ -1260,8 +1263,15 @@ const PaymentsGestForm = () => {
 
             {/* ── Form fields — each locks individually ── */}
             <div className="form-row-equal cols-2 mb-3">
-              <LockedFormInput name="gesca" label="GESCA *"   value={formData.gesca} locked={lockedFields.gesca} {...fieldProps} />
-              <LockedFormInput name="ip"    label="IP *"      value={formData.ip}    locked={lockedFields.ip}    {...fieldProps} />
+              <div>
+                <LockedFormInput name="gesca" label="GESCA *" value={formData.gesca} locked={lockedFields.gesca} {...fieldProps} />
+                {!formData.gesca && (
+                  <small className="text-danger d-flex align-items-center gap-1 mt-1">
+                    <CIcon icon={cilWarning} size="sm" /> Campo requerido — sin GESCA no se guardarán los cambios
+                  </small>
+                )}
+              </div>
+              <LockedFormInput name="ip" label="IP" value={formData.ip} locked={lockedFields.ip} {...fieldProps} />
             </div>
             <div className="form-row-equal cols-2 mb-3">
               <LockedFormInput name="banco" label="Banco"     value={formData.banco} locked={lockedFields.banco} {...fieldProps} />
@@ -1592,109 +1602,84 @@ const PaymentsGestForm = () => {
                     const realImp     = rVal(state.realImporte, plannedImp);
                     const locked      = state.completed;
                     return (
-                      <CTableRow key={row.id} style={locked ? rowLocked : undefined}>
-                        <CTableDataCell style={cs}>
-                          <strong>{row.concepto}</strong>
-                          {row.id === 'puerperio1' && (
-                            <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
-                              <span>$50,000</span>
-                              {transferenciasPaid > 0 && <span className="text-danger"> − {fmt(transferenciasPaid)} <small>(transferencias)</small></span>}
-                              {sdg36BonusApplied && sv === '400000' && <span className="text-success"> + $5,000 <small>(bono SDG36 — 400k)</small></span>}
-                              {t1NoSDG36Penalty > 0 && <span className="text-danger"> − {fmt(t1NoSDG36Penalty)} <small>(sin SDG36 — penalización T1)</small></span>}
-                              <strong className="ms-1">= {fmt(plannedImp)}</strong>
-                            </div>
-                          )}
-                          {row.id === 'puerperio2' && (
-                            <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
-                              <span>Base esquema: {fmt(p2Base)}</span>
-                              {vihBonus > 0 && <span className="text-success"> + {fmt(vihBonus)} <small>(bono VIH)</small></span>}
-                              {gemelarBonus > 0 && <span className="text-success"> + {fmt(gemelarBonus)} <small>(bono gemelar)</small></span>}
-                              {p2Adjustment > 0 && <span className="text-warning d-block">+ {fmt(p2Adjustment)} <small>(ajuste: pagos reales &lt; planeado)</small></span>}
-                              {p2Adjustment < 0 && <span className="text-danger d-block">{fmt(p2Adjustment)} <small>(ajuste: pagos reales &gt; planeado)</small></span>}
-                              <strong className="d-block">= {fmt(p2AdjustedAmount)}</strong>
-                            </div>
-                          )}
-                          {row.id === 'puerperio3' && (
-                            <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
-                              {bgDeduction > 0
-                                ? <span>Base esquema − CDO ({fmt(bgDeduction)}): {fmt(p3BaseRaw)}</span>
-                                : <span>Base: {fmt(p3BaseRaw)}</span>}
-                              {ayudaAmountNum > 0 && <span className="text-danger"> − {fmt(ayudaAmountNum)} <small>(ayuda maternidad)</small></span>}
-                              <strong className="ms-1">= {fmt(plannedImp)}</strong>
-                            </div>
-                          )}
-                        </CTableDataCell>
-                        <CTableDataCell style={cs}>
-                          <ImporteCell planned={plannedImp} realValue={state.realImporte ?? ''}
-                            disabled={locked} onChange={e => updatePuerperioState(row.id, 'realImporte', e.target.value)} />
-                        </CTableDataCell>
-                        <CTableDataCell style={cs}><CurrencyInput disabled={locked} value={state.penalizacion} onChange={e => updatePuerperioState(row.id, 'penalizacion', e.target.value)} inputStyle={{ color: 'var(--cui-danger)' }} /></CTableDataCell>
-                        <CTableDataCell style={cs}><CurrencyInput disabled={locked} value={state.reembolso}    onChange={e => updatePuerperioState(row.id, 'reembolso',    e.target.value)} inputStyle={{ color: 'var(--cui-info)' }} /></CTableDataCell>
-                        <CompletedCell completed={locked} autoKey={`puerperio_${row.id}`} label={row.concepto}
-                          importe={realImp} bonoVal={0} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
-                          commentKey={`puerperio_${row.id}`}
-                          onCommitTrue={() => updatePuerperioState(row.id, 'completed', true)} onUncomplete={() => updatePuerperioState(row.id, 'completed', false)} />
-                      </CTableRow>
+                      <React.Fragment key={row.id}>
+                        <CTableRow style={locked ? rowLocked : undefined}>
+                          <CTableDataCell style={cs}>
+                            <strong>{row.concepto}</strong>
+                            {row.id === 'puerperio1' && (
+                              <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
+                                <span>$50,000</span>
+                                {transferenciasPaid > 0 && <span className="text-danger"> − {fmt(transferenciasPaid)} <small>(transferencias)</small></span>}
+                                {sdg36BonusApplied && sv === '400000' && <span className="text-success"> + $5,000 <small>(bono SDG36 — 400k)</small></span>}
+                                {t1NoSDG36Penalty > 0 && <span className="text-danger"> − {fmt(t1NoSDG36Penalty)} <small>(sin SDG36 — penalización T1)</small></span>}
+                                <strong className="ms-1">= {fmt(plannedImp)}</strong>
+                              </div>
+                            )}
+                            {row.id === 'puerperio2' && (
+                              <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
+                                <span>Base esquema: {fmt(p2Base)}</span>
+                                {vihBonus > 0 && <span className="text-success"> + {fmt(vihBonus)} <small>(bono VIH)</small></span>}
+                                {gemelarBonus > 0 && <span className="text-success"> + {fmt(gemelarBonus)} <small>(bono gemelar)</small></span>}
+                                {p2Adjustment > 0 && <span className="text-warning d-block">+ {fmt(p2Adjustment)} <small>(ajuste: pagos reales &lt; planeado)</small></span>}
+                                {p2Adjustment < 0 && <span className="text-danger d-block">{fmt(p2Adjustment)} <small>(ajuste: pagos reales &gt; planeado)</small></span>}
+                                <strong className="d-block">= {fmt(p2AdjustedAmount)}</strong>
+                              </div>
+                            )}
+                            {row.id === 'puerperio3' && (
+                              <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
+                                {bgDeduction > 0
+                                  ? <span>Base esquema − CDO ({fmt(bgDeduction)}): {fmt(p3BaseRaw)}</span>
+                                  : <span>Base: {fmt(p3BaseRaw)}</span>}
+                                {ayudaAmountNum > 0 && ayudaState.completed && <span className="text-danger"> − {fmt(ayudaAmountNum)} <small>(ayuda maternidad)</small></span>}
+                                {ayudaAmountNum > 0 && !ayudaState.completed && <span className="text-muted"> − {fmt(ayudaAmountNum)} <small>(ayuda maternidad — pendiente de pago)</small></span>}
+                                <strong className="ms-1">= {fmt(plannedImp)}</strong>
+                              </div>
+                            )}
+                          </CTableDataCell>
+                          <CTableDataCell style={cs}>
+                            <ImporteCell planned={plannedImp} realValue={state.realImporte ?? ''}
+                              disabled={locked} onChange={e => updatePuerperioState(row.id, 'realImporte', e.target.value)} />
+                          </CTableDataCell>
+                          <CTableDataCell style={cs}><CurrencyInput disabled={locked} value={state.penalizacion} onChange={e => updatePuerperioState(row.id, 'penalizacion', e.target.value)} inputStyle={{ color: 'var(--cui-danger)' }} /></CTableDataCell>
+                          <CTableDataCell style={cs}><CurrencyInput disabled={locked} value={state.reembolso}    onChange={e => updatePuerperioState(row.id, 'reembolso',    e.target.value)} inputStyle={{ color: 'var(--cui-info)' }} /></CTableDataCell>
+                          <CompletedCell completed={locked} autoKey={`puerperio_${row.id}`} label={row.concepto}
+                            importe={realImp} bonoVal={0} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
+                            commentKey={`puerperio_${row.id}`}
+                            onCommitTrue={() => updatePuerperioState(row.id, 'completed', true)} onUncomplete={() => updatePuerperioState(row.id, 'completed', false)} />
+                        </CTableRow>
+                        {/* Ayuda maternidad row — between P2 and P3 */}
+                        {row.id === 'puerperio2' && (() => {
+                          const ayudaLocked = ayudaState.completed;
+                          const ayudaRealImp = rVal(ayudaState.realImporte, ayudaAmountNum);
+                          return (
+                            <CTableRow style={ayudaLocked ? rowLocked : undefined}>
+                              <CTableDataCell style={cs}>
+                                <strong>Ayuda maternidad</strong>
+                                <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
+                                  {ayudaAmountNum > 0 && !ayudaLocked && <span className="text-danger"><small>(se descontará de P3 al completar)</small></span>}
+                                  {ayudaAmountNum > 0 && ayudaLocked  && <span className="text-danger"><small>−{fmt(ayudaAmountNum)} descontado de P3</small></span>}
+                                </div>
+                              </CTableDataCell>
+                              <CTableDataCell style={cs}>
+                                <ImporteCell planned={ayudaAmountNum} realValue={ayudaState.realImporte ?? ''}
+                                  disabled={ayudaLocked} onChange={e => updateAyudaState('realImporte', e.target.value)} />
+                              </CTableDataCell>
+                              <CTableDataCell style={cs}><CurrencyInput disabled={ayudaLocked} value={ayudaState.penalizacion} onChange={e => updateAyudaState('penalizacion', e.target.value)} inputStyle={{ color: 'var(--cui-danger)' }} /></CTableDataCell>
+                              <CTableDataCell style={cs}><CurrencyInput disabled={ayudaLocked} value={ayudaState.reembolso}    onChange={e => updateAyudaState('reembolso',    e.target.value)} inputStyle={{ color: 'var(--cui-info)' }} /></CTableDataCell>
+                              <CompletedCell completed={ayudaLocked} autoKey="ayuda_maternidad" label="Ayuda maternidad"
+                                importe={ayudaRealImp} bonoVal={0} penalizacion={ayudaState.penalizacion} reembolso={ayudaState.reembolso} category="scheme"
+                                commentKey="ayuda_maternidad"
+                                onCommitTrue={() => updateAyudaState('completed', true)} onUncomplete={() => updateAyudaState('completed', false)} />
+                            </CTableRow>
+                          );
+                        })()}
+                      </React.Fragment>
                     );
                   })}
                 </CTableBody>
               </CTable>
             </div>
 
-            {/* Ayuda maternidad */}
-            <div className="mb-4 p-3 rounded" style={{ border: `1px solid ${ayudaMaternidad ? 'var(--cui-primary)' : 'var(--cui-border-color)'}` }}>
-              <div className="d-flex align-items-center gap-3 flex-wrap mb-3">
-                <div className="d-flex align-items-center gap-2">
-                  <CFormCheck id="ayuda-maternidad" checked={ayudaMaternidad} disabled={ayudaState.completed}
-                    onChange={e => { setAyudaMaternidad(e.target.checked); if (!e.target.checked) setAyudaAmount(''); debouncedSave(); }} />
-                  <label htmlFor="ayuda-maternidad" className="mb-0 fw-semibold" style={{ cursor: 'pointer' }}>¿Ayuda maternidad?</label>
-                </div>
-                {ayudaMaternidad && (
-                  <>
-                    <div className="d-flex align-items-center gap-2">
-                      <CFormLabel className="mb-0 text-muted small">Monto:</CFormLabel>
-                      <CFormInput type="number" size="sm" className="no-spinners" style={{ width: '140px' }}
-                        value={ayudaAmount} placeholder="0" disabled={ayudaState.completed} onChange={e => { setAyudaAmount(e.target.value); debouncedSave(); }} />
-                    </div>
-                    {ayudaAmountNum > 0 && <CBadge color="danger">−{fmt(ayudaAmountNum)} de Puerperio 3</CBadge>}
-                  </>
-                )}
-                {!ayudaMaternidad && <small className="text-muted">Al activar, el monto se descuenta de Puerperio 3.</small>}
-              </div>
-              {ayudaMaternidad && ayudaAmountNum > 0 && (
-                <div className="table-responsive">
-                  <CTable hover striped className="gest-table">
-                    <CTableHead>
-                      <CTableRow>
-                        <CTableHeaderCell style={{ ...hs, minWidth: '260px' }}>Concepto</CTableHeaderCell>
-                        <CTableHeaderCell style={hs}>Importe</CTableHeaderCell>
-                        <CTableHeaderCell style={hs}>Penalización</CTableHeaderCell>
-                        <CTableHeaderCell style={hs}>Reembolso</CTableHeaderCell>
-                        <CTableHeaderCell style={hsc}>Pago completado</CTableHeaderCell>
-                      </CTableRow>
-                    </CTableHead>
-                    <CTableBody>
-                      <CTableRow style={ayudaState.completed ? rowLocked : undefined}>
-                        <CTableDataCell style={cs}>
-                          <strong>Ayuda maternidad</strong>
-                          <small className="d-block text-muted">Descontado de Puerperio 3</small>
-                        </CTableDataCell>
-                        <CTableDataCell style={cs}>
-                          <ImporteCell planned={ayudaAmountNum} realValue={ayudaState.realImporte ?? ''}
-                            disabled={ayudaState.completed} onChange={e => updateAyudaState('realImporte', e.target.value)} />
-                        </CTableDataCell>
-                        <CTableDataCell style={cs}><CurrencyInput disabled={ayudaState.completed} value={ayudaState.penalizacion} onChange={e => updateAyudaState('penalizacion', e.target.value)} inputStyle={{ color: 'var(--cui-danger)' }} /></CTableDataCell>
-                        <CTableDataCell style={cs}><CurrencyInput disabled={ayudaState.completed} value={ayudaState.reembolso}    onChange={e => updateAyudaState('reembolso',    e.target.value)} inputStyle={{ color: 'var(--cui-info)' }} /></CTableDataCell>
-                        <CompletedCell completed={ayudaState.completed} autoKey="ayuda_maternidad" label="Ayuda maternidad"
-                          importe={rVal(ayudaState.realImporte, ayudaAmountNum)} bonoVal={0} penalizacion={ayudaState.penalizacion} reembolso={ayudaState.reembolso} category="scheme"
-                          commentKey="ayuda_maternidad"
-                          onCommitTrue={() => updateAyudaState('completed', true)} onUncomplete={() => updateAyudaState('completed', false)} />
-                      </CTableRow>
-                    </CTableBody>
-                  </CTable>
-                </div>
-              )}
-            </div>
 
             {/* Parcialidades — variable amounts from cálculo puerperio 4 */}
             <div className="mt-3 p-3 rounded" style={{ border: '1px solid var(--cui-border-color)' }}>
@@ -1955,24 +1940,17 @@ const PaymentsGestForm = () => {
                     <CTableHeaderCell style={hs}>Fecha</CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Motivo</CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Movimiento</CTableHeaderCell>
-                    <CTableHeaderCell style={hs}>
-                      <span style={{ color: 'var(--cui-body-color)' }}>Total </span>
-                      <small style={{ fontWeight: 400 }}>
-                        (<span style={{ color: '#7c3aed' }}>importe</span>
-                        {' + '}
-                        <span style={{ color: '#16a34a' }}>bono transporte</span>
-                        {' − '}
-                        <span style={{ color: 'var(--cui-danger)' }}>penalización</span>
-                        {' + '}
-                        <span style={{ color: 'var(--cui-info)' }}>reembolso</span>)
-                      </small>
-                    </CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, color: '#7c3aed' }}>Importe</CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, color: '#16a34a' }}>Bono transporte</CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, color: 'var(--cui-danger)' }}>Penalización</CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, color: 'var(--cui-info)' }}>Reembolso</CTableHeaderCell>
+                    <CTableHeaderCell style={hs}>Total</CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Acciones</CTableHeaderCell>
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
                   {extratoGastos.length === 0 ? (
-                    <CTableRow><CTableDataCell colSpan={5} className="text-center py-4 text-muted">No hay entradas registradas</CTableDataCell></CTableRow>
+                    <CTableRow><CTableDataCell colSpan={9} className="text-center py-4 text-muted">No hay entradas registradas</CTableDataCell></CTableRow>
                   ) : extratoGastos.map(entry => (
                     <CTableRow key={entry.id} style={
                       entry.isAuto
@@ -1982,32 +1960,26 @@ const PaymentsGestForm = () => {
                       <CTableDataCell style={cs}>{new Date(entry.fecha + 'T12:00:00').toLocaleDateString('es-MX')}</CTableDataCell>
                       <CTableDataCell style={cs}>{entry.motivo}</CTableDataCell>
                       <CTableDataCell style={cs}><CBadge color={entry.isAuto ? 'primary' : 'secondary'}>{entry.movimiento || '—'}</CBadge></CTableDataCell>
-                      <CTableDataCell style={cs}>
-                        {entry.isAuto ? (() => {
+                      {entry.isAuto ? (() => {
                           const eImp  = parseFloat(entry.importeVal)     || 0;
                           const eBono = parseFloat(entry.bonoValStored)   || 0;
                           const ePen  = parseFloat(entry.penalizacionVal) || 0;
                           const eReim = parseFloat(entry.reembolsoVal)    || 0;
                           const eTotal = eImp + eBono - ePen + eReim;
-                          return (
-                            <div style={{ fontSize: '0.82rem', lineHeight: 1.6, whiteSpace: 'nowrap' }}>
-                              <span style={{ color: '#7c3aed', fontWeight: 600 }}>{fmt(eImp)}</span>
-                              <span className="text-muted mx-1">+</span>
-                              <span style={{ color: '#16a34a', fontWeight: 600 }}>{fmt(eBono)}</span>
-                              <span className="text-muted mx-1">−</span>
-                              <span style={{ color: 'var(--cui-danger)', fontWeight: 600 }}>{fmt(ePen)}</span>
-                              <span className="text-muted mx-1">+</span>
-                              <span style={{ color: 'var(--cui-info)', fontWeight: 600 }}>{fmt(eReim)}</span>
-                              <span className="text-muted mx-1">=</span>
-                              <span style={{ color: 'var(--cui-body-color)', fontWeight: 700 }}>{fmt(eTotal)}</span>
-                            </div>
-                          );
-                        })() : (
-                          <span className="fw-semibold" style={{ color: parseFloat(entry.valor) < 0 ? 'var(--cui-danger)' : 'var(--cui-primary)' }}>
-                            {fmt(parseFloat(entry.valor))}
-                          </span>
-                        )}
-                      </CTableDataCell>
+                          return (<>
+                            <CTableDataCell style={cs}><span style={{ color: '#7c3aed', fontWeight: 600 }}>{eImp ? fmt(eImp) : <span className="text-muted">—</span>}</span></CTableDataCell>
+                            <CTableDataCell style={cs}><span style={{ color: '#16a34a', fontWeight: 600 }}>{eBono ? fmt(eBono) : <span className="text-muted">—</span>}</span></CTableDataCell>
+                            <CTableDataCell style={cs}><span style={{ color: 'var(--cui-danger)', fontWeight: 600 }}>{ePen ? fmt(ePen) : <span className="text-muted">—</span>}</span></CTableDataCell>
+                            <CTableDataCell style={cs}><span style={{ color: 'var(--cui-info)', fontWeight: 600 }}>{eReim ? fmt(eReim) : <span className="text-muted">—</span>}</span></CTableDataCell>
+                            <CTableDataCell style={cs}><span style={{ color: 'var(--cui-body-color)', fontWeight: 700 }}>{fmt(eTotal)}</span></CTableDataCell>
+                          </>);
+                        })() : (<>
+                          <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
+                          <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
+                          <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
+                          <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
+                          <CTableDataCell style={cs}><span className="fw-semibold" style={{ color: parseFloat(entry.valor) < 0 ? 'var(--cui-danger)' : 'var(--cui-primary)' }}>{fmt(parseFloat(entry.valor))}</span></CTableDataCell>
+                        </>)}
                       <CTableDataCell style={cs}>
                         {(() => {
                           const bonusKeys = ['bonus_t1', 'bono_vih', 'bono_gemelar'];
