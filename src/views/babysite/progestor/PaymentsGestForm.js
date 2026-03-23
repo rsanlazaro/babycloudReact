@@ -1952,62 +1952,56 @@ const PaymentsGestForm = () => {
                 <CTableBody>
                   {extratoGastos.length === 0 ? (
                     <CTableRow><CTableDataCell colSpan={9} className="text-center py-4 text-muted">No hay entradas registradas</CTableDataCell></CTableRow>
-                  ) : extratoGastos.map(entry => (
-                    <CTableRow key={entry.id} style={
-                      entry.isAuto
-                        ? { backgroundColor: 'color-mix(in srgb, var(--cui-primary) 6%, transparent)' }
-                        : undefined
-                    }>
-                      <CTableDataCell style={cs}>{new Date(entry.fecha + 'T12:00:00').toLocaleDateString('es-MX')}</CTableDataCell>
-                      <CTableDataCell style={cs}>{entry.motivo}</CTableDataCell>
-                      <CTableDataCell style={cs}><CBadge color={entry.isAuto ? 'primary' : 'secondary'}>{entry.movimiento || '—'}</CBadge></CTableDataCell>
-                      {entry.isAuto ? (() => {
-                          const eImp  = parseFloat(entry.importeVal)     || 0;
-                          const eBono = parseFloat(entry.bonoValStored)   || 0;
-                          const ePen  = parseFloat(entry.penalizacionVal) || 0;
-                          const eReim = parseFloat(entry.reembolsoVal)    || 0;
-                          const eTotal = eImp + eBono - ePen + eReim;
-                          return (<>
-                            <CTableDataCell style={cs}><span style={{ color: '#7c3aed', fontWeight: 600 }}>{eImp ? fmt(eImp) : <span className="text-muted">—</span>}</span></CTableDataCell>
-                            <CTableDataCell style={cs}><span style={{ color: '#16a34a', fontWeight: 600 }}>{eBono ? fmt(eBono) : <span className="text-muted">—</span>}</span></CTableDataCell>
-                            <CTableDataCell style={cs}><span style={{ color: 'var(--cui-danger)', fontWeight: 600 }}>{ePen ? fmt(ePen) : <span className="text-muted">—</span>}</span></CTableDataCell>
-                            <CTableDataCell style={cs}><span style={{ color: 'var(--cui-info)', fontWeight: 600 }}>{eReim ? fmt(eReim) : <span className="text-muted">—</span>}</span></CTableDataCell>
-                            <CTableDataCell style={cs}><span style={{ color: 'var(--cui-body-color)', fontWeight: 700 }}>{fmt(eTotal)}</span></CTableDataCell>
-                          </>);
-                        })() : (<>
-                          <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
-                          <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
-                          <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
-                          <CTableDataCell style={cs}><span className="text-muted">—</span></CTableDataCell>
-                          <CTableDataCell style={cs}><span className="fw-semibold" style={{ color: parseFloat(entry.valor) < 0 ? 'var(--cui-danger)' : 'var(--cui-primary)' }}>{fmt(parseFloat(entry.valor))}</span></CTableDataCell>
-                        </>)}
-                      <CTableDataCell style={cs}>
-                        {(() => {
-                          const bonusKeys = ['bonus_t1', 'bono_vih', 'bono_gemelar'];
-                          const isBonus   = bonusKeys.includes(entry.autoKey);
-                          const commentKey = `extrato_${entry.autoKey || entry.id}`;
-                          return (
-                            <div className="d-flex gap-1 align-items-center">
-                              <CButton color="secondary" variant="ghost" size="sm"
-                                style={{ padding: '2px 6px', position: 'relative' }}
-                                title="Ver / agregar comentario"
-                                onClick={() => openCommentModal(commentKey, entry.movimiento || entry.motivo || 'Entrada')}>
-                                <CIcon icon={cilDescription} size="sm" />
-                                {rowComments[commentKey] && (
-                                  <CIcon icon={cilWarning} size="sm" style={{ position: 'absolute', top: 0, right: 0, color: 'var(--cui-warning)', fontSize: '0.65rem' }} />
-                                )}
-                              </CButton>
-                              <CButton color="danger" variant="ghost" size="sm" disabled={isBonus}
-                                title={isBonus ? 'Este registro se gestiona automáticamente' : entry.isAuto ? 'Eliminar (desbloqueará la fila correspondiente)' : 'Eliminar'}
-                                onClick={() => !isBonus && confirmDeleteExtrato(entry)}>
-                                <CIcon icon={cilTrash} size="sm" />
-                              </CButton>
-                            </div>
-                          );
-                        })()}
-                      </CTableDataCell>
-                    </CTableRow>
-                  ))}
+                  ) : extratoGastos.map(entry => {
+                    const eImp   = parseFloat(entry.importeVal)     || 0;
+                    const eBono  = parseFloat(entry.bonoValStored)   || 0;
+                    const ePen   = parseFloat(entry.penalizacionVal) || 0;
+                    const eReim  = parseFloat(entry.reembolsoVal)    || 0;
+                    const eTotal = entry.isAuto ? (eImp + eBono - ePen + eReim) : (parseFloat(entry.valor) || 0);
+                    const bonusKeys  = ['bonus_t1', 'bono_vih', 'bono_gemelar'];
+                    const isBonus    = bonusKeys.includes(entry.autoKey);
+                    const commentKey = `extrato_${entry.autoKey || entry.id}`;
+                    return (
+                      <CTableRow key={entry.id} style={entry.isAuto ? { backgroundColor: 'color-mix(in srgb, var(--cui-primary) 6%, transparent)' } : undefined}>
+                        <CTableDataCell style={cs}>{new Date(entry.fecha + 'T12:00:00').toLocaleDateString('es-MX')}</CTableDataCell>
+                        <CTableDataCell style={cs}>{entry.motivo}</CTableDataCell>
+                        <CTableDataCell style={cs}><CBadge color={entry.isAuto ? 'primary' : 'secondary'}>{entry.movimiento || '—'}</CBadge></CTableDataCell>
+                        <CTableDataCell style={cs}>
+                          {entry.isAuto && eImp  ? <span style={{ color: '#7c3aed', fontWeight: 600 }}>{fmt(eImp)}</span>  : <span className="text-muted">—</span>}
+                        </CTableDataCell>
+                        <CTableDataCell style={cs}>
+                          {entry.isAuto && eBono ? <span style={{ color: '#16a34a', fontWeight: 600 }}>{fmt(eBono)}</span> : <span className="text-muted">—</span>}
+                        </CTableDataCell>
+                        <CTableDataCell style={cs}>
+                          {entry.isAuto && ePen  ? <span style={{ color: 'var(--cui-danger)', fontWeight: 600 }}>{fmt(ePen)}</span>  : <span className="text-muted">—</span>}
+                        </CTableDataCell>
+                        <CTableDataCell style={cs}>
+                          {entry.isAuto && eReim ? <span style={{ color: 'var(--cui-info)', fontWeight: 600 }}>{fmt(eReim)}</span> : <span className="text-muted">—</span>}
+                        </CTableDataCell>
+                        <CTableDataCell style={cs}>
+                          <span className="fw-bold" style={{ color: eTotal < 0 ? 'var(--cui-danger)' : 'var(--cui-body-color)' }}>{fmt(eTotal)}</span>
+                        </CTableDataCell>
+                        <CTableDataCell style={cs}>
+                          <div className="d-flex gap-1 align-items-center">
+                            <CButton color="secondary" variant="ghost" size="sm"
+                              style={{ padding: '2px 6px', position: 'relative' }}
+                              title="Ver / agregar comentario"
+                              onClick={() => openCommentModal(commentKey, entry.movimiento || entry.motivo || 'Entrada')}>
+                              <CIcon icon={cilDescription} size="sm" />
+                              {rowComments[commentKey] && (
+                                <CIcon icon={cilWarning} size="sm" style={{ position: 'absolute', top: 0, right: 0, color: 'var(--cui-warning)', fontSize: '0.65rem' }} />
+                              )}
+                            </CButton>
+                            <CButton color="danger" variant="ghost" size="sm" disabled={isBonus}
+                              title={isBonus ? 'Este registro se gestiona automáticamente' : entry.isAuto ? 'Eliminar (desbloqueará la fila correspondiente)' : 'Eliminar'}
+                              onClick={() => !isBonus && confirmDeleteExtrato(entry)}>
+                              <CIcon icon={cilTrash} size="sm" />
+                            </CButton>
+                          </div>
+                        </CTableDataCell>
+                      </CTableRow>
+                    );
+                  })}
                 </CTableBody>
               </CTable>
             </div>
