@@ -1953,7 +1953,8 @@ const PaymentsGestForm = () => {
                   {extratoGastos.length === 0 ? (
                     <CTableRow><CTableDataCell colSpan={9} className="text-center py-4 text-muted">No hay entradas registradas</CTableDataCell></CTableRow>
                   ) : extratoGastos.map(entry => {
-                    const eImp   = parseFloat(entry.importeVal)     || 0;
+                    const eImp   = entry.importeVal      != null ? parseFloat(entry.importeVal)     || 0
+                                 : /* old entry — derive from total */ Math.max(0, (parseFloat(entry.valor) || 0) - (parseFloat(entry.bonoValStored) || 0) + (parseFloat(entry.penalizacionVal) || 0) - (parseFloat(entry.reembolsoVal) || 0));
                     const eBono  = parseFloat(entry.bonoValStored)   || 0;
                     const ePen   = parseFloat(entry.penalizacionVal) || 0;
                     const eReim  = parseFloat(entry.reembolsoVal)    || 0;
