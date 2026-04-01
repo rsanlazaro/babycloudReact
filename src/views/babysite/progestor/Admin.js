@@ -12,6 +12,7 @@ import CIcon from '@coreui/icons-react';
 import {
   cilChartLine,
   cilDescription,
+  cilFolder,
 } from '@coreui/icons';
 
 import usePermissions from '../../../hooks/usePermissions';
@@ -48,6 +49,15 @@ const Admin = () => {
       color: 'success',
       visible: canViewInvoiceTMC || canViewInvoiceNexa || canViewInvoiceBabymedic,
       editable: canEditInvoiceTMC || canEditInvoiceNexa || canEditInvoiceBabymedic,
+    },
+    {
+      title: 'Documentos legales',
+      description: 'Generación de documentos legales',
+      icon: cilFolder,
+      path: '/progestor/admin/legal-docs',
+      color: 'warning',
+      visible: true,
+      editable: true,
     },
   ];
 

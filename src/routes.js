@@ -25,7 +25,9 @@ const AccessRoles = React.lazy(() => import('./views/babysite/progestor/AccessRo
 const Registers = React.lazy(() => import('./views/babysite/progestor/Registers'))
 const RegisterForm = React.lazy(() => import('./views/babysite/progestor/RegisterForm'))
 const PaymentsGest = React.lazy(() => import('./views/babysite/progestor/PaymentsGest'))
-const PaymentsGestForm = React.lazy(() => import('./views/babysite/progestor/PaymentsGestForm')) 
+const PaymentsGestForm = React.lazy(() => import('./views/babysite/progestor/PaymentsGestForm'))
+const LegalDocs = React.lazy(() => import('./views/babysite/progestor/LegalDocs'))
+
 
 // Babysite
 const sortGes = React.lazy(() => import('./views/babysite/babysite/SortGes'))
@@ -50,6 +52,7 @@ const routes = [
   { path: '/progestor/admin/bills/nexatravel', name: 'InvoiceNexatravel', element: InvoiceNexatravel },
   { path: '/progestor/admin/bills/travelmedicalcare', name: 'InvoiceTravelmedicalcare', element: InvoiceTravelmedicalcare },
   { path: '/progestor/admin/bills', name: 'Bills', element: Bills },
+  { path: '/progestor/admin/legal-docs', name: 'LegalDocs', element: LegalDocs },
   { path: '/progestor/users', name: 'Users', element: Users },
   { path: '/progestor/guests', name: 'Guests', element: Guests },
   { path: '/progestor/users/:id/roles', name: 'Roles', element: Roles },

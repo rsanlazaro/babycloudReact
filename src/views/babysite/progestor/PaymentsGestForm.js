@@ -122,11 +122,11 @@ const FIXED_ROWS = [
   { id: 'sdg32', concepto: '32 SDG', importe: 24000, bonoTransporte: 500, section: 3 },
   { id: 'sdg34', concepto: '34 SDG', importe: null,  bonoTransporte: 500, section: 3 },
   { id: 'sdg35', concepto: '35 SDG', importe: null,  bonoTransporte: 500, section: 3 },
-  { id: 'sdg36', concepto: '36 SDG', importe: 24000, bonoTransporte: 650, section: 3, triggersSDG36Bonus: true },
-  { id: 'sdg37', concepto: '37 SDG', importe: null,  bonoTransporte: 850, section: 3 },
-  { id: 'sdg38', concepto: '38 SDG', importe: null,  bonoTransporte: 1000, section: 3 },
-  { id: 'sdg39', concepto: '39 SDG', importe: 0,     bonoTransporte: 500,  section: 3 },
-  { id: 'sdg40', concepto: '40 SDG', importe: 0,     bonoTransporte: 500,  section: 3 },
+  { id: 'sdg36', concepto: '36 SDG', importe: 24000, bonoTransporte: 500, section: 3, triggersSDG36Bonus: true },
+  { id: 'sdg37', concepto: '37 SDG', importe: null,  bonoTransporte: 750, section: 3 },
+  { id: 'sdg38', concepto: '38 SDG', importe: null,  bonoTransporte: 750, section: 3 },
+  { id: 'sdg39', concepto: '39 SDG', importe: 0,     bonoTransporte: 0,  section: 3 },
+  { id: 'sdg40', concepto: '40 SDG', importe: 0,     bonoTransporte: 0,  section: 3 },
 ];
 
 // SDG rows blocked by Semana de parto: selected week and all subsequent get zeroed
@@ -402,10 +402,21 @@ const PaymentsGestForm = () => {
     () => parseFloat(ayudaState.realImporte) || parseFloat(ayudaAmount) || 0,
     [ayudaState.realImporte, ayudaAmount]
   );
-  // P3 = base − ayuda maternidad (only when ayuda row is marked as paid)
+  // T4 and T5 bono transporte amounts count as scheme payments, not bonuses — deducted from P3
+  const trans45Deduction = useMemo(() => {
+    let t = 0;
+    visibleTransferencias.forEach(trans => {
+      if ([2,3,4,5,6].includes(trans.id) && trans.transCompleted) {
+        t += rVal(trans.transRealBono, 500);
+      }
+    });
+    return t;
+  }, [visibleTransferencias]);
+
+    // P3 = base − ayuda maternidad − T4/T5 bono transporte (scheme payments)
   const p3Amount = useMemo(
-    () => Math.max(0, p3BaseRaw - (ayudaState.completed ? ayudaAmountNum : 0)),
-    [p3BaseRaw, ayudaAmountNum, ayudaState]
+    () => Math.max(0, p3BaseRaw - (ayudaState.completed ? ayudaAmountNum : 0) - trans45Deduction),
+    [p3BaseRaw, ayudaAmountNum, ayudaState, trans45Deduction]
   );
 
   // ── Real-amount totals (uses user-entered realImporte, falls back to planned) ─
@@ -467,8 +478,10 @@ const PaymentsGestForm = () => {
       const planned = getRowBono(r, sv) || 0;
       t += rVal(rowStates[r.id]?.realBono, planned);
     });
-    // Transferencia sub-rows: each has $500 bono transporte (planned)
-    visibleTransferencias.forEach(trans => { t += rVal(trans.transRealBono, 500); });
+    // Transferencia sub-rows: T1-T3/T6 count as bono; T4 and T5 are scheme payments (deducted from P3)
+    visibleTransferencias.forEach(trans => {
+      if (![2,3,4,5,6].includes(trans.id)) t += rVal(trans.transRealBono, 500);
+    });
     return t;
   }, [sv, rowStates, blockedBirthRowIds, visibleTransferencias]);
 
@@ -603,8 +616,8 @@ const PaymentsGestForm = () => {
         t += rVal(rowStates[r.id]?.realBono, getRowBono(r, sv) || 0);
       }
     });
-    // Transferencia trans sub-rows paid
-    visibleTransferencias.filter(x => x.transCompleted).forEach(trans => {
+    // Transferencia trans sub-rows paid (T4/T5 excluded — they are scheme payments)
+    visibleTransferencias.filter(x => x.transCompleted && ![2,3,4,5,6].includes(x.id)).forEach(trans => {
       t += rVal(trans.transRealBono, 500);
     });
     return t;
