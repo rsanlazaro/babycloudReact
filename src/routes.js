@@ -27,6 +27,8 @@ const RegisterForm = React.lazy(() => import('./views/babysite/progestor/Registe
 const PaymentsGest = React.lazy(() => import('./views/babysite/progestor/PaymentsGest'))
 const PaymentsGestForm = React.lazy(() => import('./views/babysite/progestor/PaymentsGestForm'))
 const LegalDocs = React.lazy(() => import('./views/babysite/progestor/LegalDocs'))
+const CloudIPS_List     = React.lazy(() => import('./views/babysite/babycloud/CloudIPS_List'))
+const CloudIPS_Register = React.lazy(() => import('./views/babysite/babycloud/CloudIPS_Register'))
 
 
 // Babysite
@@ -59,6 +61,8 @@ const routes = [
   { path: '/progestor/users/roles', name: 'AccessRoles', element: AccessRoles },
   { path: '/babysite/sortGes', name: 'sortGesList', element: sortGesList },
   { path: '/babysite/sortGes/:id', name: 'sortGes', element: sortGes },
+  { path: '/babycloud/cloud-ips', name: 'CloudIPS_List', element: CloudIPS_List },
+  { path: '/babycloud/cloud-ips/register/:id', name: 'CloudIPS_Register', element: CloudIPS_Register },
 ]
 
 export default routes

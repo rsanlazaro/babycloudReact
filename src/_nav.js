@@ -198,9 +198,9 @@ const _nav = [
       {
         component: CNavItem,
         name: 'Cloud IPS_upload',
-        to: '/babycloud/ips',
+        to: '/babycloud/cloud-ips',
         className: 'sidebar-component',
-        state: 'disabled',
+        state: 'enabled',
         permission: PERMISSIONS.ADD_STAGE, // access_71
       },
       {
