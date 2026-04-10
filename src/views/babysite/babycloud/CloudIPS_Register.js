@@ -291,14 +291,14 @@ const StageRow = ({ stageId, component, phaseIndex, rowData, onSave, onModalOpen
       <td className="text-center" style={{ fontSize: '0.78rem' }}>
         <div className="text-muted" style={{ fontSize: '0.65rem' }}>Donante</div>
         <input className="form-control form-control-sm" defaultValue={get('info_1')}
-          onBlur={(e) => save('info_1', e.target.value)} style={{ minWidth: 70 }} />
+          onChange={(e) => save('info_1', e.target.value)} style={{ minWidth: 70 }} />
       </td>
     )
     if (info1Type === 'xx') return (
       <td className="text-center" style={{ fontSize: '0.78rem' }}>
         <div className="text-muted" style={{ fontSize: '0.65rem' }}>XX</div>
         <input className="form-control form-control-sm" defaultValue={get('info_1')}
-          onBlur={(e) => save('info_1', e.target.value)} style={{ minWidth: 70 }} />
+          onChange={(e) => save('info_1', e.target.value)} style={{ minWidth: 70 }} />
       </td>
     )
     if (info1Type === 'candidata') return (
@@ -307,7 +307,7 @@ const StageRow = ({ stageId, component, phaseIndex, rowData, onSave, onModalOpen
     if (info1Type === 'resumen') return (
       <td colSpan={2}>
         <textarea className="form-control form-control-sm" defaultValue={get('info_1')}
-          onBlur={(e) => save('info_1', e.target.value)}
+          onChange={(e) => save('info_1', e.target.value)}
           rows={2} style={{ minWidth: 180, fontSize: '0.78rem' }}
           placeholder="Redactar resumen..." />
       </td>
@@ -338,7 +338,7 @@ const StageRow = ({ stageId, component, phaseIndex, rowData, onSave, onModalOpen
     return (
       <td>
         <input className="form-control form-control-sm" defaultValue={get('info_1')}
-          onBlur={(e) => save('info_1', e.target.value)} style={{ minWidth: 80 }} />
+          onChange={(e) => save('info_1', e.target.value)} style={{ minWidth: 80 }} />
       </td>
     )
   }
@@ -351,20 +351,20 @@ const StageRow = ({ stageId, component, phaseIndex, rowData, onSave, onModalOpen
       <td className="text-center" style={{ fontSize: '0.78rem' }}>
         <div className="text-muted" style={{ fontSize: '0.65rem' }}>Embriones D6</div>
         <input className="form-control form-control-sm" defaultValue={get('info_2')}
-          onBlur={(e) => save('info_2', e.target.value)} style={{ minWidth: 70 }} />
+          onChange={(e) => save('info_2', e.target.value)} style={{ minWidth: 70 }} />
       </td>
     )
     if (info2Type === 'xy') return (
       <td className="text-center" style={{ fontSize: '0.78rem' }}>
         <div className="text-muted" style={{ fontSize: '0.65rem' }}>XY</div>
         <input className="form-control form-control-sm" defaultValue={get('info_2')}
-          onBlur={(e) => save('info_2', e.target.value)} style={{ minWidth: 70 }} />
+          onChange={(e) => save('info_2', e.target.value)} style={{ minWidth: 70 }} />
       </td>
     )
     if (info2Type === 'text') return (
       <td>
         <input className="form-control form-control-sm" defaultValue={get('info_2')}
-          onBlur={(e) => save('info_2', e.target.value)} style={{ minWidth: 80 }} />
+          onChange={(e) => save('info_2', e.target.value)} style={{ minWidth: 80 }} />
       </td>
     )
     if (info2Type === 'modal') return (
@@ -409,7 +409,7 @@ const StageRow = ({ stageId, component, phaseIndex, rowData, onSave, onModalOpen
       <td>
         <input type="date" className="form-control form-control-sm"
           defaultValue={get('date')}
-          onBlur={(e) => save('date', e.target.value)}
+          onChange={(e) => save('date', e.target.value)}
           style={{ minWidth: 130 }} />
       </td>
 
