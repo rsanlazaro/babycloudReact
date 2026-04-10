@@ -103,17 +103,6 @@ const STAGES = [
         ],
       },
       {
-        id: 3,
-        description: 'Reporte Transfer<br/>Rapport de transfert embryonnaire',
-        info1Type: 'resumen',  // colspan 2, no info2
-        info2Type: null,
-        options: [
-          { value: '---', label: '---' },
-          { value: 'Esperando', label: 'Esperando' },
-          { value: 'Concluding', label: 'Concluding' },
-        ],
-      },
-      {
         id: 4,
         description: 'Prueba Beta<br/>Beta Test',
         info1Type: 'select',
