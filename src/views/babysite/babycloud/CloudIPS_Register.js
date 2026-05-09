@@ -668,6 +668,14 @@ const CloudIPS_Register = () => {
               <span className="text-muted" style={{ fontSize: '0.78rem' }}>
                 {saving ? 'Guardando...' : 'Auto-guardado'}
               </span>
+              <CButton
+                color="primary"
+                variant="outline"
+                size="sm"
+                onClick={() => navigate(`/babycloud/cloud-ips/preview/${id}`, { state: { guest } })}
+              >
+                Preview IP
+              </CButton>
             </div>
           </CCardHeader>
         </CCard>
