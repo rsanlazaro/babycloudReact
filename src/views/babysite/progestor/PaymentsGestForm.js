@@ -10,7 +10,9 @@ import {
   CAccordionHeader, CAccordionBody,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilArrowLeft, cilSave, cilPlus, cilTrash, cilWarning, cilLockLocked, cilLockUnlocked, cilPencil, cilDescription } from '@coreui/icons';
+import { cilArrowLeft, cilSave, cilPlus, cilTrash, cilWarning, cilLockLocked, cilLockUnlocked, cilPencil, cilDescription, cilCloudDownload } from '@coreui/icons';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import api from '../../../services/api';
 import { useBillsAuth } from '../../../context/BillsAuthContext';
 
@@ -265,6 +267,13 @@ const PaymentsGestForm = () => {
   const [extratoFilterMovimiento,  setExtratoFilterMovimiento]  = useState('');
   const [extratoSort,              setExtratoSort]              = useState({ key: 'fecha', dir: 'desc' });
 
+  // ── Extrato export (PDF / CSV) ─────────────────────────────────────────────
+  const [showExportModal,    setShowExportModal]    = useState(false);
+  const [exportPwOk,         setExportPwOk]         = useState(false);
+  const [exportPw,           setExportPw]           = useState('');
+  const [exportPwError,      setExportPwError]      = useState('');
+  const [exportCols,         setExportCols]         = useState({ esquema: true, bonoT1: true, bono: true, pen: true, reim: true });
+
   // ── Comments per row ──────────────────────────────────────────────────────
   const [rowComments,       setRowComments]       = useState({});   // { [commentKey]: string }
   const [lockedComments,    setLockedComments]    = useState({});   // { [commentKey]: bool }
@@ -437,19 +446,21 @@ const PaymentsGestForm = () => {
     return t;
   }, [sv, rowStates, blockedBirthRowIds]);
 
-  // P3 absorbs all residuals from real amounts so P4 is always exactly ULTIMAS_FIRMAS.
+  // P3 absorbs all residuals so the full scheme total is always reached and P4 = ULTIMAS_FIRMAS.
   // CDO deduction shows as penalización separately — does NOT reduce P3 base.
-  // Formula: schemeValue − realFase2 − realFasesPagos − p1Pool − p2Base − ayuda − trans45 − ULTIMAS_FIRMAS
+  // The P1 pool is reduced by t1NoSDG36Penalty (SDG<36) so P3 absorbs that 5k and the total stays whole.
+  // The SDG36 bonus is NOT subtracted here (it is extra — shown in Bonos adicionales).
+  // Formula: schemeValue − realFase2 − realFasesPagos − (P1 pool − penalty) − p2Base − ayuda − trans45 − ULTIMAS_FIRMAS
   const p3Amount = useMemo(
     () => Math.max(0,
       schemeValue
       - realFase2Total - realFasesPagosTotal
-      - 50000 - p2Base
+      - (50000 - t1NoSDG36Penalty) - p2Base
       - trans45Deduction
       - (ayudaState.completed ? ayudaAmountNum : 0)
       - ULTIMAS_FIRMAS
     ),
-    [schemeValue, realFase2Total, realFasesPagosTotal, p2Base, trans45Deduction, ayudaState, ayudaAmountNum]
+    [schemeValue, realFase2Total, realFasesPagosTotal, t1NoSDG36Penalty, p2Base, trans45Deduction, ayudaState, ayudaAmountNum]
   );
 
   const realP3Amount = useMemo(
@@ -547,9 +558,7 @@ const PaymentsGestForm = () => {
     () => extratoGastos.reduce((s, e) => s + (parseFloat(e.valor) || 0), 0),
     [extratoGastos]
   );
-  const montoRestante = useMemo(() => grandTotalWithExtras - pagosRealizados, [grandTotalWithExtras, pagosRealizados]);
-
-  const schemeValuePaid      = useMemo(() => extratoGastos.filter(e => e.category === 'scheme').reduce((s, e) => s + (parseFloat(e.valor) || 0) - (parseFloat(e.reembolsoVal) || 0) - (parseFloat(e.bonoValStored) || 0), 0), [extratoGastos]);
+  const schemeValuePaid      = useMemo(() => extratoGastos.filter(e => e.category === 'scheme').reduce((s, e) => s + (parseFloat(e.valor) || 0) - (parseFloat(e.reembolsoVal) || 0) - (parseFloat(e.bonoValStored) || 0) - (parseFloat(e.importeBonoT1Val) || 0), 0), [extratoGastos]);
   const schemeValueRemaining = useMemo(() => effectiveSchemeValue - schemeValuePaid, [effectiveSchemeValue, schemeValuePaid]);
   // "Esquema real": actual amounts paid (from extrato entries using real importe inputs)
   const schemeRealPaid = schemeValuePaid;
@@ -608,7 +617,7 @@ const PaymentsGestForm = () => {
       }
     });
     // puerperio — importe only
-    if (puerperioStates.puerperio1?.completed) t += p1Amount;
+    if (puerperioStates.puerperio1?.completed) t += p1Amount - (sdg36BonusApplied ? 5000 : 0);
     if (puerperioStates.puerperio2?.completed) t += p2AdjustedAmount;
     if (puerperioStates.puerperio3?.completed) t += p3Amount;
     // ayuda maternidad — counted when completed
@@ -654,6 +663,28 @@ const PaymentsGestForm = () => {
     return idx === -1 ? 9999 : idx;
   };
 
+  // Resolve the component breakdown of an extrato entry (handles new split + legacy entries)
+  const getExtratoComponents = (entry) => {
+    const bono = parseFloat(entry.bonoValStored)   || 0;
+    const pen  = parseFloat(entry.penalizacionVal) || 0;
+    const reim = parseFloat(entry.reembolsoVal)    || 0;
+    let esquema, bonoT1;
+    if (entry.importeEsquemaVal != null || entry.importeBonoT1Val != null) {
+      esquema = parseFloat(entry.importeEsquemaVal) || 0;
+      bonoT1  = parseFloat(entry.importeBonoT1Val)  || 0;
+    } else if (entry.importeVal != null) {
+      // legacy single-importe entry
+      esquema = parseFloat(entry.importeVal) || 0;
+      bonoT1  = 0;
+    } else {
+      // very old entry — derive importe from total
+      esquema = Math.max(0, (parseFloat(entry.valor) || 0) - bono + pen - reim);
+      bonoT1  = 0;
+    }
+    const total = entry.isAuto ? (esquema + bonoT1 + bono - pen + reim) : (parseFloat(entry.valor) || 0);
+    return { esquema, bonoT1, bono, pen, reim, total };
+  };
+
   const filteredAndSortedExtrato = useMemo(() => {
     let result = [...extratoGastos];
     if (extratoFilterFechaDesde) result = result.filter(e => e.fecha >= extratoFilterFechaDesde);
@@ -682,7 +713,20 @@ const PaymentsGestForm = () => {
     const all = [...new Set(extratoGastos.map(e => e.movimiento).filter(Boolean))];
     return all.sort((a, b) => getMovimientoOrder(a) - getMovimientoOrder(b));
   }, [extratoGastos]);
-  const bonosTotalesPaid      = useMemo(() => extratoGastos.filter(e => e.category === 'bono').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0), [extratoGastos]);
+
+  const extratoTotals = useMemo(() => {
+    return filteredAndSortedExtrato.reduce((acc, e) => {
+      const c = getExtratoComponents(e);
+      acc.esquema += c.esquema; acc.bonoT1 += c.bonoT1; acc.bono += c.bono;
+      acc.pen += c.pen; acc.reim += c.reim; acc.total += c.total;
+      return acc;
+    }, { esquema: 0, bonoT1: 0, bono: 0, pen: 0, reim: 0, total: 0 });
+  }, [filteredAndSortedExtrato]);
+  const bonosTotalesPaid      = useMemo(() => {
+    const bonoCat   = extratoGastos.filter(e => e.category === 'bono').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0);
+    const t1Embedded = extratoGastos.reduce((s, e) => s + (parseFloat(e.importeBonoT1Val) || 0), 0);
+    return bonoCat + t1Embedded;
+  }, [extratoGastos]);
   const bonosTotalesRemaining = useMemo(() => totalBonos - bonosTotalesPaid, [totalBonos, bonosTotalesPaid]);
   const grandTotalRemaining   = useMemo(() => grandTotalWithExtras - pagosRealizados, [grandTotalWithExtras, pagosRealizados]);
 
@@ -704,16 +748,11 @@ const PaymentsGestForm = () => {
     }
   }, [id]);
 
+  // Clean up any legacy standalone bonus_t1 entries — the T1 bonus is now embedded
+  // directly into the SDG20 and Puerperio 1 extrato entries (importeBonoT1Val).
   useEffect(() => {
-    setExtratoGastos(prev => {
-      let next = prev.filter(e => e.autoKey !== 'bonus_t1');
-      if (t1Exitosa && sdg20Completed) {
-        const fecha = prev.find(e => e.autoKey === 'fixed_sdg20')?.fecha || new Date().toISOString().split('T')[0];
-        next = [...next, { id: `auto_bonus_t1_${Date.now()}`, fecha, movimiento: 'Bono T1 exitosa', motivo: 'Bono Transfer 1', valor: t1BonusAmount, autoKey: 'bonus_t1', category: 'bono', isAuto: true }];
-      }
-      return next;
-    });
-  }, [t1Exitosa, sdg20Completed, t1BonusAmount]);
+    setExtratoGastos(prev => prev.some(e => e.autoKey === 'bonus_t1') ? prev.filter(e => e.autoKey !== 'bonus_t1') : prev);
+  }, []);
 
   const fetchPayment = async () => {
     try {
@@ -842,6 +881,30 @@ const PaymentsGestForm = () => {
 
   // ── Row / payment handlers ────────────────────────────────────────────────
   const updateTransferencia  = (i, f, v) => { setTransferencias(p => p.map((t, idx) => idx === i ? { ...t, [f]: v } : t)); debouncedSave(); };
+
+  // When "Beta positiva" is set on transferencia i, clear ALL subsequent transferencias'
+  // payment data AND remove their extrato entries (they are hidden and must not count).
+  const handleBetaSuccessful = (i, checked) => {
+    setTransferencias(prev => prev.map((t, idx) => {
+      if (idx === i) return { ...t, successful: checked };
+      if (checked && idx > i) {
+        return { ...t, completed: false, transCompleted: false, successful: false,
+          realImporte: '', transRealBono: '', penalizacion: '', reembolso: '', transPenalizacion: '', transReembolso: '' };
+      }
+      return t;
+    }));
+    if (checked) {
+      const clearedIds = transferencias.filter((_, idx) => idx > i).map(t => t.id);
+      setExtratoGastos(prev => prev.filter(e => {
+        if (!e.autoKey) return true;
+        const mBeta = e.autoKey.match(/^transferencia_(\d+)$/);
+        const mBono = e.autoKey.match(/^trans_bono_(\d+)$/);
+        const id = mBeta ? parseInt(mBeta[1]) : mBono ? parseInt(mBono[1]) : null;
+        return id === null || !clearedIds.includes(id);
+      }));
+    }
+    autoSaveDeferred();
+  };
   const updateRowState       = (rid, f, v) => { setRowStates(p => ({ ...p, [rid]: { ...(p[rid] || initRS()), [f]: v } })); debouncedSave(); };
   const updatePuerperioState = (rid, f, v) => { setPuerperioStates(p => ({ ...p, [rid]: { ...(p[rid] || initRS()), [f]: v } })); debouncedSave(); };
   const updateBonoState      = (k, f, v)   => { setBonoStates(p => ({ ...p, [k]: { ...p[k], [f]: v } })); debouncedSave(); };
@@ -869,21 +932,25 @@ const PaymentsGestForm = () => {
     debouncedSave();
   };
 
-  const openDateModal = ({ autoKey, label, importe, bonoVal, penalizacion, reembolso, category, commitTrue }) => {
-    const reembolsoVal   = parseFloat(reembolso)   || 0;
-    const bonoValStored  = parseFloat(bonoVal)      || 0;
-    const penalizacionVal = parseFloat(penalizacion) || 0;
-    const importeVal     = parseFloat(importe)      || 0;
-    const valor = importeVal + bonoValStored - penalizacionVal + reembolsoVal;
-    setDateModalInfo({ label, autoKey, valor, importeVal, bonoValStored, penalizacionVal, reembolsoVal, category, fecha: new Date().toISOString().split('T')[0], confirm: commitTrue });
+  const openDateModal = ({ autoKey, label, importe, importeBonoT1, bonoVal, penalizacion, reembolso, category, commitTrue }) => {
+    const reembolsoVal      = parseFloat(reembolso)    || 0;
+    const bonoValStored     = parseFloat(bonoVal)      || 0;
+    const penalizacionVal   = parseFloat(penalizacion) || 0;
+    const importeBonoT1Val  = parseFloat(importeBonoT1) || 0;
+    const importeEsquemaVal = parseFloat(importe)      || 0;
+    const valor = importeEsquemaVal + importeBonoT1Val + bonoValStored - penalizacionVal + reembolsoVal;
+    setDateModalInfo({ label, autoKey, valor, importeEsquemaVal, importeBonoT1Val, bonoValStored, penalizacionVal, reembolsoVal, category, fecha: new Date().toISOString().split('T')[0], confirm: commitTrue });
     setShowDateModal(true);
   };
 
   const confirmDateModal = () => {
-    const { label, autoKey, fecha, valor, importeVal, bonoValStored, penalizacionVal, reembolsoVal, category, confirm } = dateModalInfo;
+    const { label, autoKey, fecha, valor, importeEsquemaVal, importeBonoT1Val, bonoValStored, penalizacionVal, reembolsoVal, category, confirm } = dateModalInfo;
     setExtratoGastos(prev => [
       ...prev.filter(e => e.autoKey !== autoKey),
-      { id: `auto_${autoKey}_${Date.now()}`, fecha, valor, importeVal: importeVal || 0, bonoValStored: bonoValStored || 0, penalizacionVal: penalizacionVal || 0, reembolsoVal: reembolsoVal || 0, autoKey, category, movimiento: label, motivo: 'Pago de esquema', isAuto: true },
+      { id: `auto_${autoKey}_${Date.now()}`, fecha, valor,
+        importeEsquemaVal: importeEsquemaVal || 0, importeBonoT1Val: importeBonoT1Val || 0,
+        bonoValStored: bonoValStored || 0, penalizacionVal: penalizacionVal || 0, reembolsoVal: reembolsoVal || 0,
+        autoKey, category, movimiento: label, motivo: 'Pago de esquema', isAuto: true },
     ]);
     confirm && confirm();
     setShowDateModal(false);
@@ -985,6 +1052,88 @@ const PaymentsGestForm = () => {
     setCommentPwVisible(false);
     setCommentPw('');
     setCommentPwError('');
+  };
+
+  // ── Export handlers ─────────────────────────────────────────────────────────
+  const openExportModal = () => {
+    setExportPwOk(false); setExportPw(''); setExportPwError('');
+    setExportCols({ esquema: true, bonoT1: true, bono: true, pen: true, reim: true });
+    setShowExportModal(true);
+  };
+  const confirmExportPw = () => {
+    if (exportPw !== UNLOCK_PASSWORD) { setExportPwError('Contraseña incorrecta'); return; }
+    setExportPwOk(true); setExportPw(''); setExportPwError('');
+    authenticateBills();
+  };
+  const buildExportRows = () => {
+    const cols = [{ key: 'fecha', label: 'Fecha' }, { key: 'motivo', label: 'Motivo' }, { key: 'movimiento', label: 'Movimiento' }];
+    if (exportCols.esquema) cols.push({ key: 'esquema', label: 'Importe esquema' });
+    if (exportCols.bonoT1)  cols.push({ key: 'bonoT1',  label: 'Importe bono T1' });
+    if (exportCols.bono)    cols.push({ key: 'bono',    label: 'Bono transporte' });
+    if (exportCols.pen)     cols.push({ key: 'pen',     label: 'Penalización' });
+    if (exportCols.reim)    cols.push({ key: 'reim',    label: 'Reembolso' });
+    cols.push({ key: 'total', label: 'Total' });
+    const rows = filteredAndSortedExtrato.map(e => {
+      const c = getExtratoComponents(e);
+      return cols.map(col => {
+        if (col.key === 'fecha')      return new Date(e.fecha + 'T12:00:00').toLocaleDateString('es-MX');
+        if (col.key === 'motivo')     return e.motivo || '';
+        if (col.key === 'movimiento') return e.movimiento || '';
+        // for total, recompute based ONLY on selected components
+        if (col.key === 'total') {
+          let t = 0;
+          if (exportCols.esquema) t += c.esquema;
+          if (exportCols.bonoT1)  t += c.bonoT1;
+          if (exportCols.bono)    t += c.bono;
+          if (exportCols.pen)     t -= c.pen;
+          if (exportCols.reim)    t += c.reim;
+          return t;
+        }
+        return c[col.key] || 0;
+      });
+    });
+    const totals = cols.map((col, i) => {
+      if (i === 0) return 'TOTALES';
+      if (['fecha','motivo','movimiento'].includes(col.key)) return '';
+      return rows.reduce((s, r) => s + (typeof r[i] === 'number' ? r[i] : 0), 0);
+    });
+    return { cols, rows, totals };
+  };
+  const exportCSV = () => {
+    const { cols, rows, totals } = buildExportRows();
+    const esc = (v) => {
+      if (typeof v === 'number') return v.toFixed(2);
+      const s = String(v ?? '');
+      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [cols.map(c => c.label).join(','), ...rows.map(r => r.map(esc).join(',')), totals.map(esc).join(',')];
+    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `extrato_${formData.gesca || 'esquema'}_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click(); URL.revokeObjectURL(url);
+    setShowExportModal(false);
+  };
+  const exportPDF = () => {
+    const { cols, rows, totals } = buildExportRows();
+    const doc = new jsPDF({ orientation: 'landscape' });
+    doc.setFontSize(14);
+    doc.text('Extrato Gastos', 14, 15);
+    doc.setFontSize(9);
+    doc.text(`GESCA: ${formData.gesca || '—'}   IP: ${formData.ip || '—'}   Esquema: ${fmt(schemeValue)}`, 14, 21);
+    doc.text(`Generado: ${new Date().toLocaleString('es-MX')}`, 14, 26);
+    const fmtCell = (v) => (typeof v === 'number' ? fmt(v) : v);
+    autoTable(doc, {
+      startY: 30,
+      head: [cols.map(c => c.label)],
+      body: rows.map(r => r.map(fmtCell)),
+      foot: [totals.map(fmtCell)],
+      styles: { fontSize: 8 },
+      headStyles: { fillColor: [33, 56, 122] },
+      footStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' },
+    });
+    doc.save(`extrato_${formData.gesca || 'esquema'}_${new Date().toISOString().split('T')[0]}.pdf`);
+    setShowExportModal(false);
   };
 
   // ── Auto-save system ──────────────────────────────────────────────────────
@@ -1091,11 +1240,11 @@ const PaymentsGestForm = () => {
     </CTableRow>
   );
 
-  const CompletedCell = ({ completed, autoKey, label, importe, bonoVal, penalizacion, reembolso, category, onCommitTrue, onUncomplete, commentKey }) => (
+  const CompletedCell = ({ completed, autoKey, label, importe, importeBonoT1, bonoVal, penalizacion, reembolso, category, onCommitTrue, onUncomplete, commentKey }) => (
     <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
       <div className="d-flex align-items-center justify-content-center gap-1">
         <CFormCheck checked={completed} disabled={completed}
-          onChange={() => { if (!completed) openDateModal({ autoKey, label, importe: importe || 0, bonoVal: bonoVal || 0, penalizacion, reembolso, category, commitTrue: onCommitTrue }); }} />
+          onChange={() => { if (!completed) openDateModal({ autoKey, label, importe: importe || 0, importeBonoT1: importeBonoT1 || 0, bonoVal: bonoVal || 0, penalizacion, reembolso, category, commitTrue: onCommitTrue }); }} />
         {completed && (
           <CButton size="sm" color="warning" variant="ghost" style={{ padding: '2px 6px' }}
             title="Re-editar (requiere contraseña)"
@@ -1130,6 +1279,9 @@ const PaymentsGestForm = () => {
     // Original amounts for strikethrough display on blocked rows
     const origImp     = getRowImporte(row, sv);
     const origBono    = getRowBono(row, sv);
+    const isSDG20T1     = row.id === 'sdg20' && t1Exitosa;
+    const sdg20BonoT1   = isSDG20T1 ? 5000 : 0;
+    const sdg20EsquemaImp = isSDG20T1 ? Math.max(0, realImp - 5000) : realImp;
     return (
       <CTableRow key={row.id} style={isBlocked ? { backgroundColor: 'color-mix(in srgb, var(--cui-danger) 4%, transparent)' } : locked ? rowLocked : undefined}>
         <CTableDataCell style={cs}>
@@ -1162,7 +1314,7 @@ const PaymentsGestForm = () => {
         {isBlocked
           ? <CTableDataCell style={{ ...cs, textAlign: 'center' }}><span className="text-muted small">—</span></CTableDataCell>
           : <CompletedCell completed={locked} autoKey={`fixed_${row.id}`} label={row.concepto}
-              importe={realImp} bonoVal={realBono} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
+              importe={sdg20EsquemaImp} importeBonoT1={sdg20BonoT1} bonoVal={realBono} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
               commentKey={`fixed_${row.id}`}
               onCommitTrue={() => updateRowState(row.id, 'completed', true)} onUncomplete={() => updateRowState(row.id, 'completed', false)} />}
       </CTableRow>
@@ -1565,7 +1717,7 @@ const PaymentsGestForm = () => {
                           <CTableDataCell style={cs}><CurrencyInput disabled={betaLocked} value={trans.penalizacion} onChange={e => updateTransferencia(idx, 'penalizacion', e.target.value)} inputStyle={{ color: 'var(--cui-danger)' }} /></CTableDataCell>
                           <CTableDataCell style={cs}><CurrencyInput disabled={betaLocked} value={trans.reembolso} onChange={e => updateTransferencia(idx, 'reembolso', e.target.value)} inputStyle={{ color: 'var(--cui-info)' }} /></CTableDataCell>
                           <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
-                            <CFormCheck checked={trans.successful} disabled={betaLocked} onChange={e => updateTransferencia(idx, 'successful', e.target.checked)} />
+                            <CFormCheck checked={trans.successful} disabled={betaLocked} onChange={e => handleBetaSuccessful(idx, e.target.checked)} />
                           </CTableDataCell>
                           <CompletedCell completed={betaLocked} autoKey={betaAutoKey} label={`Prueba Beta ${trans.id}`}
                             importe={realBetaImp} bonoVal={0} penalizacion={trans.penalizacion} reembolso={trans.reembolso} category="scheme"
@@ -1687,6 +1839,8 @@ const PaymentsGestForm = () => {
                     const plannedImp  = getPuerperioImporte(row.id);
                     const realImp     = rVal(state.realImporte, plannedImp);
                     const locked      = state.completed;
+                    const p1BonoT1    = row.id === 'puerperio1' && sdg36BonusApplied ? 5000 : 0;
+                    const p1EsquemaImp = row.id === 'puerperio1' ? Math.max(0, realImp - p1BonoT1) : realImp;
                     return (
                       <React.Fragment key={row.id}>
                         <CTableRow style={locked ? rowLocked : undefined}>
@@ -1729,7 +1883,7 @@ const PaymentsGestForm = () => {
                           <CTableDataCell style={cs}><CurrencyInput disabled={locked} value={state.penalizacion} onChange={e => updatePuerperioState(row.id, 'penalizacion', e.target.value)} inputStyle={{ color: 'var(--cui-danger)' }} /></CTableDataCell>
                           <CTableDataCell style={cs}><CurrencyInput disabled={locked} value={state.reembolso}    onChange={e => updatePuerperioState(row.id, 'reembolso',    e.target.value)} inputStyle={{ color: 'var(--cui-info)' }} /></CTableDataCell>
                           <CompletedCell completed={locked} autoKey={`puerperio_${row.id}`} label={row.concepto}
-                            importe={realImp} bonoVal={0} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
+                            importe={p1EsquemaImp} importeBonoT1={p1BonoT1} bonoVal={0} penalizacion={state.penalizacion} reembolso={state.reembolso} category="scheme"
                             commentKey={`puerperio_${row.id}`}
                             onCommitTrue={() => updatePuerperioState(row.id, 'completed', true)} onUncomplete={() => updatePuerperioState(row.id, 'completed', false)} />
                         </CTableRow>
@@ -1972,23 +2126,22 @@ const PaymentsGestForm = () => {
               <CCol md={4}><SummarySquare label="Total pagado" sublabel="Reembolso" value={totalReembolso} color="info" /></CCol>
             </CRow>
 
-            {/* Grand total */}
+            {/* Grand total — comprehensive total paid (scheme + transporte + bonos) */}
             <div className="mt-3 p-3 rounded" style={{
-              border: `2px solid ${montoRestante <= 0 ? 'var(--cui-success)' : 'var(--cui-warning)'}`,
-              backgroundColor: montoRestante <= 0 ? 'color-mix(in srgb, var(--cui-success) 10%, transparent)' : 'color-mix(in srgb, var(--cui-warning) 10%, transparent)',
+              border: '2px solid var(--cui-primary)',
+              backgroundColor: 'color-mix(in srgb, var(--cui-primary) 8%, transparent)',
             }}>
-              <div className="d-flex justify-content-between align-items-center">
+              <div className="d-flex justify-content-between align-items-center flex-wrap gap-2">
                 <div>
-                  <small className="text-muted d-block">Pagos realizados / Monto restante</small>
-                  <span className="fw-semibold">{fmt(pagosRealizados)}</span>
-                  <span className="text-muted mx-2">/</span>
-                  <span className={`fw-bold h5 mb-0 ${montoRestante <= 0 ? 'text-success' : 'text-warning'}`}>
-                    {montoRestante <= 0 ? '✓ ' : ''}{fmt(Math.abs(montoRestante))}
-                  </span>
+                  <small className="text-muted d-block">Total pagado (real) — Esquema + Bono transporte + Bonos</small>
+                  <span className="fw-bold h4 mb-0" style={{ color: 'var(--cui-primary)' }}>{fmt(pagosRealizados)}</span>
                 </div>
-                {montoRestante <= 0
-                  ? <CBadge color="success" style={{ fontSize: '0.9rem' }}>Esquema completamente cubierto</CBadge>
-                  : <CBadge color="warning" style={{ fontSize: '0.9rem' }}>Pendiente</CBadge>}
+                <div className="text-end">
+                  <small className="text-muted d-block">Desglose</small>
+                  <small className="d-block">Esquema: <strong>{fmt(schemeRealPaid)}</strong></small>
+                  <small className="d-block">Transporte: <strong>{fmt(bonoTransportePaid)}</strong></small>
+                  <small className="d-block">Bonos: <strong>{fmt(bonosTotalesPaid)}</strong></small>
+                </div>
               </div>
             </div>
           </CAccordionBody>
@@ -2025,11 +2178,16 @@ const PaymentsGestForm = () => {
             <div className="p-3 mb-3 rounded" style={{ border: '1px solid var(--cui-border-color)', backgroundColor: 'color-mix(in srgb, var(--cui-secondary) 4%, transparent)' }}>
               <div className="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
                 <strong className="small text-muted" style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filtros</strong>
-                {(extratoFilterFechaDesde || extratoFilterFechaHasta || extratoFilterMotivo || extratoFilterMovimiento) && (
-                  <CButton size="sm" color="secondary" variant="ghost" onClick={() => { setExtratoFilterFechaDesde(''); setExtratoFilterFechaHasta(''); setExtratoFilterMotivo(''); setExtratoFilterMovimiento(''); }}>
-                    ✕ Limpiar filtros
+                <div className="d-flex align-items-center gap-2">
+                  {(extratoFilterFechaDesde || extratoFilterFechaHasta || extratoFilterMotivo || extratoFilterMovimiento) && (
+                    <CButton size="sm" color="secondary" variant="ghost" onClick={() => { setExtratoFilterFechaDesde(''); setExtratoFilterFechaHasta(''); setExtratoFilterMotivo(''); setExtratoFilterMovimiento(''); }}>
+                      ✕ Limpiar filtros
+                    </CButton>
+                  )}
+                  <CButton size="sm" color="primary" variant="outline" onClick={openExportModal}>
+                    <CIcon icon={cilCloudDownload} size="sm" className="me-1" />Generar PDF / Excel
                   </CButton>
-                )}
+                </div>
               </div>
               <CRow className="g-2 align-items-end">
                 <CCol md={2}>
@@ -2075,8 +2233,11 @@ const PaymentsGestForm = () => {
                     <CTableHeaderCell style={{ ...hs, cursor: 'pointer' }} onClick={() => handleExtratoSort('movimiento')}>
                       Movimiento <ExtratoSortIcon col="movimiento" />
                     </CTableHeaderCell>
-                    <CTableHeaderCell style={{ ...hs, color: '#7c3aed', cursor: 'pointer' }} onClick={() => handleExtratoSort('importeVal')}>
-                      Importe <ExtratoSortIcon col="importeVal" />
+                    <CTableHeaderCell style={{ ...hs, color: '#7c3aed', cursor: 'pointer' }} onClick={() => handleExtratoSort('importeEsquemaVal')}>
+                      Importe esquema <ExtratoSortIcon col="importeEsquemaVal" />
+                    </CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, color: '#d97706', cursor: 'pointer' }} onClick={() => handleExtratoSort('importeBonoT1Val')}>
+                      Importe bono T1 <ExtratoSortIcon col="importeBonoT1Val" />
                     </CTableHeaderCell>
                     <CTableHeaderCell style={{ ...hs, color: '#16a34a', cursor: 'pointer' }} onClick={() => handleExtratoSort('bonoValStored')}>
                       Bono transporte <ExtratoSortIcon col="bonoValStored" />
@@ -2095,17 +2256,12 @@ const PaymentsGestForm = () => {
                 </CTableHead>
                 <CTableBody>
                   {filteredAndSortedExtrato.length === 0 ? (
-                    <CTableRow><CTableDataCell colSpan={9} className="text-center py-4 text-muted">
+                    <CTableRow><CTableDataCell colSpan={10} className="text-center py-4 text-muted">
                       {extratoGastos.length === 0 ? 'No hay entradas registradas' : 'Ningún registro coincide con los filtros aplicados'}
                     </CTableDataCell></CTableRow>
                   ) : filteredAndSortedExtrato.map(entry => {
-                    const eImp   = entry.importeVal      != null ? parseFloat(entry.importeVal)     || 0
-                                 : /* old entry — derive from total */ Math.max(0, (parseFloat(entry.valor) || 0) - (parseFloat(entry.bonoValStored) || 0) + (parseFloat(entry.penalizacionVal) || 0) - (parseFloat(entry.reembolsoVal) || 0));
-                    const eBono  = parseFloat(entry.bonoValStored)   || 0;
-                    const ePen   = parseFloat(entry.penalizacionVal) || 0;
-                    const eReim  = parseFloat(entry.reembolsoVal)    || 0;
-                    const eTotal = entry.isAuto ? (eImp + eBono - ePen + eReim) : (parseFloat(entry.valor) || 0);
-                    const bonusKeys  = ['bonus_t1', 'bono_vih', 'bono_gemelar'];
+                    const c = getExtratoComponents(entry);
+                    const bonusKeys  = ['bono_vih', 'bono_gemelar'];
                     const isBonus    = bonusKeys.includes(entry.autoKey);
                     const commentKey = `extrato_${entry.autoKey || entry.id}`;
                     return (
@@ -2114,19 +2270,22 @@ const PaymentsGestForm = () => {
                         <CTableDataCell style={cs}>{entry.motivo}</CTableDataCell>
                         <CTableDataCell style={cs}><CBadge color={entry.isAuto ? 'primary' : 'secondary'}>{entry.movimiento || '—'}</CBadge></CTableDataCell>
                         <CTableDataCell style={cs}>
-                          {entry.isAuto && eImp  ? <span style={{ color: '#7c3aed', fontWeight: 600 }}>{fmt(eImp)}</span>  : <span className="text-muted">—</span>}
+                          {entry.isAuto && c.esquema ? <span style={{ color: '#7c3aed', fontWeight: 600 }}>{fmt(c.esquema)}</span> : <span className="text-muted">—</span>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
-                          {entry.isAuto && eBono ? <span style={{ color: '#16a34a', fontWeight: 600 }}>{fmt(eBono)}</span> : <span className="text-muted">—</span>}
+                          {c.bonoT1 ? <span style={{ color: '#d97706', fontWeight: 600 }}>{fmt(c.bonoT1)}</span> : <span className="text-muted">—</span>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
-                          {entry.isAuto && ePen  ? <span style={{ color: 'var(--cui-danger)', fontWeight: 600 }}>{fmt(ePen)}</span>  : <span className="text-muted">—</span>}
+                          {entry.isAuto && c.bono ? <span style={{ color: '#16a34a', fontWeight: 600 }}>{fmt(c.bono)}</span> : <span className="text-muted">—</span>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
-                          {entry.isAuto && eReim ? <span style={{ color: 'var(--cui-info)', fontWeight: 600 }}>{fmt(eReim)}</span> : <span className="text-muted">—</span>}
+                          {entry.isAuto && c.pen ? <span style={{ color: 'var(--cui-danger)', fontWeight: 600 }}>{fmt(c.pen)}</span> : <span className="text-muted">—</span>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
-                          <span className="fw-bold" style={{ color: eTotal < 0 ? 'var(--cui-danger)' : 'var(--cui-body-color)' }}>{fmt(eTotal)}</span>
+                          {entry.isAuto && c.reim ? <span style={{ color: 'var(--cui-info)', fontWeight: 600 }}>{fmt(c.reim)}</span> : <span className="text-muted">—</span>}
+                        </CTableDataCell>
+                        <CTableDataCell style={cs}>
+                          <span className="fw-bold" style={{ color: c.total < 0 ? 'var(--cui-danger)' : 'var(--cui-body-color)' }}>{fmt(c.total)}</span>
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
                           <div className="d-flex gap-1 align-items-center">
@@ -2149,21 +2308,72 @@ const PaymentsGestForm = () => {
                       </CTableRow>
                     );
                   })}
+                  {filteredAndSortedExtrato.length > 0 && (
+                    <CTableRow style={{ borderTop: '2px solid var(--cui-border-color)', fontWeight: 700 }}>
+                      <CTableDataCell style={cs} colSpan={3} className="text-end"><strong>TOTALES</strong></CTableDataCell>
+                      <CTableDataCell style={cs}><span style={{ color: '#7c3aed' }}>{fmt(extratoTotals.esquema)}</span></CTableDataCell>
+                      <CTableDataCell style={cs}><span style={{ color: '#d97706' }}>{fmt(extratoTotals.bonoT1)}</span></CTableDataCell>
+                      <CTableDataCell style={cs}><span style={{ color: '#16a34a' }}>{fmt(extratoTotals.bono)}</span></CTableDataCell>
+                      <CTableDataCell style={cs}><span style={{ color: 'var(--cui-danger)' }}>{fmt(extratoTotals.pen)}</span></CTableDataCell>
+                      <CTableDataCell style={cs}><span style={{ color: 'var(--cui-info)' }}>{fmt(extratoTotals.reim)}</span></CTableDataCell>
+                      <CTableDataCell style={cs}><span style={{ color: 'var(--cui-primary)' }}>{fmt(extratoTotals.total)}</span></CTableDataCell>
+                      <CTableDataCell style={cs}></CTableDataCell>
+                    </CTableRow>
+                  )}
                 </CTableBody>
               </CTable>
             </div>
-            {extratoGastos.length > 0 && (
-              <div className="text-end mt-3">
-                <strong>Total extrato: </strong>
-                <span className="fw-bold" style={{ color: 'var(--cui-primary)' }}>
-                  {fmt(extratoGastos.reduce((s, e) => s + (parseFloat(e.valor) || 0), 0))}
-                </span>
-              </div>
-            )}
           </CAccordionBody>
         </CAccordionItem>
 
       </CAccordion>
+
+      {/* ── Modal: export PDF / CSV ── */}
+      <CModal visible={showExportModal} onClose={() => setShowExportModal(false)} alignment="center" backdrop="static" keyboard={false}>
+        <CModalHeader closeButton={false}>
+          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilCloudDownload} className="text-primary me-2" size="lg" />Generar reporte</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          {!exportPwOk ? (
+            <>
+              <p className="mb-3">Ingresa la contraseña para generar el reporte:</p>
+              <CFormInput type="password" autoComplete="new-password" value={exportPw}
+                onChange={e => { setExportPw(e.target.value); setExportPwError(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') confirmExportPw(); }} invalid={!!exportPwError} />
+              {exportPwError && <div className="text-danger mt-2 small">{exportPwError}</div>}
+            </>
+          ) : (
+            <>
+              <p className="mb-2">Selecciona las columnas a incluir:</p>
+              <div className="mb-3">
+                <CFormCheck label="Importe esquema"  checked={exportCols.esquema} onChange={e => setExportCols(p => ({ ...p, esquema: e.target.checked }))} />
+                <CFormCheck label="Importe bono T1"  checked={exportCols.bonoT1}  onChange={e => setExportCols(p => ({ ...p, bonoT1:  e.target.checked }))} />
+                <CFormCheck label="Bono transporte"  checked={exportCols.bono}    onChange={e => setExportCols(p => ({ ...p, bono:    e.target.checked }))} />
+                <CFormCheck label="Penalización"     checked={exportCols.pen}     onChange={e => setExportCols(p => ({ ...p, pen:     e.target.checked }))} />
+                <CFormCheck label="Reembolso"        checked={exportCols.reim}    onChange={e => setExportCols(p => ({ ...p, reim:    e.target.checked }))} />
+              </div>
+              <small className="text-muted d-block mb-2">
+                Se exportarán {filteredAndSortedExtrato.length} registro(s) según los filtros aplicados. Fecha, Motivo, Movimiento y Total siempre se incluyen.
+              </small>
+            </>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={() => setShowExportModal(false)}>Cancelar</CButton>
+          {!exportPwOk ? (
+            <CButton color="primary" onClick={confirmExportPw}><CIcon icon={cilLockUnlocked} className="me-2" />Continuar</CButton>
+          ) : (
+            <>
+              <CButton color="success" onClick={exportCSV} disabled={!Object.values(exportCols).some(Boolean)} style={{ color: 'white' }}>
+                <CIcon icon={cilCloudDownload} className="me-2" />Excel (CSV)
+              </CButton>
+              <CButton color="danger" onClick={exportPDF} disabled={!Object.values(exportCols).some(Boolean)} style={{ color: 'white' }}>
+                <CIcon icon={cilCloudDownload} className="me-2" />PDF
+              </CButton>
+            </>
+          )}
+        </CModalFooter>
+      </CModal>
 
       {/* ── Modal: per-field unlock ── */}
       <CModal visible={showFieldUnlockModal} onClose={() => setShowFieldUnlockModal(false)} alignment="center" backdrop="static" keyboard={false}>
