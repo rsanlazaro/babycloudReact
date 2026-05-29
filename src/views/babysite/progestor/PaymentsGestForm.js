@@ -258,6 +258,13 @@ const PaymentsGestForm = () => {
   const [newExtrato,      setNewExtrato]      = useState({ fecha: '', motivo: '', movimiento: '', valor: '' });
   const [extratoAlert,    setExtratoAlert]    = useState({ show: false, type: '', message: '' });
 
+  // ── Extrato filters & sort ───────────────────────────────────────────────────
+  const [extratoFilterFechaDesde,  setExtratoFilterFechaDesde]  = useState('');
+  const [extratoFilterFechaHasta,  setExtratoFilterFechaHasta]  = useState('');
+  const [extratoFilterMotivo,      setExtratoFilterMotivo]      = useState('');
+  const [extratoFilterMovimiento,  setExtratoFilterMovimiento]  = useState('');
+  const [extratoSort,              setExtratoSort]              = useState({ key: 'fecha', dir: 'desc' });
+
   // ── Comments per row ──────────────────────────────────────────────────────
   const [rowComments,       setRowComments]       = useState({});   // { [commentKey]: string }
   const [lockedComments,    setLockedComments]    = useState({});   // { [commentKey]: bool }
@@ -355,7 +362,7 @@ const PaymentsGestForm = () => {
 
   // P1 += 5k only for 400k when SDG36 reached (375k total is just the SDG20 5k — no P1 addition)
   const p1Amount = useMemo(
-    () => Math.max(0, 50000 - transferenciasPaid + (sdg36BonusApplied && sv === '400000' ? 5000 : 0) - t1NoSDG36Penalty),
+    () => Math.max(0, 50000 - transferenciasPaid + (sdg36BonusApplied ? 5000 : 0) - t1NoSDG36Penalty),
     [transferenciasPaid, sdg36BonusApplied, t1NoSDG36Penalty, sv]
   );
   const p2Base   = useMemo(() => sv === '375000' ? 50000 : 55000, [sv]);
@@ -388,21 +395,17 @@ const PaymentsGestForm = () => {
     return t;
   }, [sv, blockedBirthRowIds]);
 
-  // P3 raw base:
-  //   - Uses 50,000 FIXED for P1 pool (transferencias are internal draws, don't change the balance)
-  //   - Subtracts bgDeduction directly so CDO discount comes out of P3, not P2
-  const p3BaseNoDeductions = useMemo(
-    () => Math.max(0, schemeValue - bgDeduction - fase2Total - fasesPagosTotal - 50000 - p2Base - ULTIMAS_FIRMAS),
-    [schemeValue, bgDeduction, fase2Total, fasesPagosTotal, p2Base]
+  // p3BaseRaw: display-only reference value for P3 breakdown label
+  const p3BaseRaw = useMemo(
+    () => Math.max(0, schemeValue - fase2Total - fasesPagosTotal - 50000 - p2Base - ULTIMAS_FIRMAS),
+    [schemeValue, fase2Total, fasesPagosTotal, p2Base]
   );
-  // Alias for display in breakdown label (same value, clearer name)
-  const p3BaseRaw = p3BaseNoDeductions;
   // ayudaAmountNum: driven by Importe field (realImporte) when completed, or entered value when pending
   const ayudaAmountNum = useMemo(
     () => parseFloat(ayudaState.realImporte) || parseFloat(ayudaAmount) || 0,
     [ayudaState.realImporte, ayudaAmount]
   );
-  // T4 and T5 bono transporte amounts count as scheme payments, not bonuses — deducted from P3
+  // T2-T6 bono transporte amounts count as scheme payments, not bonuses — deducted from P3
   const trans45Deduction = useMemo(() => {
     let t = 0;
     visibleTransferencias.forEach(trans => {
@@ -412,12 +415,6 @@ const PaymentsGestForm = () => {
     });
     return t;
   }, [visibleTransferencias]);
-
-    // P3 = base − ayuda maternidad − T4/T5 bono transporte (scheme payments)
-  const p3Amount = useMemo(
-    () => Math.max(0, p3BaseRaw - (ayudaState.completed ? ayudaAmountNum : 0) - trans45Deduction),
-    [p3BaseRaw, ayudaAmountNum, ayudaState, trans45Deduction]
-  );
 
   // ── Real-amount totals (uses user-entered realImporte, falls back to planned) ─
   const realFase2Total = useMemo(() => {
@@ -440,14 +437,27 @@ const PaymentsGestForm = () => {
     return t;
   }, [sv, rowStates, blockedBirthRowIds]);
 
+  // P3 absorbs all residuals from real amounts so P4 is always exactly ULTIMAS_FIRMAS.
+  // CDO deduction shows as penalización separately — does NOT reduce P3 base.
+  // Formula: schemeValue − realFase2 − realFasesPagos − p1Pool − p2Base − ayuda − trans45 − ULTIMAS_FIRMAS
+  const p3Amount = useMemo(
+    () => Math.max(0,
+      schemeValue
+      - realFase2Total - realFasesPagosTotal
+      - 50000 - p2Base
+      - trans45Deduction
+      - (ayudaState.completed ? ayudaAmountNum : 0)
+      - ULTIMAS_FIRMAS
+    ),
+    [schemeValue, realFase2Total, realFasesPagosTotal, p2Base, trans45Deduction, ayudaState, ayudaAmountNum]
+  );
+
   const realP3Amount = useMemo(
     () => rVal(puerperioStates.puerperio3?.realImporte, p3Amount),
     [puerperioStates, p3Amount]
   );
 
-  // p2Adjustment: absorbs real vs planned differences in fixed rows ONLY.
-  // Uses planned p3Amount (NOT realP3Amount) so real transferencias never affect P2.
-  // Target: schemeValue − bgDeduction (CDO is a permanent loss already baked into p3BaseRaw)
+  // p2Adjustment kept for display only (shown in P2 breakdown label)
   const p2Adjustment = useMemo(
     () => (schemeValue - bgDeduction) - (realFase2Total + realFasesPagosTotal + 50000 + p2Base + p3BaseRaw + ULTIMAS_FIRMAS),
     [schemeValue, bgDeduction, realFase2Total, realFasesPagosTotal, p2Base, p3BaseRaw]
@@ -456,7 +466,7 @@ const PaymentsGestForm = () => {
   const gemelarBonus = useMemo(() => bonoGemelar ? 20000 : 0, [bonoGemelar]);
   // P2 (Puerperio 2) = base + VIH bonus + gemelar bonus (if applicable)
   const p2Amount = useMemo(() => p2Base + vihBonus + gemelarBonus, [p2Base, vihBonus, gemelarBonus]);
-  const p2AdjustedAmount = useMemo(() => p2Amount + p2Adjustment, [p2Amount, p2Adjustment]);
+  const p2AdjustedAmount = p2Amount; // P3 now absorbs residuals; P2 uses base only
   // Net bonus for display in bonos table
   // 375k + SDG≥36: 5k (SDG20 only, nothing on P1)
   // 375k + SDG<36:  0 (5k SDG20 − 5k P1 penalty = 0 net)
@@ -465,10 +475,9 @@ const PaymentsGestForm = () => {
   // 400k + SDG<36:  0 (5k SDG20 − 5k P1 penalty = 0 net)
   const t1BonusGross = useMemo(() => {
     if (!t1Exitosa) return 0;
-    if (!semanaParto) return sv === '400000' ? 10000 : 5000; // pending — show max possible
-    if (sv === '375000') return sdg36BonusApplied ? 5000 : 0;
+    if (!semanaParto) return 10000; // pending — show max possible (always 10k: 5k SDG20 + 5k P1)
     return sdg36BonusApplied ? 10000 : 0;
-  }, [t1Exitosa, sv, semanaParto, sdg36BonusApplied]);
+  }, [t1Exitosa, semanaParto, sdg36BonusApplied]);
   const totalBonos   = useMemo(() => t1BonusGross + vihBonus + gemelarBonus, [t1BonusGross, vihBonus, gemelarBonus]);
 
   const bonoTransporteTotal = useMemo(() => {
@@ -565,15 +574,16 @@ const PaymentsGestForm = () => {
 
   const totalPagadoPuerperio = useMemo(() => {
     let t = 0;
-    if (puerperioStates.puerperio1?.completed) t += rVal(puerperioStates.puerperio1.realImporte, p1Amount) - (parseFloat(puerperioStates.puerperio1.penalizacion) || 0) + (parseFloat(puerperioStates.puerperio1.reembolso) || 0);
+    const p1BaseForResumen = p1Amount - (sdg36BonusApplied ? 5000 : 0); // bonus shown in Bonos adicionales, not here
+    if (puerperioStates.puerperio1?.completed) t += rVal(puerperioStates.puerperio1.realImporte, p1BaseForResumen) - (parseFloat(puerperioStates.puerperio1.penalizacion) || 0) + (parseFloat(puerperioStates.puerperio1.reembolso) || 0);
     if (puerperioStates.puerperio2?.completed) t += rVal(puerperioStates.puerperio2.realImporte, p2AdjustedAmount) - (parseFloat(puerperioStates.puerperio2.penalizacion) || 0) + (parseFloat(puerperioStates.puerperio2.reembolso) || 0);
     if (ayudaState.completed) t += rVal(ayudaState.realImporte, ayudaAmountNum) - (parseFloat(ayudaState.penalizacion) || 0) + (parseFloat(ayudaState.reembolso) || 0);
     if (puerperioStates.puerperio3?.completed) t += rVal(puerperioStates.puerperio3.realImporte, p3Amount) - (parseFloat(puerperioStates.puerperio3.penalizacion) || 0) + (parseFloat(puerperioStates.puerperio3.reembolso) || 0);
     return t;
-  }, [puerperioStates, p1Amount, p2AdjustedAmount, p3Amount, ayudaState, ayudaAmountNum]);
+  }, [puerperioStates, p1Amount, p2AdjustedAmount, p3Amount, ayudaState, ayudaAmountNum, sdg36BonusApplied]);
 
   const totalPagadoGeneral = useMemo(() => totalPagadoPrograma + totalPagadoPuerperio, [totalPagadoPrograma, totalPagadoPuerperio]);
-  const calculoPuerperio4  = useMemo(() => Math.max(0, schemeValue - totalPagadoGeneral), [schemeValue, totalPagadoGeneral]);
+  const calculoPuerperio4  = useMemo(() => ULTIMAS_FIRMAS, []);
 
   const dynamicParcAmounts = useMemo(() => {
     const p4 = Math.max(0, Math.round(calculoPuerperio4));
@@ -623,6 +633,55 @@ const PaymentsGestForm = () => {
     return t;
   }, [rowStates, sv, blockedBirthRowIds, visibleTransferencias]);
   const bonoTransporteRemaining = useMemo(() => bonoTransporteTotal - bonoTransportePaid, [bonoTransporteTotal, bonoTransportePaid]);
+
+  const MOVIMIENTO_ORDER = [
+    'Transferencia 1', 'Prueba Beta 1',
+    'Transferencia 2', 'Prueba Beta 2',
+    'Transferencia 3', 'Prueba Beta 3',
+    'Transferencia 4', 'Prueba Beta 4',
+    'Transferencia 5', 'Prueba Beta 5',
+    'Transferencia 6', 'Prueba Beta 6',
+    'Beta positiva', 'Beta Positiva',
+    '6 SDG', '8 SDG', '10 SDG', '12 SDG', '16 SDG', '20 SDG',
+    '22 SDG', '26 SDG', '32 SDG', '34 SDG', '35 SDG',
+    '36 SDG', '37 SDG', '38 SDG', '39 SDG', '40 SDG',
+    'Puerperio 1', 'Puerperio 2', 'Ayuda maternidad', 'Ayuda Maternidad', 'Puerperio 3',
+    'Parcialidad 1', 'Parcialidad 2', 'Parcialidad 3',
+  ];
+  const getMovimientoOrder = (mov) => {
+    if (!mov) return 9999;
+    const idx = MOVIMIENTO_ORDER.findIndex(p => mov.toLowerCase().startsWith(p.toLowerCase()));
+    return idx === -1 ? 9999 : idx;
+  };
+
+  const filteredAndSortedExtrato = useMemo(() => {
+    let result = [...extratoGastos];
+    if (extratoFilterFechaDesde) result = result.filter(e => e.fecha >= extratoFilterFechaDesde);
+    if (extratoFilterFechaHasta) result = result.filter(e => e.fecha <= extratoFilterFechaHasta);
+    if (extratoFilterMotivo)     result = result.filter(e => e.motivo === extratoFilterMotivo);
+    if (extratoFilterMovimiento) result = result.filter(e => e.movimiento === extratoFilterMovimiento);
+    result.sort((a, b) => {
+      const dir = extratoSort.dir === 'asc' ? 1 : -1;
+      if (extratoSort.key === 'movimiento') {
+        const diff = getMovimientoOrder(a.movimiento) - getMovimientoOrder(b.movimiento);
+        return diff !== 0 ? diff * dir : 0;
+      }
+      let av = a[extratoSort.key] ?? '';
+      let bv = b[extratoSort.key] ?? '';
+      if (extratoSort.key === 'valor') { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+      else { av = String(av).toLowerCase(); bv = String(bv).toLowerCase(); }
+      if (av < bv) return -1 * dir;
+      if (av > bv) return  1 * dir;
+      return 0;
+    });
+    return result;
+  }, [extratoGastos, extratoFilterFechaDesde, extratoFilterFechaHasta, extratoFilterMotivo, extratoFilterMovimiento, extratoSort]);
+
+  const extratoMotivosOpts     = useMemo(() => [...new Set(extratoGastos.map(e => e.motivo).filter(Boolean))].sort(), [extratoGastos]);
+  const extratoMovimientosOpts = useMemo(() => {
+    const all = [...new Set(extratoGastos.map(e => e.movimiento).filter(Boolean))];
+    return all.sort((a, b) => getMovimientoOrder(a) - getMovimientoOrder(b));
+  }, [extratoGastos]);
   const bonosTotalesPaid      = useMemo(() => extratoGastos.filter(e => e.category === 'bono').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0), [extratoGastos]);
   const bonosTotalesRemaining = useMemo(() => totalBonos - bonosTotalesPaid, [totalBonos, bonosTotalesPaid]);
   const grandTotalRemaining   = useMemo(() => grandTotalWithExtras - pagosRealizados, [grandTotalWithExtras, pagosRealizados]);
@@ -789,6 +848,19 @@ const PaymentsGestForm = () => {
   const updateBgCondition    = (k, v)      => { setBgConditions(p => ({ ...p, [k]: v })); debouncedSave(); };
   const updateBgState        = (f, v)      => { setBgState(p => ({ ...p, [f]: v })); debouncedSave(); };
   const updateAyudaState     = (f, v)      => { setAyudaState(p => ({ ...p, [f]: v })); debouncedSave(); };
+
+  const handleExtratoSort = (key) => {
+    setExtratoSort(prev => ({ key, dir: prev.key === key && prev.dir === 'asc' ? 'desc' : 'asc' }));
+  };
+  const ExtratoSortIcon = ({ col }) => {
+    const active = extratoSort.key === col;
+    const up = extratoSort.dir === 'asc';
+    return (
+      <span style={{ marginLeft: '4px', fontSize: '0.7rem', opacity: active ? 1 : 0.3, cursor: 'pointer' }}>
+        {active ? (up ? '▲' : '▼') : '⇅'}
+      </span>
+    );
+  };
 
   const handleParcCountChange = (n) => {
     const capped = Math.min(3, n);
@@ -1545,7 +1617,7 @@ const PaymentsGestForm = () => {
                   ))}
                 </CFormSelect>
                 {semanaParto && (
-                  ['36', '37', '38'].includes(semanaParto)
+                  ['36', '37', '38', '39', '40'].includes(semanaParto)
                     ? <CBadge color="success">+$5,000 bono aplicado a Puerperio 1 {!t1Exitosa && <>(requiere T1 beta positiva)</>}</CBadge>
                     : <CBadge color="secondary">Sin bono (semana &lt; 36)</CBadge>
                 )}
@@ -1642,7 +1714,7 @@ const PaymentsGestForm = () => {
                             {row.id === 'puerperio3' && (
                               <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
                                 {bgDeduction > 0
-                                  ? <span>Base esquema − CDO ({fmt(bgDeduction)}): {fmt(p3BaseRaw)}</span>
+                                  ? <span>Base: {fmt(p3BaseRaw)} <small className="text-muted">(CDO −{fmt(bgDeduction)} se muestra en penalizaciones)</small></span>
                                   : <span>Base: {fmt(p3BaseRaw)}</span>}
                                 {ayudaAmountNum > 0 && ayudaState.completed && <span className="text-danger"> − {fmt(ayudaAmountNum)} <small>(ayuda maternidad)</small></span>}
                                 {ayudaAmountNum > 0 && !ayudaState.completed && <span className="text-muted"> − {fmt(ayudaAmountNum)} <small>(ayuda maternidad — pendiente de pago)</small></span>}
@@ -1700,7 +1772,7 @@ const PaymentsGestForm = () => {
               <div className="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
                 <div>
                   <h6 className="mb-0">Puerperio 4 — Parcialidades</h6>
-                  <small className="text-muted">Monto variable: <strong>{fmt(calculoPuerperio4)}</strong> restante del esquema</small>
+                  <small className="text-muted">Monto fijo: <strong>{fmt(calculoPuerperio4)}</strong> (últimas firmas — siempre {fmt(ULTIMAS_FIRMAS)})</small>
                 </div>
                 <div className="d-flex align-items-center gap-2">
                   <CFormLabel className="mb-0">Parcialidades:</CFormLabel>
@@ -1822,8 +1894,8 @@ const PaymentsGestForm = () => {
                     <hr className="my-2" />
                     <div>
                       <small className="text-muted d-block" style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cálculo para Puerperio 4 (Parcialidades)</small>
-                      <small className="text-muted d-block mb-1" style={{ fontSize: '0.72rem' }}>Esquema ({fmt(schemeValue)}) − Total pagado general</small>
-                      <h5 className="mb-0 fw-bold" style={{ color: calculoPuerperio4 > 0 ? 'var(--cui-warning)' : 'var(--cui-success)' }}>{fmt(calculoPuerperio4)}</h5>
+                      <small className="text-muted d-block mb-1" style={{ fontSize: '0.72rem' }}>Fijo — siempre {fmt(ULTIMAS_FIRMAS)} (últimas firmas)</small>
+                      <h5 className="mb-0 fw-bold" style={{ color: 'var(--cui-success)' }}>{fmt(calculoPuerperio4)}</h5>
                     </div>
                   </div>
                 </CCol>
@@ -1931,6 +2003,7 @@ const PaymentsGestForm = () => {
                 {extratoAlert.message}
               </CAlert>
             )}
+            {/* ── Add entry row ── */}
             <CRow className="mb-3 align-items-end g-2">
               <CCol md={2}><CFormLabel className="small text-muted mb-1">Fecha</CFormLabel>
                 <CFormInput type="date" size="sm" value={newExtrato.fecha} onChange={e => setNewExtrato(p => ({ ...p, fecha: e.target.value }))} /></CCol>
@@ -1947,25 +2020,85 @@ const PaymentsGestForm = () => {
                 <CFormInput type="number" size="sm" className="no-spinners" placeholder="0" value={newExtrato.valor} onChange={e => setNewExtrato(p => ({ ...p, valor: e.target.value }))} /></CCol>
               <CCol md={1}><CButton color="primary" size="sm" onClick={addExtratoEntry} className="w-100"><CIcon icon={cilPlus} /></CButton></CCol>
             </CRow>
+
+            {/* ── Filters ── */}
+            <div className="p-3 mb-3 rounded" style={{ border: '1px solid var(--cui-border-color)', backgroundColor: 'color-mix(in srgb, var(--cui-secondary) 4%, transparent)' }}>
+              <div className="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+                <strong className="small text-muted" style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filtros</strong>
+                {(extratoFilterFechaDesde || extratoFilterFechaHasta || extratoFilterMotivo || extratoFilterMovimiento) && (
+                  <CButton size="sm" color="secondary" variant="ghost" onClick={() => { setExtratoFilterFechaDesde(''); setExtratoFilterFechaHasta(''); setExtratoFilterMotivo(''); setExtratoFilterMovimiento(''); }}>
+                    ✕ Limpiar filtros
+                  </CButton>
+                )}
+              </div>
+              <CRow className="g-2 align-items-end">
+                <CCol md={2}>
+                  <CFormLabel className="small text-muted mb-1">Fecha desde</CFormLabel>
+                  <CFormInput type="date" size="sm" value={extratoFilterFechaDesde} onChange={e => setExtratoFilterFechaDesde(e.target.value)} />
+                </CCol>
+                <CCol md={2}>
+                  <CFormLabel className="small text-muted mb-1">Fecha hasta</CFormLabel>
+                  <CFormInput type="date" size="sm" value={extratoFilterFechaHasta} onChange={e => setExtratoFilterFechaHasta(e.target.value)} />
+                </CCol>
+                <CCol md={3}>
+                  <CFormLabel className="small text-muted mb-1">Motivo</CFormLabel>
+                  <CFormSelect size="sm" value={extratoFilterMotivo} onChange={e => setExtratoFilterMotivo(e.target.value)}>
+                    <option value="">Todos los motivos</option>
+                    {extratoMotivosOpts.map(m => <option key={m} value={m}>{m}</option>)}
+                  </CFormSelect>
+                </CCol>
+                <CCol md={3}>
+                  <CFormLabel className="small text-muted mb-1">Movimiento</CFormLabel>
+                  <CFormSelect size="sm" value={extratoFilterMovimiento} onChange={e => setExtratoFilterMovimiento(e.target.value)}>
+                    <option value="">Todos los movimientos</option>
+                    {extratoMovimientosOpts.map(m => <option key={m} value={m}>{m}</option>)}
+                  </CFormSelect>
+                </CCol>
+                <CCol md={2}>
+                  <small className="text-muted d-block">
+                    {filteredAndSortedExtrato.length} de {extratoGastos.length} registros
+                  </small>
+                </CCol>
+              </CRow>
+            </div>
+
             <div className="table-responsive">
               <CTable hover striped className="gest-table">
                 <CTableHead>
                   <CTableRow>
-                    <CTableHeaderCell style={hs}>Fecha</CTableHeaderCell>
-                    <CTableHeaderCell style={hs}>Motivo</CTableHeaderCell>
-                    <CTableHeaderCell style={hs}>Movimiento</CTableHeaderCell>
-                    <CTableHeaderCell style={{ ...hs, color: '#7c3aed' }}>Importe</CTableHeaderCell>
-                    <CTableHeaderCell style={{ ...hs, color: '#16a34a' }}>Bono transporte</CTableHeaderCell>
-                    <CTableHeaderCell style={{ ...hs, color: 'var(--cui-danger)' }}>Penalización</CTableHeaderCell>
-                    <CTableHeaderCell style={{ ...hs, color: 'var(--cui-info)' }}>Reembolso</CTableHeaderCell>
-                    <CTableHeaderCell style={hs}>Total</CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, cursor: 'pointer' }} onClick={() => handleExtratoSort('fecha')}>
+                      Fecha <ExtratoSortIcon col="fecha" />
+                    </CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, cursor: 'pointer' }} onClick={() => handleExtratoSort('motivo')}>
+                      Motivo <ExtratoSortIcon col="motivo" />
+                    </CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, cursor: 'pointer' }} onClick={() => handleExtratoSort('movimiento')}>
+                      Movimiento <ExtratoSortIcon col="movimiento" />
+                    </CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, color: '#7c3aed', cursor: 'pointer' }} onClick={() => handleExtratoSort('importeVal')}>
+                      Importe <ExtratoSortIcon col="importeVal" />
+                    </CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, color: '#16a34a', cursor: 'pointer' }} onClick={() => handleExtratoSort('bonoValStored')}>
+                      Bono transporte <ExtratoSortIcon col="bonoValStored" />
+                    </CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, color: 'var(--cui-danger)', cursor: 'pointer' }} onClick={() => handleExtratoSort('penalizacionVal')}>
+                      Penalización <ExtratoSortIcon col="penalizacionVal" />
+                    </CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, color: 'var(--cui-info)', cursor: 'pointer' }} onClick={() => handleExtratoSort('reembolsoVal')}>
+                      Reembolso <ExtratoSortIcon col="reembolsoVal" />
+                    </CTableHeaderCell>
+                    <CTableHeaderCell style={{ ...hs, cursor: 'pointer' }} onClick={() => handleExtratoSort('valor')}>
+                      Total <ExtratoSortIcon col="valor" />
+                    </CTableHeaderCell>
                     <CTableHeaderCell style={hs}>Acciones</CTableHeaderCell>
                   </CTableRow>
                 </CTableHead>
                 <CTableBody>
-                  {extratoGastos.length === 0 ? (
-                    <CTableRow><CTableDataCell colSpan={9} className="text-center py-4 text-muted">No hay entradas registradas</CTableDataCell></CTableRow>
-                  ) : extratoGastos.map(entry => {
+                  {filteredAndSortedExtrato.length === 0 ? (
+                    <CTableRow><CTableDataCell colSpan={9} className="text-center py-4 text-muted">
+                      {extratoGastos.length === 0 ? 'No hay entradas registradas' : 'Ningún registro coincide con los filtros aplicados'}
+                    </CTableDataCell></CTableRow>
+                  ) : filteredAndSortedExtrato.map(entry => {
                     const eImp   = entry.importeVal      != null ? parseFloat(entry.importeVal)     || 0
                                  : /* old entry — derive from total */ Math.max(0, (parseFloat(entry.valor) || 0) - (parseFloat(entry.bonoValStored) || 0) + (parseFloat(entry.penalizacionVal) || 0) - (parseFloat(entry.reembolsoVal) || 0));
                     const eBono  = parseFloat(entry.bonoValStored)   || 0;
