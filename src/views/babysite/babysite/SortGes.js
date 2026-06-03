@@ -32,6 +32,12 @@ import {
   CModalTitle,
   CModalBody,
   CModalFooter,
+  CTable,
+  CTableHead,
+  CTableRow,
+  CTableHeaderCell,
+  CTableBody,
+  CTableDataCell,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
 import {
@@ -47,6 +53,8 @@ import {
   cilXCircle,
   cilLockLocked,
   cilLockUnlocked,
+  cilPlus,
+  cilTrash,
 } from '@coreui/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
@@ -180,6 +188,19 @@ const SortGes = () => {
     hijos: '',
     ultima_cesarea: '',
   });
+
+  // Form data state - PSICO SOCIAL - Perfil Psicológico
+  const [perfilPsicologico, setPerfilPsicologico] = useState([
+    { id: 1, descripcion: '', fecha: '', estado: '', perfil: '', responsable: '' },
+  ]);
+
+  // Estado options for perfil psicológico
+  const estadoPsicoOptions = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'programar', label: 'Programar' },
+    { value: 'concluido', label: 'Concluido' },
+    { value: 'no_aplica', label: 'No aplica' },
+  ];
 
   // Select options
   const esquemaOptions = [
@@ -401,6 +422,40 @@ const SortGes = () => {
         ...prev,
         [name]: type === 'checkbox' ? checked : value,
       }));
+    }
+  };
+
+  // Handle Perfil Psicológico table changes
+  const handlePerfilPsicoChange = (id, field, value) => {
+    setPerfilPsicologico(prev => prev.map(row => 
+      row.id === id ? { ...row, [field]: value } : row
+    ));
+  };
+
+  // Handle perfil radio selection (only one can be selected)
+  const handlePerfilRadioChange = (id, selectedPerfil) => {
+    setPerfilPsicologico(prev => prev.map(row => 
+      row.id === id ? { ...row, perfil: selectedPerfil } : row
+    ));
+  };
+
+  // Add new row to perfil psicológico
+  const addPerfilPsicoRow = () => {
+    const newId = Math.max(...perfilPsicologico.map(r => r.id), 0) + 1;
+    setPerfilPsicologico(prev => [...prev, {
+      id: newId,
+      descripcion: '',
+      fecha: '',
+      estado: '',
+      perfil: '',
+      responsable: '',
+    }]);
+  };
+
+  // Remove row from perfil psicológico
+  const removePerfilPsicoRow = (id) => {
+    if (perfilPsicologico.length > 1) {
+      setPerfilPsicologico(prev => prev.filter(row => row.id !== id));
     }
   };
 
@@ -968,7 +1023,7 @@ const SortGes = () => {
                         </div>
                         <div className="mb-2">
                           <CFormLabel>RFC:</CFormLabel>
-                          {renderLockableInput('registroInicial', 'rfc', registroInicial.rfc, handleRegistroInicialChange, { placeholder: 'RFC', maxLength: 13 })}
+                          {renderLockableInput('registroInicial', 'rfc', registroInicial.rfc, handleRegistroInicialChange, { placeholder: 'RFC' })}
                         </div>
                         <div className="mb-2">
                           <CFormLabel>Esquema ofrecido:</CFormLabel>
@@ -1294,7 +1349,7 @@ const SortGes = () => {
                               color={documentos.certificado_nacimiento ? 'success' : undefined}
                               variant="outline"
                               onClick={() => document.getElementById('certificado_nacimiento').click()}
-                              className="d-flex align-items-center gap-2"
+                              className={`d-flex align-items-center gap-2 ${!documentos.certificado_nacimiento ? 'pdf-upload-btn' : ''}`}
                               style={!documentos.certificado_nacimiento ? { borderColor: '#0071b8', color: '#0071b8' } : {}}
                             >
                               {documentos.certificado_nacimiento ? (
@@ -1344,7 +1399,7 @@ const SortGes = () => {
                               style={!documentos.curp ? { borderColor: '#0071b8', color: '#0071b8' } : {}}
                               variant="outline"
                               onClick={() => document.getElementById('curp_doc').click()}
-                              className="d-flex align-items-center gap-2"
+                              className={`d-flex align-items-center gap-2 ${!documentos.curp ? 'pdf-upload-btn' : ''}`}
                             >
                               {documentos.curp ? (
                                 <>
@@ -1393,7 +1448,7 @@ const SortGes = () => {
                               style={!documentos.comprobante_domicilio ? { borderColor: '#0071b8', color: '#0071b8' } : {}}
                               variant="outline"
                               onClick={() => document.getElementById('comprobante_domicilio').click()}
-                              className="d-flex align-items-center gap-2"
+                              className={`d-flex align-items-center gap-2 ${!documentos.comprobante_domicilio ? 'pdf-upload-btn' : ''}`}
                             >
                               {documentos.comprobante_domicilio ? (
                                 <>
@@ -1442,7 +1497,7 @@ const SortGes = () => {
                               style={!documentos.poliza_seguro ? { borderColor: '#0071b8', color: '#0071b8' } : {}}
                               variant="outline"
                               onClick={() => document.getElementById('poliza_seguro').click()}
-                              className="d-flex align-items-center gap-2"
+                              className={`d-flex align-items-center gap-2 ${!documentos.poliza_seguro ? 'pdf-upload-btn' : ''}`}
                             >
                               {documentos.poliza_seguro ? (
                                 <>
@@ -1669,20 +1724,136 @@ const SortGes = () => {
               <CAccordion alwaysOpen>
                 <CAccordionItem itemKey={1}>
                   <CAccordionHeader>
-                    <strong>Evaluación Psicológica</strong>
+                    <strong>Perfil psicológico</strong>
                   </CAccordionHeader>
                   <CAccordionBody>
-                    <p className="text-muted">Contenido de evaluación psicológica...</p>
-                    {/* TODO: Add psychological evaluation content */}
+                    <CTable bordered hover responsive>
+                      <CTableHead>
+                        <CTableRow>
+                          <CTableHeaderCell style={{ minWidth: '180px' }}>Descripción</CTableHeaderCell>
+                          <CTableHeaderCell style={{ minWidth: '140px' }}>Fecha</CTableHeaderCell>
+                          <CTableHeaderCell style={{ minWidth: '140px' }}>Estado</CTableHeaderCell>
+                          <CTableHeaderCell colSpan={4} className="text-center" style={{ backgroundColor: '#f8f9fa' }}>Perfil</CTableHeaderCell>
+                          <CTableHeaderCell style={{ minWidth: '150px' }}>Responsable</CTableHeaderCell>
+                          <CTableHeaderCell style={{ width: '50px' }}></CTableHeaderCell>
+                        </CTableRow>
+                        <CTableRow>
+                          <CTableHeaderCell></CTableHeaderCell>
+                          <CTableHeaderCell></CTableHeaderCell>
+                          <CTableHeaderCell></CTableHeaderCell>
+                          <CTableHeaderCell className="text-center" style={{ fontSize: '0.85rem', minWidth: '70px' }}>Apta</CTableHeaderCell>
+                          <CTableHeaderCell className="text-center" style={{ fontSize: '0.85rem', minWidth: '90px' }}>Recomendable</CTableHeaderCell>
+                          <CTableHeaderCell className="text-center" style={{ fontSize: '0.85rem', minWidth: '90px' }}>Con reservas</CTableHeaderCell>
+                          <CTableHeaderCell className="text-center" style={{ fontSize: '0.85rem', minWidth: '110px' }}>No recomendable</CTableHeaderCell>
+                          <CTableHeaderCell></CTableHeaderCell>
+                          <CTableHeaderCell></CTableHeaderCell>
+                        </CTableRow>
+                      </CTableHead>
+                      <CTableBody>
+                        {perfilPsicologico.map((row) => (
+                          <CTableRow key={row.id}>
+                            <CTableDataCell>
+                              <CFormInput
+                                size="sm"
+                                value={row.descripcion}
+                                onChange={(e) => handlePerfilPsicoChange(row.id, 'descripcion', e.target.value)}
+                                placeholder="Descripción..."
+                              />
+                            </CTableDataCell>
+                            <CTableDataCell>
+                              <CFormInput
+                                type="date"
+                                size="sm"
+                                value={row.fecha}
+                                onChange={(e) => handlePerfilPsicoChange(row.id, 'fecha', e.target.value)}
+                              />
+                            </CTableDataCell>
+                            <CTableDataCell>
+                              <CFormSelect
+                                size="sm"
+                                value={row.estado}
+                                onChange={(e) => handlePerfilPsicoChange(row.id, 'estado', e.target.value)}
+                              >
+                                {estadoPsicoOptions.map(opt => (
+                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+                                ))}
+                              </CFormSelect>
+                            </CTableDataCell>
+                            <CTableDataCell className="text-center">
+                              <CFormCheck
+                                type="radio"
+                                name={`perfil-${row.id}`}
+                                checked={row.perfil === 'apta'}
+                                onChange={() => handlePerfilRadioChange(row.id, 'apta')}
+                              />
+                            </CTableDataCell>
+                            <CTableDataCell className="text-center">
+                              <CFormCheck
+                                type="radio"
+                                name={`perfil-${row.id}`}
+                                checked={row.perfil === 'recomendable'}
+                                onChange={() => handlePerfilRadioChange(row.id, 'recomendable')}
+                              />
+                            </CTableDataCell>
+                            <CTableDataCell className="text-center">
+                              <CFormCheck
+                                type="radio"
+                                name={`perfil-${row.id}`}
+                                checked={row.perfil === 'con_reservas'}
+                                onChange={() => handlePerfilRadioChange(row.id, 'con_reservas')}
+                              />
+                            </CTableDataCell>
+                            <CTableDataCell className="text-center">
+                              <CFormCheck
+                                type="radio"
+                                name={`perfil-${row.id}`}
+                                checked={row.perfil === 'no_recomendable'}
+                                onChange={() => handlePerfilRadioChange(row.id, 'no_recomendable')}
+                              />
+                            </CTableDataCell>
+                            <CTableDataCell>
+                              <CFormInput
+                                size="sm"
+                                value={row.responsable}
+                                onChange={(e) => handlePerfilPsicoChange(row.id, 'responsable', e.target.value)}
+                                placeholder="Responsable..."
+                              />
+                            </CTableDataCell>
+                            <CTableDataCell className="text-center">
+                              <CButton
+                                color="danger"
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => removePerfilPsicoRow(row.id)}
+                                disabled={perfilPsicologico.length === 1}
+                                title="Eliminar fila"
+                              >
+                                <CIcon icon={cilTrash} />
+                              </CButton>
+                            </CTableDataCell>
+                          </CTableRow>
+                        ))}
+                      </CTableBody>
+                    </CTable>
+                    <CButton
+                      color="primary"
+                      variant="outline"
+                      size="sm"
+                      onClick={addPerfilPsicoRow}
+                      className="mt-2"
+                    >
+                      <CIcon icon={cilPlus} className="me-1" />
+                      Agregar fila
+                    </CButton>
                   </CAccordionBody>
                 </CAccordionItem>
                 <CAccordionItem itemKey={2}>
                   <CAccordionHeader>
-                    <strong>Evaluación Social</strong>
+                    <strong>Seguimiento psicológico</strong>
                   </CAccordionHeader>
                   <CAccordionBody>
-                    <p className="text-muted">Contenido de evaluación social...</p>
-                    {/* TODO: Add social evaluation content */}
+                    <p className="text-muted">Contenido de seguimiento psicológico...</p>
+                    {/* TODO: Add psychological follow-up content */}
                   </CAccordionBody>
                 </CAccordionItem>
               </CAccordion>
@@ -1832,6 +2003,19 @@ const SortGes = () => {
           background: transparent !important;
           border: none !important;
           box-shadow: none !important;
+        }
+        .form-check-input:checked {
+          background-color: #0071b8 !important;
+          border-color: #0071b8 !important;
+        }
+        .form-check-input:focus {
+          border-color: #0071b8 !important;
+          box-shadow: 0 0 0 0.25rem rgba(0, 113, 184, 0.25) !important;
+        }
+        .pdf-upload-btn:hover {
+          background-color: #0071b8 !important;
+          border-color: #0071b8 !important;
+          color: #fff !important;
         }
       `}</style>
     </CContainer>

@@ -38,6 +38,8 @@ import pdfConsentimientoInfo      from '../documents/consentimiento-informado.pd
 import pdfAvisoImagen             from '../documents/aviso-uso-explotacion-imagen.pdf';
 import pdfConfidencialidad        from '../documents/contrato-confidencialidad.pdf';
 import pdfTerminos                from '../documents/terminos-condiciones.pdf';
+import pdfInformacionGestante     from '../documents/informacion-gestante.pdf';
+import pdfDeclaracionInfoPersonal from '../documents/declaracion-informacion-personal.pdf';
 
 // Then update LEGAL_DOCS to use the imported variables instead of string paths:
 const LEGAL_DOCS = [
@@ -88,6 +90,18 @@ const LEGAL_DOCS = [
     title: 'Términos y condiciones',
     file: pdfTerminos,
     color: 'primary',
+  },
+  {
+    id: 'informacion-gestante',
+    title: 'Información de la gestante',
+    file: pdfInformacionGestante,
+    color: 'info',
+  },
+  {
+    id: 'declaracion-informacion-personal',
+    title: 'Declaración de información personal',
+    file: pdfDeclaracionInfoPersonal,
+    color: 'success',
   },
 ];
 
