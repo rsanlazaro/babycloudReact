@@ -13,8 +13,14 @@ import CIcon from '@coreui/icons-react';
 import { cilArrowLeft, cilSave, cilPlus, cilTrash, cilWarning, cilLockLocked, cilLockUnlocked, cilPencil, cilDescription, cilCloudDownload } from '@coreui/icons';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import * as XLSXStyle from 'xlsx-js-style';
 import api from '../../../services/api';
 import { useBillsAuth } from '../../../context/BillsAuthContext';
+
+// Optional Babyboom logo for PDF export. Paste a base64 PNG data-URI here
+// (e.g. 'data:image/png;base64,iVBORw0KG...') to render the real logo in reports.
+// When empty, the export falls back to a styled "Babyboom Surrogacy" text mark.
+const BABYBOOM_LOGO_DATAURI = '';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // NumInput — defined OUTSIDE component to avoid React remount / focus loss
@@ -272,7 +278,7 @@ const PaymentsGestForm = () => {
   const [exportPwOk,         setExportPwOk]         = useState(false);
   const [exportPw,           setExportPw]           = useState('');
   const [exportPwError,      setExportPwError]      = useState('');
-  const [exportCols,         setExportCols]         = useState({ esquema: true, bonoT1: true, bono: true, pen: true, reim: true });
+  const [exportCols,         setExportCols]         = useState({ esquema: true, bonos: true, bono: true, pen: true, reim: true });
 
   // ── Comments per row ──────────────────────────────────────────────────────
   const [rowComments,       setRowComments]       = useState({});   // { [commentKey]: string }
@@ -404,6 +410,28 @@ const PaymentsGestForm = () => {
     return t;
   }, [sv, blockedBirthRowIds]);
 
+  // Importe of SDG rows canceled because they fall AFTER the selected semana de parto.
+  // These scheduled scheme payments will not happen, so they are subtracted from the total.
+  const blockedScheduleImporte = useMemo(() => {
+    let t = 0;
+    FIXED_ROWS.forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) {
+        const imp = getRowImporte(r, sv);
+        if (imp) t += imp;
+      }
+    });
+    return t;
+  }, [blockedBirthRowIds, sv]);
+
+  // Bono transporte of canceled SDG rows — these reduce the bono transporte cap.
+  const blockedBonoTransporte = useMemo(() => {
+    let t = 0;
+    FIXED_ROWS.forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) t += getRowBono(r, sv) || 0;
+    });
+    return t;
+  }, [blockedBirthRowIds, sv]);
+
   // p3BaseRaw: display-only reference value for P3 breakdown label
   const p3BaseRaw = useMemo(
     () => Math.max(0, schemeValue - fase2Total - fasesPagosTotal - 50000 - p2Base - ULTIMAS_FIRMAS),
@@ -450,7 +478,7 @@ const PaymentsGestForm = () => {
   // CDO deduction shows as penalización separately — does NOT reduce P3 base.
   // The P1 pool is reduced by t1NoSDG36Penalty (SDG<36) so P3 absorbs that 5k and the total stays whole.
   // The SDG36 bonus is NOT subtracted here (it is extra — shown in Bonos adicionales).
-  // Formula: schemeValue − realFase2 − realFasesPagos − (P1 pool − penalty) − p2Base − ayuda − trans45 − ULTIMAS_FIRMAS
+  // Formula: schemeValue − realFase2 − realFasesPagos − (P1 pool − penalty) − p2Base − ayuda − trans45 − blockedSchedule − ULTIMAS_FIRMAS
   const p3Amount = useMemo(
     () => Math.max(0,
       schemeValue
@@ -458,9 +486,10 @@ const PaymentsGestForm = () => {
       - (50000 - t1NoSDG36Penalty) - p2Base
       - trans45Deduction
       - (ayudaState.completed ? ayudaAmountNum : 0)
+      - blockedScheduleImporte
       - ULTIMAS_FIRMAS
     ),
-    [schemeValue, realFase2Total, realFasesPagosTotal, t1NoSDG36Penalty, p2Base, trans45Deduction, ayudaState, ayudaAmountNum]
+    [schemeValue, realFase2Total, realFasesPagosTotal, t1NoSDG36Penalty, p2Base, trans45Deduction, ayudaState, ayudaAmountNum, blockedScheduleImporte]
   );
 
   const realP3Amount = useMemo(
@@ -530,13 +559,29 @@ const PaymentsGestForm = () => {
     [extratoGastos]
   );
 
+  // ─── Bonus cap ────────────────────────────────────────────────────────────
+  // Base bono de transporte cap is 8,500, REDUCED by the bono transporte of any SDG
+  // rows canceled by the semana de parto (e.g. SDG 35 cancels SDG36/37/38 → 8,500−2,000=6,500).
+  // The T1/SDG36 (10k), VIH and gemelar bonuses are always allowed on top and NEVER reduce the
+  // scheme. "Extra bonus" (funded from the scheme — deducted from Puerperio 4 and the final
+  // total) = transporte beyond the (adjusted) cap + any Bonificación extra.
+  const BASE_BONUS_CAP = 8500;
+  const TOTAL_BONUS_CAP = useMemo(
+    () => Math.max(0, BASE_BONUS_CAP - blockedBonoTransporte),
+    [blockedBonoTransporte]
+  );
+  const extraBonus = useMemo(
+    () => Math.max(0, bonoTransporteTotal - TOTAL_BONUS_CAP) + (parseFloat(bgExtraImporte) || 0),
+    [bonoTransporteTotal, bgExtraImporte, TOTAL_BONUS_CAP]
+  );
+
   const effectiveSchemeValue = useMemo(
     () => schemeValue - bgDeduction - totalPenalizaciones,
     [schemeValue, bgDeduction, totalPenalizaciones]
   );
   const grandTotal = useMemo(
-    () => effectiveSchemeValue + bonoTransporteTotal + totalBonos,
-    [effectiveSchemeValue, bonoTransporteTotal, totalBonos]
+    () => effectiveSchemeValue + bonoTransporteTotal + totalBonos - extraBonus,
+    [effectiveSchemeValue, bonoTransporteTotal, totalBonos, extraBonus]
   );
 
   // Manual extrato entries that represent extra obligations (increase what's owed)
@@ -559,7 +604,7 @@ const PaymentsGestForm = () => {
     [extratoGastos]
   );
   const schemeValuePaid      = useMemo(() => extratoGastos.filter(e => e.category === 'scheme').reduce((s, e) => s + (parseFloat(e.valor) || 0) - (parseFloat(e.reembolsoVal) || 0) - (parseFloat(e.bonoValStored) || 0) - (parseFloat(e.importeBonoT1Val) || 0), 0), [extratoGastos]);
-  const schemeValueRemaining = useMemo(() => effectiveSchemeValue - schemeValuePaid, [effectiveSchemeValue, schemeValuePaid]);
+  const schemeValueRemaining = useMemo(() => effectiveSchemeValue - extraBonus - schemeValuePaid, [effectiveSchemeValue, extraBonus, schemeValuePaid]);
   // "Esquema real": actual amounts paid (from extrato entries using real importe inputs)
   const schemeRealPaid = schemeValuePaid;
   // ─── Puerperio summary memos ────────────────────────────────────────
@@ -592,7 +637,7 @@ const PaymentsGestForm = () => {
   }, [puerperioStates, p1Amount, p2AdjustedAmount, p3Amount, ayudaState, ayudaAmountNum, sdg36BonusApplied]);
 
   const totalPagadoGeneral = useMemo(() => totalPagadoPrograma + totalPagadoPuerperio, [totalPagadoPrograma, totalPagadoPuerperio]);
-  const calculoPuerperio4  = useMemo(() => ULTIMAS_FIRMAS, []);
+  const calculoPuerperio4  = useMemo(() => Math.max(0, ULTIMAS_FIRMAS - extraBonus), [extraBonus]);
 
   const dynamicParcAmounts = useMemo(() => {
     const p4 = Math.max(0, Math.round(calculoPuerperio4));
@@ -665,7 +710,7 @@ const PaymentsGestForm = () => {
 
   // Resolve the component breakdown of an extrato entry (handles new split + legacy entries)
   const getExtratoComponents = (entry) => {
-    const bono = parseFloat(entry.bonoValStored)   || 0;
+    const bono = parseFloat(entry.bonoValStored)   || 0;   // transporte only
     const pen  = parseFloat(entry.penalizacionVal) || 0;
     const reim = parseFloat(entry.reembolsoVal)    || 0;
     let esquema, bonoT1;
@@ -681,8 +726,13 @@ const PaymentsGestForm = () => {
       esquema = Math.max(0, (parseFloat(entry.valor) || 0) - bono + pen - reim);
       bonoT1  = 0;
     }
-    const total = entry.isAuto ? (esquema + bonoT1 + bono - pen + reim) : (parseFloat(entry.valor) || 0);
-    return { esquema, bonoT1, bono, pen, reim, total };
+    // "Bonos" column = every non-transport bonus: T1 bonus + any bono-category importe
+    // (bonificación extra, VIH, gemelar, etc.). Those move out of "Imp. de esquema".
+    const isBonoCat = entry.category === 'bono';
+    const bonos     = bonoT1 + (isBonoCat ? esquema : 0);
+    const esquemaOut = isBonoCat ? 0 : esquema;
+    const total = entry.isAuto ? (esquemaOut + bonos + bono - pen + reim) : (parseFloat(entry.valor) || 0);
+    return { esquema: esquemaOut, bonos, bono, pen, reim, total };
   };
 
   const filteredAndSortedExtrato = useMemo(() => {
@@ -717,10 +767,10 @@ const PaymentsGestForm = () => {
   const extratoTotals = useMemo(() => {
     return filteredAndSortedExtrato.reduce((acc, e) => {
       const c = getExtratoComponents(e);
-      acc.esquema += c.esquema; acc.bonoT1 += c.bonoT1; acc.bono += c.bono;
+      acc.esquema += c.esquema; acc.bonos += c.bonos; acc.bono += c.bono;
       acc.pen += c.pen; acc.reim += c.reim; acc.total += c.total;
       return acc;
-    }, { esquema: 0, bonoT1: 0, bono: 0, pen: 0, reim: 0, total: 0 });
+    }, { esquema: 0, bonos: 0, bono: 0, pen: 0, reim: 0, total: 0 });
   }, [filteredAndSortedExtrato]);
   const bonosTotalesPaid      = useMemo(() => {
     const bonoCat   = extratoGastos.filter(e => e.category === 'bono').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0);
@@ -932,6 +982,29 @@ const PaymentsGestForm = () => {
     debouncedSave();
   };
 
+  // Selecting a semana de parto cancels all SDG rows AFTER it. Any already-registered
+  // payment for those rows must be erased (uncompleted + extrato entry removed).
+  const handleSemanaPartoChange = (value) => {
+    setSemanaParto(value);
+    const idx = BIRTH_WEEK_ORDER.indexOf(value);
+    const newBlocked = idx < 0 ? new Set() : new Set(BIRTH_WEEK_ROW_IDS.slice(idx + 1));
+    if (newBlocked.size > 0) {
+      setRowStates(prev => {
+        const next = { ...prev };
+        newBlocked.forEach(id => {
+          if (next[id]) next[id] = { ...next[id], completed: false };
+        });
+        return next;
+      });
+      setExtratoGastos(prev => prev.filter(e => {
+        if (!e.autoKey) return true;
+        const m = e.autoKey.match(/^fixed_(.+)$/);
+        return !(m && newBlocked.has(m[1]));
+      }));
+    }
+    autoSaveDeferred();
+  };
+
   const openDateModal = ({ autoKey, label, importe, importeBonoT1, bonoVal, penalizacion, reembolso, category, commitTrue }) => {
     const reembolsoVal      = parseFloat(reembolso)    || 0;
     const bonoValStored     = parseFloat(bonoVal)      || 0;
@@ -956,6 +1029,16 @@ const PaymentsGestForm = () => {
     setShowDateModal(false);
     autoSaveDeferred();
   };
+
+  // Enter key confirms the payment as soon as the date modal is open (date defaults to today)
+  useEffect(() => {
+    if (!showDateModal) return;
+    const handler = (e) => {
+      if (e.key === 'Enter' && dateModalInfo.fecha) { e.preventDefault(); confirmDateModal(); }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [showDateModal, dateModalInfo]);
 
   const openUnlockModal = ({ autoKey, label, uncomplete }) => {
     setUnlockTarget({ autoKey, label, uncomplete });
@@ -1057,7 +1140,7 @@ const PaymentsGestForm = () => {
   // ── Export handlers ─────────────────────────────────────────────────────────
   const openExportModal = () => {
     setExportPwOk(false); setExportPw(''); setExportPwError('');
-    setExportCols({ esquema: true, bonoT1: true, bono: true, pen: true, reim: true });
+    setExportCols({ esquema: true, bonos: true, bono: true, pen: true, reim: true });
     setShowExportModal(true);
   };
   const confirmExportPw = () => {
@@ -1067,13 +1150,17 @@ const PaymentsGestForm = () => {
   };
   const buildExportRows = () => {
     const cols = [{ key: 'fecha', label: 'Fecha' }, { key: 'motivo', label: 'Motivo' }, { key: 'movimiento', label: 'Movimiento' }];
-    if (exportCols.esquema) cols.push({ key: 'esquema', label: 'Importe esquema' });
-    if (exportCols.bonoT1)  cols.push({ key: 'bonoT1',  label: 'Importe bono T1' });
+    if (exportCols.esquema) cols.push({ key: 'esquema', label: 'Imp. de esquema' });
+    if (exportCols.bonos)   cols.push({ key: 'bonos',   label: 'Bonos' });
     if (exportCols.bono)    cols.push({ key: 'bono',    label: 'Bono transporte' });
     if (exportCols.pen)     cols.push({ key: 'pen',     label: 'Penalización' });
     if (exportCols.reim)    cols.push({ key: 'reim',    label: 'Reembolso' });
-    cols.push({ key: 'total', label: 'Total' });
-    const rows = filteredAndSortedExtrato.map(e => {
+    cols.push({ key: 'total', label: 'TOTAL' });
+    // Order by Movimiento ascending (same custom logic as the on-screen column)
+    const ordered = [...filteredAndSortedExtrato].sort(
+      (a, b) => getMovimientoOrder(a.movimiento) - getMovimientoOrder(b.movimiento)
+    );
+    const rows = ordered.map(e => {
       const c = getExtratoComponents(e);
       return cols.map(col => {
         if (col.key === 'fecha')      return new Date(e.fecha + 'T12:00:00').toLocaleDateString('es-MX');
@@ -1083,7 +1170,7 @@ const PaymentsGestForm = () => {
         if (col.key === 'total') {
           let t = 0;
           if (exportCols.esquema) t += c.esquema;
-          if (exportCols.bonoT1)  t += c.bonoT1;
+          if (exportCols.bonos)   t += c.bonos;
           if (exportCols.bono)    t += c.bono;
           if (exportCols.pen)     t -= c.pen;
           if (exportCols.reim)    t += c.reim;
@@ -1099,39 +1186,188 @@ const PaymentsGestForm = () => {
     });
     return { cols, rows, totals };
   };
-  const exportCSV = () => {
+  const exportExcel = () => {
     const { cols, rows, totals } = buildExportRows();
-    const esc = (v) => {
-      if (typeof v === 'number') return v.toFixed(2);
-      const s = String(v ?? '');
-      return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const numKeys = new Set(['esquema', 'bonos', 'bono', 'pen', 'reim', 'total']);
+
+    // Build AOA: title rows + header + data + totals
+    const aoa = [];
+    aoa.push(['Extrato Gastos']);
+    aoa.push([`GESCA: ${formData.gesca || '—'}`, '', `IP: ${formData.ip || '—'}`, '', `Esquema: ${fmt(schemeValue)}`]);
+    aoa.push([`Generado: ${new Date().toLocaleString('es-MX')}`]);
+    aoa.push([]);                              // spacer
+    const headerRowIdx = aoa.length;           // 0-based row index of the header
+    aoa.push(cols.map(c => c.label));
+    rows.forEach(r => aoa.push(r));
+    aoa.push(totals);
+    const totalRowIdx = aoa.length - 1;
+
+    const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
+
+    // Column widths
+    const widthFor = (key) => {
+      if (key === 'fecha') return 14;
+      if (key === 'motivo') return 20;
+      if (key === 'movimiento') return 22;
+      return 18;
     };
-    const lines = [cols.map(c => c.label).join(','), ...rows.map(r => r.map(esc).join(',')), totals.map(esc).join(',')];
-    const blob = new Blob(['\ufeff' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `extrato_${formData.gesca || 'esquema'}_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click(); URL.revokeObjectURL(url);
+    ws['!cols'] = cols.map(c => ({ wch: widthFor(c.key) }));
+
+    // Merge title across all columns
+    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: cols.length - 1 } }];
+
+    const navy   = '2D3748';
+    const headBg = '6B89BE';
+    const footBg = 'D6E0F2';
+    const footTx = '375596';
+    const stripe = 'F4F4F6';
+
+    const setCell = (r, c, style) => {
+      const ref = XLSXStyle.utils.encode_cell({ r, c });
+      if (!ws[ref]) ws[ref] = { t: 's', v: '' };
+      ws[ref].s = { ...(ws[ref].s || {}), ...style };
+    };
+
+    // Title styling
+    setCell(0, 0, { font: { bold: true, sz: 18, color: { rgb: navy } } });
+    setCell(1, 0, { font: { bold: true, sz: 10, color: { rgb: navy } } });
+    setCell(1, 2, { font: { bold: true, sz: 10, color: { rgb: navy } } });
+    setCell(1, 4, { font: { bold: true, sz: 10, color: { rgb: navy } } });
+    setCell(2, 0, { font: { sz: 9, color: { rgb: '666666' } } });
+
+    // Header row
+    cols.forEach((col, ci) => {
+      setCell(headerRowIdx, ci, {
+        fill: { fgColor: { rgb: headBg } },
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 10 },
+        alignment: { horizontal: numKeys.has(col.key) ? 'right' : 'left', vertical: 'center' },
+      });
+    });
+
+    // Data rows: number format + alternating stripes
+    rows.forEach((r, ri) => {
+      const rowIdx = headerRowIdx + 1 + ri;
+      const striped = ri % 2 === 1;
+      cols.forEach((col, ci) => {
+        const ref = XLSXStyle.utils.encode_cell({ r: rowIdx, c: ci });
+        const isNum = numKeys.has(col.key);
+        const style = {
+          alignment: { horizontal: isNum ? 'right' : 'left' },
+          font: { sz: 9, color: { rgb: '3C3C46' } },
+        };
+        if (striped) style.fill = { fgColor: { rgb: stripe } };
+        if (ws[ref]) {
+          ws[ref].s = style;
+          if (isNum && typeof ws[ref].v === 'number') ws[ref].z = '"$"#,##0.00';
+        }
+      });
+    });
+
+    // Totals row
+    cols.forEach((col, ci) => {
+      const ref = XLSXStyle.utils.encode_cell({ r: totalRowIdx, c: ci });
+      const isNum = numKeys.has(col.key);
+      if (ws[ref]) {
+        ws[ref].s = {
+          fill: { fgColor: { rgb: footBg } },
+          font: { bold: true, color: { rgb: footTx }, sz: 10 },
+          alignment: { horizontal: isNum ? 'right' : 'left' },
+        };
+        if (isNum && typeof ws[ref].v === 'number') ws[ref].z = '"$"#,##0.00';
+      }
+    });
+
+    const wb = XLSXStyle.utils.book_new();
+    XLSXStyle.utils.book_append_sheet(wb, ws, 'Extrato Gastos');
+    XLSXStyle.writeFile(wb, `extrato_${formData.gesca || 'esquema'}_${new Date().toISOString().split('T')[0]}.xlsx`);
     setShowExportModal(false);
   };
   const exportPDF = () => {
     const { cols, rows, totals } = buildExportRows();
-    const doc = new jsPDF({ orientation: 'landscape' });
-    doc.setFontSize(14);
-    doc.text('Extrato Gastos', 14, 15);
-    doc.setFontSize(9);
-    doc.text(`GESCA: ${formData.gesca || '—'}   IP: ${formData.ip || '—'}   Esquema: ${fmt(schemeValue)}`, 14, 21);
-    doc.text(`Generado: ${new Date().toLocaleString('es-MX')}`, 14, 26);
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+    const pageW = doc.internal.pageSize.getWidth();
+    const marginX = 32;
+
+    // Brand colours (Babyboom template)
+    const navy     = [45, 55, 72];
+    const headBlue = [107, 137, 190];
+    const footBlue = [214, 224, 242];
+    const footText = [55, 85, 150];
+    const stripe   = [240, 240, 242];
+    const pink     = [236, 96, 154];
+    const brandNavy = [45, 58, 140];
+
+    // Vector Babyboom brand mark (top-left of mark area at x,y)
+    const drawBabyboomLogo = (x, y) => {
+      doc.setFillColor(...pink);
+      doc.circle(x + 12, y + 12, 11, 'F');           // pink balloon
+      doc.setFillColor(255, 255, 255);
+      doc.circle(x + 12, y + 9, 4, 'F');             // head
+      doc.roundedRect(x + 8, y + 12, 8, 7, 3, 3, 'F'); // body
+      doc.setFillColor(...brandNavy);
+      doc.circle(x + 22, y + 6, 4, 'F');             // small blue balloon
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(22);
+      doc.setTextColor(...pink);
+      doc.text('Babyboom', x + 30, y + 17);
+      const w = doc.getTextWidth('Babyboom');
+      doc.setFontSize(8);
+      doc.setTextColor(...brandNavy);
+      doc.text('Surrogacy', x + 30 + w - doc.getTextWidth('Surrogacy'), y + 26);
+    };
+
+    // ── Header ──
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(26);
+    doc.setTextColor(...navy);
+    doc.text('Extrato Gastos', marginX, 44);
+
+    doc.setFontSize(10);
+    const metaY = 64;
+    const labelVal = (label, val, x) => {
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(...navy);
+      doc.text(label, x, metaY);
+      const lw = doc.getTextWidth(label);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(80, 80, 90);
+      doc.text(String(val || '—'), x + lw + 4, metaY);
+    };
+    labelVal('GESCA:', formData.gesca, marginX);
+    labelVal('IP:', formData.ip, marginX + 150);
+    labelVal('Esquema:', fmt(schemeValue), marginX + 290);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...navy);
+    doc.text('Generado:', marginX, metaY + 16);
+    const gl = doc.getTextWidth('Generado:');
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(80, 80, 90);
+    doc.text(new Date().toLocaleString('es-MX'), marginX + gl + 4, metaY + 16);
+
+    drawBabyboomLogo(pageW - marginX - 130, 22);
+
     const fmtCell = (v) => (typeof v === 'number' ? fmt(v) : v);
+    const numCols = {};
+    cols.forEach((c, i) => { if (!['fecha', 'motivo', 'movimiento'].includes(c.key)) numCols[i] = { halign: 'right' }; });
+
     autoTable(doc, {
-      startY: 30,
+      startY: 92,
+      margin: { left: marginX, right: marginX },
       head: [cols.map(c => c.label)],
       body: rows.map(r => r.map(fmtCell)),
       foot: [totals.map(fmtCell)],
-      styles: { fontSize: 8 },
-      headStyles: { fillColor: [33, 56, 122] },
-      footStyles: { fillColor: [230, 230, 230], textColor: 20, fontStyle: 'bold' },
+      theme: 'plain',
+      styles: { fontSize: 8.5, cellPadding: 6, textColor: [60, 60, 70], lineWidth: 0 },
+      headStyles: { fillColor: headBlue, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 9 },
+      bodyStyles: { fillColor: [255, 255, 255] },
+      alternateRowStyles: { fillColor: stripe },
+      footStyles: { fillColor: footBlue, textColor: footText, fontStyle: 'bold', fontSize: 9 },
+      columnStyles: numCols,
+      didParseCell: (data) => {
+        if (numCols[data.column.index]) data.cell.styles.halign = 'right';
+      },
     });
+
     doc.save(`extrato_${formData.gesca || 'esquema'}_${new Date().toISOString().split('T')[0]}.pdf`);
     setShowExportModal(false);
   };
@@ -1762,7 +1998,7 @@ const PaymentsGestForm = () => {
               <div className="d-flex align-items-center gap-3 flex-wrap">
                 <div className="fw-semibold" style={{ minWidth: '140px' }}>Semana de parto</div>
                 <CFormSelect style={{ width: '160px' }} value={semanaParto}
-                  onChange={e => { setSemanaParto(e.target.value); debouncedSave(); }}>
+                  onChange={e => handleSemanaPartoChange(e.target.value)}>
                   <option value="">— Seleccionar —</option>
                   {['32', '34', '35', '36', '37', '38', '39', '40'].map(w => (
                     <option key={w} value={w}>{w} SDG</option>
@@ -1926,7 +2162,7 @@ const PaymentsGestForm = () => {
               <div className="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
                 <div>
                   <h6 className="mb-0">Puerperio 4 — Parcialidades</h6>
-                  <small className="text-muted">Monto fijo: <strong>{fmt(calculoPuerperio4)}</strong> (últimas firmas — siempre {fmt(ULTIMAS_FIRMAS)})</small>
+                  <small className="text-muted">Últimas firmas: {fmt(ULTIMAS_FIRMAS)}{extraBonus > 0 && <span className="text-danger"> − {fmt(extraBonus)} (bono extra) = <strong>{fmt(calculoPuerperio4)}</strong></span>}{extraBonus === 0 && <strong> = {fmt(calculoPuerperio4)}</strong>}</small>
                 </div>
                 <div className="d-flex align-items-center gap-2">
                   <CFormLabel className="mb-0">Parcialidades:</CFormLabel>
@@ -2048,7 +2284,7 @@ const PaymentsGestForm = () => {
                     <hr className="my-2" />
                     <div>
                       <small className="text-muted d-block" style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cálculo para Puerperio 4 (Parcialidades)</small>
-                      <small className="text-muted d-block mb-1" style={{ fontSize: '0.72rem' }}>Fijo — siempre {fmt(ULTIMAS_FIRMAS)} (últimas firmas)</small>
+                      <small className="text-muted d-block mb-1" style={{ fontSize: '0.72rem' }}>{ULTIMAS_FIRMAS.toLocaleString('es-MX')} firmas{extraBonus > 0 ? ` − ${fmt(extraBonus)} (bono extra)` : ''}</small>
                       <h5 className="mb-0 fw-bold" style={{ color: 'var(--cui-success)' }}>{fmt(calculoPuerperio4)}</h5>
                     </div>
                   </div>
@@ -2070,7 +2306,7 @@ const PaymentsGestForm = () => {
                     <th></th>
                     <th>Valor del Esquema</th>
                     <th>Bono de Transporte</th>
-                    <th>Bonos Totales</th>
+                    <th>Bonos Totales <small style={{ fontWeight: 400, textTransform: 'none' }}>(máx. {fmt(TOTAL_BONUS_CAP)})</small></th>
                     <th>Total</th>
                   </tr>
                 </thead>
@@ -2078,16 +2314,32 @@ const PaymentsGestForm = () => {
                   <tr className="row-base">
                     <td className="text-muted small">Total a pagar</td>
                     <td>
-                      {fmt(effectiveSchemeValue)}
+                      {fmt(effectiveSchemeValue - extraBonus)}
                     </td>
                     <td>{fmt(bonoTransporteTotal)}</td>
                     <td>{totalBonos > 0 ? fmt(totalBonos) : <span className="text-muted">—</span>}</td>
                     <td>{fmt(grandTotalWithExtras)}</td>
                   </tr>
+                  {extraBonus > 0 && (
+                    <tr className="row-actual">
+                      <td className="text-danger">Bono extra descontado</td>
+                      <td className="text-danger">− {fmt(extraBonus)} <small>(de Puerperio 4 / esquema)</small></td>
+                      <td className="text-danger" title="Transporte sobre el tope de $8,500">
+                        {bonoTransporteTotal > TOTAL_BONUS_CAP ? `+${fmt(bonoTransporteTotal - TOTAL_BONUS_CAP)} sobre tope` : <span className="text-muted">—</span>}
+                      </td>
+                      <td className="text-muted">—</td>
+                      <td className="text-muted">—</td>
+                    </tr>
+                  )}
                   <tr className="row-actual">
                     <td className="text-muted">Restante</td>
                     <td style={{ color: schemeValueRemaining <= 0 ? 'var(--cui-success)' : 'var(--cui-warning)' }}>
                       {schemeValueRemaining <= 0 ? '✓ ' : ''}{fmt(Math.max(0, schemeValueRemaining))}
+                      {extraBonus > 0 && (
+                        <small className="d-block text-danger" style={{ fontWeight: 400, fontStyle: 'italic' }}>
+                          {fmt(effectiveSchemeValue)} − {fmt(extraBonus)} (bono extra)
+                        </small>
+                      )}
                     </td>
                     <td style={{ color: bonoTransporteRemaining <= 0 ? 'var(--cui-success)' : 'var(--cui-warning)' }}>
                       {bonoTransporteRemaining <= 0 ? '✓ ' : ''}{fmt(Math.max(0, bonoTransporteRemaining))}
@@ -2106,7 +2358,18 @@ const PaymentsGestForm = () => {
             {/* 6 summary squares: 3 + 3 */}
             <CRow className="g-3 mb-3">
               <CCol md={4}><SummarySquare label="Esquema de pagos" sublabel="Pagos realizados (Esquema y otros)" value={schemePlannedPaid} color="secondary" /></CCol>
-              <CCol md={4}><SummarySquare label="Total pagado" sublabel="Transporte" value={bonoTransportePaid} /></CCol>
+              <CCol md={4}>
+                <div className="p-3 rounded h-100" style={{ border: '1px solid var(--cui-border-color)' }}>
+                  <small className="text-muted d-block mb-0" style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total pagado</small>
+                  <small className="fw-semibold d-block mb-1" style={{ fontSize: '0.8rem' }}>Transporte</small>
+                  <h5 className="mb-0 fw-bold text-primary">{fmt(bonoTransportePaid)}</h5>
+                  {bonoTransporteTotal > TOTAL_BONUS_CAP && (
+                    <small className="text-danger d-block mt-1" style={{ fontSize: '0.72rem' }}>
+                      Incluye {fmt(bonoTransporteTotal - TOTAL_BONUS_CAP)} sobre el tope de {fmt(TOTAL_BONUS_CAP)}
+                    </small>
+                  )}
+                </div>
+              </CCol>
               <CCol md={4}><SummarySquare label="Total pagado" sublabel="Bonos" value={bonosTotalesPaid} /></CCol>
             </CRow>
             <CRow className="g-3 mb-3">
@@ -2237,7 +2500,7 @@ const PaymentsGestForm = () => {
                       Importe esquema <ExtratoSortIcon col="importeEsquemaVal" />
                     </CTableHeaderCell>
                     <CTableHeaderCell style={{ ...hs, color: '#d97706', cursor: 'pointer' }} onClick={() => handleExtratoSort('importeBonoT1Val')}>
-                      Importe bono T1 <ExtratoSortIcon col="importeBonoT1Val" />
+                      Bonos <ExtratoSortIcon col="importeBonoT1Val" />
                     </CTableHeaderCell>
                     <CTableHeaderCell style={{ ...hs, color: '#16a34a', cursor: 'pointer' }} onClick={() => handleExtratoSort('bonoValStored')}>
                       Bono transporte <ExtratoSortIcon col="bonoValStored" />
@@ -2273,7 +2536,7 @@ const PaymentsGestForm = () => {
                           {entry.isAuto && c.esquema ? <span style={{ color: '#7c3aed', fontWeight: 600 }}>{fmt(c.esquema)}</span> : <span className="text-muted">—</span>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
-                          {c.bonoT1 ? <span style={{ color: '#d97706', fontWeight: 600 }}>{fmt(c.bonoT1)}</span> : <span className="text-muted">—</span>}
+                          {c.bonos ? <span style={{ color: '#d97706', fontWeight: 600 }}>{fmt(c.bonos)}</span> : <span className="text-muted">—</span>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
                           {entry.isAuto && c.bono ? <span style={{ color: '#16a34a', fontWeight: 600 }}>{fmt(c.bono)}</span> : <span className="text-muted">—</span>}
@@ -2312,7 +2575,7 @@ const PaymentsGestForm = () => {
                     <CTableRow style={{ borderTop: '2px solid var(--cui-border-color)', fontWeight: 700 }}>
                       <CTableDataCell style={cs} colSpan={3} className="text-end"><strong>TOTALES</strong></CTableDataCell>
                       <CTableDataCell style={cs}><span style={{ color: '#7c3aed' }}>{fmt(extratoTotals.esquema)}</span></CTableDataCell>
-                      <CTableDataCell style={cs}><span style={{ color: '#d97706' }}>{fmt(extratoTotals.bonoT1)}</span></CTableDataCell>
+                      <CTableDataCell style={cs}><span style={{ color: '#d97706' }}>{fmt(extratoTotals.bonos)}</span></CTableDataCell>
                       <CTableDataCell style={cs}><span style={{ color: '#16a34a' }}>{fmt(extratoTotals.bono)}</span></CTableDataCell>
                       <CTableDataCell style={cs}><span style={{ color: 'var(--cui-danger)' }}>{fmt(extratoTotals.pen)}</span></CTableDataCell>
                       <CTableDataCell style={cs}><span style={{ color: 'var(--cui-info)' }}>{fmt(extratoTotals.reim)}</span></CTableDataCell>
@@ -2347,7 +2610,7 @@ const PaymentsGestForm = () => {
               <p className="mb-2">Selecciona las columnas a incluir:</p>
               <div className="mb-3">
                 <CFormCheck label="Importe esquema"  checked={exportCols.esquema} onChange={e => setExportCols(p => ({ ...p, esquema: e.target.checked }))} />
-                <CFormCheck label="Importe bono T1"  checked={exportCols.bonoT1}  onChange={e => setExportCols(p => ({ ...p, bonoT1:  e.target.checked }))} />
+                <CFormCheck label="Bonos"            checked={exportCols.bonos}   onChange={e => setExportCols(p => ({ ...p, bonos:   e.target.checked }))} />
                 <CFormCheck label="Bono transporte"  checked={exportCols.bono}    onChange={e => setExportCols(p => ({ ...p, bono:    e.target.checked }))} />
                 <CFormCheck label="Penalización"     checked={exportCols.pen}     onChange={e => setExportCols(p => ({ ...p, pen:     e.target.checked }))} />
                 <CFormCheck label="Reembolso"        checked={exportCols.reim}    onChange={e => setExportCols(p => ({ ...p, reim:    e.target.checked }))} />
@@ -2364,8 +2627,8 @@ const PaymentsGestForm = () => {
             <CButton color="primary" onClick={confirmExportPw}><CIcon icon={cilLockUnlocked} className="me-2" />Continuar</CButton>
           ) : (
             <>
-              <CButton color="success" onClick={exportCSV} disabled={!Object.values(exportCols).some(Boolean)} style={{ color: 'white' }}>
-                <CIcon icon={cilCloudDownload} className="me-2" />Excel (CSV)
+              <CButton color="success" onClick={exportExcel} disabled={!Object.values(exportCols).some(Boolean)} style={{ color: 'white' }}>
+                <CIcon icon={cilCloudDownload} className="me-2" />Excel
               </CButton>
               <CButton color="danger" onClick={exportPDF} disabled={!Object.values(exportCols).some(Boolean)} style={{ color: 'white' }}>
                 <CIcon icon={cilCloudDownload} className="me-2" />PDF
@@ -2418,7 +2681,9 @@ const PaymentsGestForm = () => {
         </CModalHeader>
         <CModalBody>
           <CFormLabel className="mb-1">Selecciona la fecha en que se realizó el pago:</CFormLabel>
-          <CFormInput type="date" value={dateModalInfo.fecha} onChange={e => setDateModalInfo(p => ({ ...p, fecha: e.target.value }))} />
+          <CFormInput type="date" value={dateModalInfo.fecha} autoFocus
+            onChange={e => setDateModalInfo(p => ({ ...p, fecha: e.target.value }))}
+            onKeyDown={e => { if (e.key === 'Enter' && dateModalInfo.fecha) confirmDateModal(); }} />
           <div className="mt-3 p-2 rounded" style={{ background: 'color-mix(in srgb, var(--cui-primary) 8%, transparent)', border: '1px solid var(--cui-border-color)' }}>
             <small className="text-muted d-block">Valor que se registrará en Extrato Gastos</small>
             <strong style={{ color: parseFloat(dateModalInfo.valor) < 0 ? 'var(--cui-danger)' : 'var(--cui-primary)' }}>{fmt(dateModalInfo.valor)}</strong>
