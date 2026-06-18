@@ -17,9 +17,6 @@ import * as XLSXStyle from 'xlsx-js-style';
 import api from '../../../services/api';
 import { useBillsAuth } from '../../../context/BillsAuthContext';
 
-// Optional Babyboom logo for PDF export. Paste a base64 PNG data-URI here
-// (e.g. 'data:image/png;base64,iVBORw0KG...') to render the real logo in reports.
-// When empty, the export falls back to a styled "Babyboom Surrogacy" text mark.
 const BABYBOOM_LOGO_DATAURI = '';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,9 +28,6 @@ const NumInput = ({ value, onChange, placeholder = '', disabled = false, width =
     placeholder={placeholder} disabled={disabled} />
 );
 
-// CurrencyInput — formatted currency display (e.g. $400.00) for Penalización / Reembolso fields.
-// Shows formatted value when blurred, raw number when focused for editing.
-// Defined OUTSIDE component to avoid React remount / focus loss.
 const fmtCurrency = (v) => {
   const n = parseFloat(v);
   if (v === '' || v === null || v === undefined || isNaN(n)) return '';
@@ -55,9 +49,6 @@ const CurrencyInput = ({ value, onChange, disabled = false, width = '110px', inp
   );
 };
 
-// ImporteCell — shows planned amount (muted) + real-value NumInput below it.
-// When locked it shows only the resolved real value.
-// Must be defined outside component to avoid React remount / focus loss.
 const ImporteCell = ({ planned, realValue, onChange, disabled, width = '110px', showBono = false }) => {
   const display = planned !== null && planned !== undefined ? fmt(planned) : '—';
   return (
@@ -77,10 +68,7 @@ const ImporteCell = ({ planned, realValue, onChange, disabled, width = '110px', 
     </div>
   );
 };
-// - Unlocked + non-empty value → green "Guardar" button locks the field.
-// - Locked → orange "Editar" pencil button opens password modal to unlock.
-// - Empty fields can never be locked (Guardar button hidden when empty).
-// Must be defined outside component to avoid React remount / focus loss.
+
 const LockedFormInput = ({ name, label, value, type = 'text', locked, disabled, onChange, onLockRequest }) => (
   <div>
     <CFormLabel className="mb-1 small d-flex align-items-center gap-1">
@@ -94,7 +82,6 @@ const LockedFormInput = ({ name, label, value, type = 'text', locked, disabled, 
         onChange={onChange}
         style={{ flex: 1 }}
       />
-      {/* Non-empty & unlocked: show Guardar */}
       {!locked && value && String(value).trim() !== '' && (
         <CButton size="sm" color="success" style={{ padding: '0 10px', whiteSpace: 'nowrap' }}
           title="Guardar y bloquear este campo"
@@ -102,7 +89,6 @@ const LockedFormInput = ({ name, label, value, type = 'text', locked, disabled, 
           <CIcon icon={cilSave} size="sm" className="me-1" />Guardar
         </CButton>
       )}
-      {/* Locked: show Editar pencil */}
       {locked && (
         <CButton size="sm" color="warning" variant="outline" style={{ padding: '0 8px' }}
           title="Editar este campo (requiere contraseña)"
@@ -137,7 +123,6 @@ const FIXED_ROWS = [
   { id: 'sdg40', concepto: '40 SDG', importe: 0,     bonoTransporte: 0,  section: 3 },
 ];
 
-// SDG rows blocked by Semana de parto: selected week and all subsequent get zeroed
 const BIRTH_WEEK_ORDER   = ['32', '34', '35', '36', '37', '38', '39', '40'];
 const BIRTH_WEEK_ROW_IDS = ['sdg32', 'sdg34', 'sdg35', 'sdg36', 'sdg37', 'sdg38', 'sdg39', 'sdg40'];
 
@@ -160,16 +145,14 @@ const EXTRATO_MOTIVOS = ['Reembolso', 'Bonificación', 'Pago extraordinario', 'A
 
 const UNLOCK_PASSWORD = '26213256';
 const SCHEME_PASSWORD = 'adm@bbcloud1';
-const ULTIMAS_FIRMAS  = 20000; // fixed total for last section
+const ULTIMAS_FIRMAS  = 20000;
 
-// Fixed parcialidad distributions (max 3) — must sum to ULTIMAS_FIRMAS
 const PARC_AMOUNTS = {
   1: [20000],
   2: [15000, 5000],
   3: [15000, 3000, 2000],
 };
 
-// Form fields eligible for individual locking
 const FORM_FIELDS = ['gesca', 'ip', 'banco', 'clabe', 'fum', 'giro_semana'];
 const initLockedFields = (locked) => {
   const s = {};
@@ -186,7 +169,6 @@ const fmt = (v) => {
 };
 const getRowImporte = (row, sv) => row.schemeImporte ? (row.schemeImporte[sv] ?? null) : (row.importe ?? null);
 const getRowBono    = (row, sv) => row.schemeBono    ? (row.schemeBono[sv]    ?? 0)    : (row.bonoTransporte ?? 0);
-// Returns true only when the row has a planned bono (not null/undefined)
 const rowHasBono = (row) => row.schemeBono !== undefined || row.bonoTransporte !== null;
 
 const initRS  = () => ({ penalizacion: '', reembolso: '', completed: false, realImporte: '', realBono: '' });
@@ -212,13 +194,12 @@ const PaymentsGestForm = () => {
 
   const [loading, setLoading] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
-  const [lastSaved,  setLastSaved]  = useState(null);   // Date object
+  const [lastSaved,  setLastSaved]  = useState(null);
   const [saveError,  setSaveError]  = useState('');
   const [alert,   setAlert]   = useState({ show: false, type: '', message: '' });
 
-  // refs for auto-save machinery
-  const recordIdRef  = useRef(isEditMode ? id : null); // actual DB id (set on first POST for new records)
-  const stateRef     = useRef({});   // always-fresh snapshot, updated every render (no deps array)
+  const recordIdRef  = useRef(isEditMode ? id : null);
+  const stateRef     = useRef({});
   const saveTimerRef = useRef(null);
   const isSavingRef  = useRef(false);
 
@@ -230,10 +211,7 @@ const PaymentsGestForm = () => {
   const [schemePasswordError,     setSchemePasswordError]     = useState('');
 
   // ── Per-field locking ─────────────────────────────────────────────────────
-  // New mode: all unlocked. Edit mode: starts unlocked, fetchPayment sets locked
-  // state based on which fields actually have values (empty fields stay editable).
   const [lockedFields,      setLockedFields]      = useState(() => initLockedFields(false));
-  // fieldUnlockTarget: { name, label } — the field currently asking for password
   const [fieldUnlockTarget, setFieldUnlockTarget] = useState(null);
   const [fieldUnlockPassword, setFieldUnlockPassword] = useState('');
   const [fieldUnlockError,    setFieldUnlockError]    = useState('');
@@ -262,6 +240,12 @@ const PaymentsGestForm = () => {
   const [ayudaMaternidad, setAyudaMaternidad] = useState(false);
   const [ayudaAmount,     setAyudaAmount]     = useState('');
   const [ayudaState,      setAyudaState]      = useState(initAyudaState());
+
+  // ── FIX 1: New post-SDG40 bonus row ──────────────────────────────────────
+  const [bonoPosSDG40Title,  setBonoPosSDG40Title]  = useState('');
+  const [bonoPosSDG40Amount, setBonoPosSDG40Amount] = useState('');
+  const [bonoPosSDG40State,  setBonoPosSDG40State]  = useState(initRS());
+
   const [extratoGastos,   setExtratoGastos]   = useState([]);
   const [newExtrato,      setNewExtrato]      = useState({ fecha: '', motivo: '', movimiento: '', valor: '' });
   const [extratoAlert,    setExtratoAlert]    = useState({ show: false, type: '', message: '' });
@@ -273,7 +257,7 @@ const PaymentsGestForm = () => {
   const [extratoFilterMovimiento,  setExtratoFilterMovimiento]  = useState('');
   const [extratoSort,              setExtratoSort]              = useState({ key: 'fecha', dir: 'desc' });
 
-  // ── Extrato export (PDF / CSV) ─────────────────────────────────────────────
+  // ── Extrato export ─────────────────────────────────────────────────────────
   const [showExportModal,    setShowExportModal]    = useState(false);
   const [exportPwOk,         setExportPwOk]         = useState(false);
   const [exportPw,           setExportPw]           = useState('');
@@ -281,8 +265,8 @@ const PaymentsGestForm = () => {
   const [exportCols,         setExportCols]         = useState({ esquema: true, bonos: true, bono: true, pen: true, reim: true });
 
   // ── Comments per row ──────────────────────────────────────────────────────
-  const [rowComments,       setRowComments]       = useState({});   // { [commentKey]: string }
-  const [lockedComments,    setLockedComments]    = useState({});   // { [commentKey]: bool }
+  const [rowComments,       setRowComments]       = useState({});
+  const [lockedComments,    setLockedComments]    = useState({});
   const [showCommentModal,  setShowCommentModal]  = useState(false);
   const [commentCtx,        setCommentCtx]        = useState({ key: '', label: '' });
   const [commentDraft,      setCommentDraft]      = useState('');
@@ -314,13 +298,14 @@ const PaymentsGestForm = () => {
     { value: 'pending',   label: 'Pendiente'  },
   ];
 
-  // ── Keep stateRef always current — no dep array means it runs after every render ──
+  // ── Keep stateRef always current ──────────────────────────────────────────
   useEffect(() => {
     stateRef.current = {
       formData, transferencias, rowStates, puerperioStates,
       bonoVIH, bonoGemelar, bonoStates, bgConditions, bgState, bgExtraTitle, bgExtraImporte,
       parcCount, parcCompleted, parcRealAmounts, semanaParto,
       ayudaMaternidad, ayudaAmount, ayudaState,
+      bonoPosSDG40Title, bonoPosSDG40Amount, bonoPosSDG40State,
       extratoGastos, rowComments, schemeSelected,
     };
   });
@@ -329,12 +314,11 @@ const PaymentsGestForm = () => {
   const sv          = formData.scheme_value || '375000';
   const schemeValue = useMemo(() => parseFloat(formData.scheme_value) || 375000, [formData.scheme_value]);
 
-  // Rows blocked by Semana de parto: the selected week + all subsequent SDG rows get zeroed
   const blockedBirthRowIds = useMemo(() => {
     if (!semanaParto) return new Set();
     const idx = BIRTH_WEEK_ORDER.indexOf(semanaParto);
     if (idx < 0) return new Set();
-    return new Set(BIRTH_WEEK_ROW_IDS.slice(idx + 1)); // block rows AFTER selected week
+    return new Set(BIRTH_WEEK_ROW_IDS.slice(idx + 1));
   }, [semanaParto]);
 
   const visibleTransferencias = useMemo(() => {
@@ -345,51 +329,41 @@ const PaymentsGestForm = () => {
   const t1Exitosa      = useMemo(() => transferencias[0]?.successful === true, [transferencias]);
   const sdg20Completed = useMemo(() => rowStates.sdg20?.completed === true, [rowStates]);
 
-  // Semana de parto: 5k bonus on P1 when T1 beta positiva AND birth week ≥ 36
-  // SDG20 extrato entry is always $5,000 regardless of scheme
   const t1BonusAmount = useMemo(() => 5000, []);
 
-  // SDG36 bonus on P1: applies to BOTH schemes when T1 exitosa AND birth week ≥ 36
-  // BUT the +5k P1 addition only applies for 400k (375k total stays at 5k from SDG20 only)
   const sdg36BonusApplied = useMemo(
     () => t1Exitosa && ['36', '37', '38', '39', '40'].includes(semanaParto),
     [t1Exitosa, semanaParto]
   );
 
-  // rVal: resolve real vs planned value
   const rVal = (realField, planned) => {
     const n = parseFloat(realField);
     return (!isNaN(n) && realField !== '') ? n : (planned ?? 0);
   };
 
-  // Transferencias paid — only importe (not reembolso) deducts from P1 pool
   const transferenciasPaid = useMemo(() => {
     return visibleTransferencias
       .filter(t => t.completed)
       .reduce((sum, t) => sum + rVal(t.realImporte, 1000) - (parseFloat(t.penalizacion) || 0), 0);
   }, [visibleTransferencias]);
 
-  // T1 penalty: when T1 exitosa but SDG36 not reached — always 5k on both schemes
   const t1NoSDG36Penalty = useMemo(
     () => (t1Exitosa && semanaParto && !sdg36BonusApplied) ? 5000 : 0,
     [t1Exitosa, semanaParto, sdg36BonusApplied]
   );
 
-  // P1 += 5k only for 400k when SDG36 reached (375k total is just the SDG20 5k — no P1 addition)
   const p1Amount = useMemo(
     () => Math.max(0, 50000 - transferenciasPaid + (sdg36BonusApplied ? 5000 : 0) - t1NoSDG36Penalty),
     [transferenciasPaid, sdg36BonusApplied, t1NoSDG36Penalty, sv]
   );
   const p2Base   = useMemo(() => sv === '375000' ? 50000 : 55000, [sv]);
 
-  // CDO. GESCA deduction
   const bgDeduction = useMemo(() => {
     let t = 0;
     BG_CONDITIONS.forEach(c => { if (!bgConditions[c.id]) t += c.amount; });
     return t;
   }, [bgConditions]);
 
-  // Fixed importe sums per section (used to derive p3 base)
   const fase2Total = useMemo(() => {
     let t = 0;
     FIXED_ROWS.filter(r => r.section === 2).forEach(r => {
@@ -410,8 +384,6 @@ const PaymentsGestForm = () => {
     return t;
   }, [sv, blockedBirthRowIds]);
 
-  // Importe of SDG rows canceled because they fall AFTER the selected semana de parto.
-  // These scheduled scheme payments will not happen, so they are subtracted from the total.
   const blockedScheduleImporte = useMemo(() => {
     let t = 0;
     FIXED_ROWS.forEach(r => {
@@ -423,7 +395,6 @@ const PaymentsGestForm = () => {
     return t;
   }, [blockedBirthRowIds, sv]);
 
-  // Bono transporte of canceled SDG rows — these reduce the bono transporte cap.
   const blockedBonoTransporte = useMemo(() => {
     let t = 0;
     FIXED_ROWS.forEach(r => {
@@ -432,17 +403,14 @@ const PaymentsGestForm = () => {
     return t;
   }, [blockedBirthRowIds, sv]);
 
-  // p3BaseRaw: display-only reference value for P3 breakdown label
   const p3BaseRaw = useMemo(
     () => Math.max(0, schemeValue - fase2Total - fasesPagosTotal - 50000 - p2Base - ULTIMAS_FIRMAS),
     [schemeValue, fase2Total, fasesPagosTotal, p2Base]
   );
-  // ayudaAmountNum: driven by Importe field (realImporte) when completed, or entered value when pending
   const ayudaAmountNum = useMemo(
     () => parseFloat(ayudaState.realImporte) || parseFloat(ayudaAmount) || 0,
     [ayudaState.realImporte, ayudaAmount]
   );
-  // T2-T6 bono transporte amounts count as scheme payments, not bonuses — deducted from P3
   const trans45Deduction = useMemo(() => {
     let t = 0;
     visibleTransferencias.forEach(trans => {
@@ -453,7 +421,6 @@ const PaymentsGestForm = () => {
     return t;
   }, [visibleTransferencias]);
 
-  // ── Real-amount totals (uses user-entered realImporte, falls back to planned) ─
   const realFase2Total = useMemo(() => {
     let t = 0;
     FIXED_ROWS.filter(r => r.section === 2).forEach(r => {
@@ -474,11 +441,6 @@ const PaymentsGestForm = () => {
     return t;
   }, [sv, rowStates, blockedBirthRowIds]);
 
-  // P3 absorbs all residuals so the full scheme total is always reached and P4 = ULTIMAS_FIRMAS.
-  // CDO deduction shows as penalización separately — does NOT reduce P3 base.
-  // The P1 pool is reduced by t1NoSDG36Penalty (SDG<36) so P3 absorbs that 5k and the total stays whole.
-  // The SDG36 bonus is NOT subtracted here (it is extra — shown in Bonos adicionales).
-  // Formula: schemeValue − realFase2 − realFasesPagos − (P1 pool − penalty) − p2Base − ayuda − trans45 − blockedSchedule − ULTIMAS_FIRMAS
   const p3Amount = useMemo(
     () => Math.max(0,
       schemeValue
@@ -497,29 +459,36 @@ const PaymentsGestForm = () => {
     [puerperioStates, p3Amount]
   );
 
-  // p2Adjustment kept for display only (shown in P2 breakdown label)
   const p2Adjustment = useMemo(
     () => (schemeValue - bgDeduction) - (realFase2Total + realFasesPagosTotal + 50000 + p2Base + p3BaseRaw + ULTIMAS_FIRMAS),
     [schemeValue, bgDeduction, realFase2Total, realFasesPagosTotal, p2Base, p3BaseRaw]
   );
   const vihBonus     = useMemo(() => bonoVIH     ? 50000 : 0, [bonoVIH]);
   const gemelarBonus = useMemo(() => bonoGemelar ? 20000 : 0, [bonoGemelar]);
-  // P2 (Puerperio 2) = base + VIH bonus + gemelar bonus (if applicable)
   const p2Amount = useMemo(() => p2Base + vihBonus + gemelarBonus, [p2Base, vihBonus, gemelarBonus]);
-  const p2AdjustedAmount = p2Amount; // P3 now absorbs residuals; P2 uses base only
-  // Net bonus for display in bonos table
-  // 375k + SDG≥36: 5k (SDG20 only, nothing on P1)
-  // 375k + SDG<36:  0 (5k SDG20 − 5k P1 penalty = 0 net)
-  // 375k + no week: 5k (pending — week not yet determined)
-  // 400k + SDG≥36: 10k (5k SDG20 + 5k P1)
-  // 400k + SDG<36:  0 (5k SDG20 − 5k P1 penalty = 0 net)
+  const p2AdjustedAmount = p2Amount;
+
   const t1BonusGross = useMemo(() => {
     if (!t1Exitosa) return 0;
-    if (!semanaParto) return 10000; // pending — show max possible (always 10k: 5k SDG20 + 5k P1)
+    if (!semanaParto) return 10000;
     return sdg36BonusApplied ? 10000 : 0;
   }, [t1Exitosa, semanaParto, sdg36BonusApplied]);
   const totalBonos   = useMemo(() => t1BonusGross + vihBonus + gemelarBonus, [t1BonusGross, vihBonus, gemelarBonus]);
 
+  // Planned bono transporte: sum of originally-planned amounts per row (cap basis)
+  const bonoTransportePlanned = useMemo(() => {
+    let t = 0;
+    FIXED_ROWS.forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) return;
+      t += getRowBono(r, sv) || 0;
+    });
+    visibleTransferencias.forEach(trans => {
+      if (![2,3,4,5,6].includes(trans.id)) t += 500;
+    });
+    return t;
+  }, [sv, blockedBirthRowIds, visibleTransferencias]);
+
+  // Real bono transporte: sum of actual entered amounts (defaults to planned)
   const bonoTransporteTotal = useMemo(() => {
     let t = 0;
     FIXED_ROWS.forEach(r => {
@@ -527,14 +496,30 @@ const PaymentsGestForm = () => {
       const planned = getRowBono(r, sv) || 0;
       t += rVal(rowStates[r.id]?.realBono, planned);
     });
-    // Transferencia sub-rows: T1-T3/T6 count as bono; T4 and T5 are scheme payments (deducted from P3)
     visibleTransferencias.forEach(trans => {
       if (![2,3,4,5,6].includes(trans.id)) t += rVal(trans.transRealBono, 500);
     });
     return t;
   }, [sv, rowStates, blockedBirthRowIds, visibleTransferencias]);
 
-  // Birth week penalty: $24,000 when semana de parto < 36 (SDG36 not reached)
+  // Per-row overage: total real bono paid above what was originally planned per row
+  const bonoTransporteOverage = useMemo(() => {
+    let t = 0;
+    FIXED_ROWS.forEach(r => {
+      if (blockedBirthRowIds.has(r.id)) return;
+      const planned = getRowBono(r, sv) || 0;
+      const real    = rVal(rowStates[r.id]?.realBono, planned);
+      if (real > planned) t += real - planned;
+    });
+    visibleTransferencias.forEach(trans => {
+      if (![2,3,4,5,6].includes(trans.id)) {
+        const real = rVal(trans.transRealBono, 500);
+        if (real > 500) t += real - 500;
+      }
+    });
+    return t;
+  }, [sv, rowStates, blockedBirthRowIds, visibleTransferencias]);
+
   const BIRTH_WEEK_PENALTY_THRESHOLD = ['32', '34', '35'];
   const birthWeekPenalty = useMemo(
     () => (semanaParto && BIRTH_WEEK_PENALTY_THRESHOLD.includes(semanaParto)) ? 24000 : 0,
@@ -549,30 +534,36 @@ const PaymentsGestForm = () => {
     ['vih', 'gemelar'].forEach(k => { t += parseFloat(bonoStates[k]?.penalizacion) || 0; });
     t += parseFloat(ayudaState.penalizacion) || 0;
     t += parseFloat(bgState.penalizacion)    || 0;
+    t += parseFloat(bonoPosSDG40State.penalizacion) || 0;
     t += birthWeekPenalty;
     return t;
-  }, [visibleTransferencias, rowStates, puerperioStates, bonoStates, ayudaState, bgState, birthWeekPenalty]);
+  }, [visibleTransferencias, rowStates, puerperioStates, bonoStates, ayudaState, bgState, bonoPosSDG40State, birthWeekPenalty]);
 
-  // totalReembolso: sum of reembolso amounts from completed extrato entries only
   const totalReembolso = useMemo(
     () => extratoGastos.reduce((s, e) => s + (parseFloat(e.reembolsoVal) || 0), 0),
     [extratoGastos]
   );
 
-  // ─── Bonus cap ────────────────────────────────────────────────────────────
-  // Base bono de transporte cap is 8,500, REDUCED by the bono transporte of any SDG
-  // rows canceled by the semana de parto (e.g. SDG 35 cancels SDG36/37/38 → 8,500−2,000=6,500).
-  // The T1/SDG36 (10k), VIH and gemelar bonuses are always allowed on top and NEVER reduce the
-  // scheme. "Extra bonus" (funded from the scheme — deducted from Puerperio 4 and the final
-  // total) = transporte beyond the (adjusted) cap + any Bonificación extra.
   const BASE_BONUS_CAP = 8500;
+  // Cap is based on planned amounts: 8500 minus planned bonos for blocked (skipped) rows
   const TOTAL_BONUS_CAP = useMemo(
     () => Math.max(0, BASE_BONUS_CAP - blockedBonoTransporte),
     [blockedBonoTransporte]
   );
+  // bonoPosSDG40 amount is always entirely extra (deducted from scheme)
+  const bonoPosSDG40Extra = useMemo(
+    () => parseFloat(bonoPosSDG40Amount) || 0,
+    [bonoPosSDG40Amount]
+  );
+  // extraBonus = planned over cap + per-row real-above-planned overage + bono pos-SDG40 + bgExtra
+  // All of these are deducted from the scheme total
   const extraBonus = useMemo(
-    () => Math.max(0, bonoTransporteTotal - TOTAL_BONUS_CAP) + (parseFloat(bgExtraImporte) || 0),
-    [bonoTransporteTotal, bgExtraImporte, TOTAL_BONUS_CAP]
+    () =>
+      Math.max(0, bonoTransportePlanned - TOTAL_BONUS_CAP) // planned exceeds cap (SDG-adjusted)
+      + bonoTransporteOverage                               // real entered above planned per row
+      + bonoPosSDG40Extra                                   // bono extra post-SDG40 (always extra)
+      + (parseFloat(bgExtraImporte) || 0),                  // gemelos/other extra
+    [bonoTransportePlanned, bonoTransporteOverage, bonoPosSDG40Extra, bgExtraImporte, TOTAL_BONUS_CAP]
   );
 
   const effectiveSchemeValue = useMemo(
@@ -584,7 +575,6 @@ const PaymentsGestForm = () => {
     [effectiveSchemeValue, bonoTransporteTotal, totalBonos, extraBonus]
   );
 
-  // Manual extrato entries that represent extra obligations (increase what's owed)
   const MOTIVOS_EXTRA_OBLIGACION = ['Reembolso', 'Bonificación'];
   const extraObligaciones = useMemo(
     () => extratoGastos
@@ -593,7 +583,6 @@ const PaymentsGestForm = () => {
     [extratoGastos]
   );
 
-  // grandTotalWithExtras: scheme total + bonuses + transport + manual obligations
   const grandTotalWithExtras = useMemo(
     () => grandTotal + extraObligaciones,
     [grandTotal, extraObligaciones]
@@ -605,30 +594,26 @@ const PaymentsGestForm = () => {
   );
   const schemeValuePaid      = useMemo(() => extratoGastos.filter(e => e.category === 'scheme').reduce((s, e) => s + (parseFloat(e.valor) || 0) - (parseFloat(e.reembolsoVal) || 0) - (parseFloat(e.bonoValStored) || 0) - (parseFloat(e.importeBonoT1Val) || 0), 0), [extratoGastos]);
   const schemeValueRemaining = useMemo(() => effectiveSchemeValue - extraBonus - schemeValuePaid, [effectiveSchemeValue, extraBonus, schemeValuePaid]);
-  // "Esquema real": actual amounts paid (from extrato entries using real importe inputs)
   const schemeRealPaid = schemeValuePaid;
-  // ─── Puerperio summary memos ────────────────────────────────────────
+
   const totalPagadoPrograma = useMemo(() => {
-    // Importe only — bono transporte excluded
     let t = 0;
     visibleTransferencias.filter(x => x.completed).forEach(x => {
       t += rVal(x.realImporte, 1000) - (parseFloat(x.penalizacion) || 0) + (parseFloat(x.reembolso) || 0);
     });
-    // transCompleted rows: these are bono-transporte-only, excluded here
     FIXED_ROWS.forEach(r => {
       if (blockedBirthRowIds.has(r.id)) return;
       const state = rowStates[r.id];
       if (!state?.completed) return;
       const imp = getRowImporte(r, sv);
       t += rVal(state.realImporte, imp != null ? imp : 0) - (parseFloat(state.penalizacion) || 0) + (parseFloat(state.reembolso) || 0);
-      // bono transporte NOT included
     });
     return t;
   }, [visibleTransferencias, rowStates, blockedBirthRowIds, sv]);
 
   const totalPagadoPuerperio = useMemo(() => {
     let t = 0;
-    const p1BaseForResumen = p1Amount - (sdg36BonusApplied ? 5000 : 0); // bonus shown in Bonos adicionales, not here
+    const p1BaseForResumen = p1Amount - (sdg36BonusApplied ? 5000 : 0);
     if (puerperioStates.puerperio1?.completed) t += rVal(puerperioStates.puerperio1.realImporte, p1BaseForResumen) - (parseFloat(puerperioStates.puerperio1.penalizacion) || 0) + (parseFloat(puerperioStates.puerperio1.reembolso) || 0);
     if (puerperioStates.puerperio2?.completed) t += rVal(puerperioStates.puerperio2.realImporte, p2AdjustedAmount) - (parseFloat(puerperioStates.puerperio2.penalizacion) || 0) + (parseFloat(puerperioStates.puerperio2.reembolso) || 0);
     if (ayudaState.completed) t += rVal(ayudaState.realImporte, ayudaAmountNum) - (parseFloat(ayudaState.penalizacion) || 0) + (parseFloat(ayudaState.reembolso) || 0);
@@ -648,12 +633,9 @@ const PaymentsGestForm = () => {
   }, [calculoPuerperio4, parcCount]);
   const parcAmounts = dynamicParcAmounts;
 
-  // "Esquema planeado pagado": planned amounts for rows that have been marked "pago completado"
   const schemePlannedPaid = useMemo(() => {
     let t = 0;
-    // transferencias — importe only (1000 each planned)
     visibleTransferencias.filter(x => x.completed).forEach(() => { t += 1000; });
-    // fixed rows — importe only, NOT bono transporte
     FIXED_ROWS.forEach(r => {
       if (blockedBirthRowIds.has(r.id)) return;
       if (rowStates[r.id]?.completed) {
@@ -661,17 +643,15 @@ const PaymentsGestForm = () => {
         if (imp !== null) t += imp;
       }
     });
-    // puerperio — importe only
     if (puerperioStates.puerperio1?.completed) t += p1Amount - (sdg36BonusApplied ? 5000 : 0);
     if (puerperioStates.puerperio2?.completed) t += p2AdjustedAmount;
     if (puerperioStates.puerperio3?.completed) t += p3Amount;
-    // ayuda maternidad — counted when completed
     if (ayudaState.completed) t += ayudaAmountNum;
-    // parcialidades — importe
     dynamicParcAmounts.forEach((amt, i) => { if (parcCompleted[i]) t += amt; });
     return t;
   }, [visibleTransferencias, rowStates, puerperioStates, bonoStates,
       ayudaState, ayudaAmountNum, dynamicParcAmounts, parcCompleted, p1Amount, p2AdjustedAmount, p3Amount, sv, blockedBirthRowIds, ayudaAmountNum]);
+
   const bonoTransportePaid = useMemo(() => {
     let t = 0;
     FIXED_ROWS.forEach(r => {
@@ -680,7 +660,6 @@ const PaymentsGestForm = () => {
         t += rVal(rowStates[r.id]?.realBono, getRowBono(r, sv) || 0);
       }
     });
-    // Transferencia trans sub-rows paid (T4/T5 excluded — they are scheme payments)
     visibleTransferencias.filter(x => x.transCompleted && ![2,3,4,5,6].includes(x.id)).forEach(trans => {
       t += rVal(trans.transRealBono, 500);
     });
@@ -699,6 +678,7 @@ const PaymentsGestForm = () => {
     '6 SDG', '8 SDG', '10 SDG', '12 SDG', '16 SDG', '20 SDG',
     '22 SDG', '26 SDG', '32 SDG', '34 SDG', '35 SDG',
     '36 SDG', '37 SDG', '38 SDG', '39 SDG', '40 SDG',
+    'Bono pos-SDG40', 'Bono Post SDG40',
     'Puerperio 1', 'Puerperio 2', 'Ayuda maternidad', 'Ayuda Maternidad', 'Puerperio 3',
     'Parcialidad 1', 'Parcialidad 2', 'Parcialidad 3',
   ];
@@ -708,9 +688,8 @@ const PaymentsGestForm = () => {
     return idx === -1 ? 9999 : idx;
   };
 
-  // Resolve the component breakdown of an extrato entry (handles new split + legacy entries)
   const getExtratoComponents = (entry) => {
-    const bono = parseFloat(entry.bonoValStored)   || 0;   // transporte only
+    const bono = parseFloat(entry.bonoValStored)   || 0;
     const pen  = parseFloat(entry.penalizacionVal) || 0;
     const reim = parseFloat(entry.reembolsoVal)    || 0;
     let esquema, bonoT1;
@@ -718,16 +697,12 @@ const PaymentsGestForm = () => {
       esquema = parseFloat(entry.importeEsquemaVal) || 0;
       bonoT1  = parseFloat(entry.importeBonoT1Val)  || 0;
     } else if (entry.importeVal != null) {
-      // legacy single-importe entry
       esquema = parseFloat(entry.importeVal) || 0;
       bonoT1  = 0;
     } else {
-      // very old entry — derive importe from total
       esquema = Math.max(0, (parseFloat(entry.valor) || 0) - bono + pen - reim);
       bonoT1  = 0;
     }
-    // "Bonos" column = every non-transport bonus: T1 bonus + any bono-category importe
-    // (bonificación extra, VIH, gemelar, etc.). Those move out of "Imp. de esquema".
     const isBonoCat = entry.category === 'bono';
     const bonos     = bonoT1 + (isBonoCat ? esquema : 0);
     const esquemaOut = isBonoCat ? 0 : esquema;
@@ -772,6 +747,7 @@ const PaymentsGestForm = () => {
       return acc;
     }, { esquema: 0, bonos: 0, bono: 0, pen: 0, reim: 0, total: 0 });
   }, [filteredAndSortedExtrato]);
+
   const bonosTotalesPaid      = useMemo(() => {
     const bonoCat   = extratoGastos.filter(e => e.category === 'bono').reduce((s, e) => s + (parseFloat(e.valor) || 0), 0);
     const t1Embedded = extratoGastos.reduce((s, e) => s + (parseFloat(e.importeBonoT1Val) || 0), 0);
@@ -780,12 +756,41 @@ const PaymentsGestForm = () => {
   const bonosTotalesRemaining = useMemo(() => totalBonos - bonosTotalesPaid, [totalBonos, bonosTotalesPaid]);
   const grandTotalRemaining   = useMemo(() => grandTotalWithExtras - pagosRealizados, [grandTotalWithExtras, pagosRealizados]);
 
-
   const getPuerperioImporte = (rowId) => {
     if (rowId === 'puerperio1') return p1Amount;
     if (rowId === 'puerperio2') return p2AdjustedAmount;
     if (rowId === 'puerperio3') return p3Amount;
     return 0;
+  };
+
+  // ── FIX 2 & 3: Sync extrato entry when a completed row's values change ────
+  // Rebuilds the stored extrato entry for a given autoKey with new component values.
+  // The fecha (payment date) is preserved; only amounts are refreshed.
+  const syncExtratoEntry = (autoKey, { importeEsquema, importeBonoT1 = 0, bonoVal = 0, penalizacion = 0, reembolso = 0, category }) => {
+    setExtratoGastos(prev => {
+      const idx = prev.findIndex(e => e.autoKey === autoKey);
+      if (idx === -1) return prev; // entry doesn't exist yet — nothing to sync
+      const existing = prev[idx];
+      const pen   = parseFloat(penalizacion) || 0;
+      const reim  = parseFloat(reembolso)    || 0;
+      const bono  = parseFloat(bonoVal)      || 0;
+      const imp   = parseFloat(importeEsquema) || 0;
+      const bonoT = parseFloat(importeBonoT1)  || 0;
+      const valor = imp + bonoT + bono - pen + reim;
+      const updated = {
+        ...existing,
+        valor,
+        importeEsquemaVal: imp,
+        importeBonoT1Val:  bonoT,
+        bonoValStored:     bono,
+        penalizacionVal:   pen,
+        reembolsoVal:      reim,
+        category,
+      };
+      const next = [...prev];
+      next[idx] = updated;
+      return next;
+    });
   };
 
   // ── Data fetch ────────────────────────────────────────────────────────────
@@ -794,12 +799,9 @@ const PaymentsGestForm = () => {
       fetchPayment();
       setSchemeSelected(true);
       setSchemeLocked(true);
-      // lockedFields will be set inside fetchPayment based on which values are non-empty
     }
   }, [id]);
 
-  // Clean up any legacy standalone bonus_t1 entries — the T1 bonus is now embedded
-  // directly into the SDG20 and Puerperio 1 extrato entries (importeBonoT1Val).
   useEffect(() => {
     setExtratoGastos(prev => prev.some(e => e.autoKey === 'bonus_t1') ? prev.filter(e => e.autoKey !== 'bonus_t1') : prev);
   }, []);
@@ -826,7 +828,7 @@ const PaymentsGestForm = () => {
       if (data.bg_state)                     setBgState(data.bg_state);
       if (data.bg_extra_title)               setBgExtraTitle(data.bg_extra_title);
       if (data.bg_extra_importe !== undefined) setBgExtraImporte(String(data.bg_extra_importe || ''));
-      if (data.parc_count)                   setParcCount(Math.min(3, data.parc_count)); // cap at 3
+      if (data.parc_count)                   setParcCount(Math.min(3, data.parc_count));
       if (data.parc_completed)               setParcCompleted(data.parc_completed.slice(0, 3));
       if (data.parc_real_amounts)            setParcRealAmounts(data.parc_real_amounts.slice(0, 3));
       if (data.semana_parto)                 setSemanaParto(data.semana_parto);
@@ -834,15 +836,17 @@ const PaymentsGestForm = () => {
       if (data.ayuda_maternidad !== undefined) setAyudaMaternidad(data.ayuda_maternidad);
       if (data.ayuda_amount !== undefined)   setAyudaAmount(String(data.ayuda_amount || ''));
       if (data.ayuda_state)                  setAyudaState(data.ayuda_state);
+      // FIX 1: load bonoPosSDG40 fields
+      if (data.bono_pos_sdg40_title   !== undefined) setBonoPosSDG40Title(data.bono_pos_sdg40_title   || '');
+      if (data.bono_pos_sdg40_amount  !== undefined) setBonoPosSDG40Amount(String(data.bono_pos_sdg40_amount || ''));
+      if (data.bono_pos_sdg40_state)                 setBonoPosSDG40State(data.bono_pos_sdg40_state);
       if (data.row_comments) {
         setRowComments(data.row_comments);
-        // Any key with a saved comment starts as locked
         const locked = {};
         Object.keys(data.row_comments).forEach(k => { if (data.row_comments[k]) locked[k] = true; });
         setLockedComments(locked);
       }
 
-      // Only lock fields that actually have a value — empty fields stay editable
       const newLocked = {};
       const loadedData = {
         gesca: data.gesca, ip: data.ip, banco: data.banco, clabe: data.clabe,
@@ -907,12 +911,10 @@ const PaymentsGestForm = () => {
     if (!formData.scheme_value) return;
     setSchemeSelected(true);
     setSchemeLocked(true);
-    // schemeSelected will be true after render; pass override so autoSave doesn't skip
     autoSaveDeferred({ schemeSelected: true, formData });
   };
 
   const handleSchemeChangeRequest = () => {
-    // Already locked: prompt password to unlock
     setSchemePasswordInput(''); setSchemePasswordError('');
     setShowSchemePasswordModal(true);
   };
@@ -921,7 +923,6 @@ const PaymentsGestForm = () => {
     if (schemePasswordInput !== SCHEME_PASSWORD) {
       setSchemePasswordError('Contraseña incorrecta'); return;
     }
-    // Unlock the scheme selector so user can pick a new value and re-confirm
     setSchemeLocked(false);
     setSchemeSelected(false);
     setShowSchemePasswordModal(false);
@@ -930,10 +931,46 @@ const PaymentsGestForm = () => {
   };
 
   // ── Row / payment handlers ────────────────────────────────────────────────
-  const updateTransferencia  = (i, f, v) => { setTransferencias(p => p.map((t, idx) => idx === i ? { ...t, [f]: v } : t)); debouncedSave(); };
+  // FIX 2: updateTransferencia syncs extrato when the row is already completed
+  const updateTransferencia = (i, f, v) => {
+    setTransferencias(prev => {
+      const next = prev.map((t, idx) => idx === i ? { ...t, [f]: v } : t);
+      const trans = next[i];
+      // sync Prueba Beta extrato entry
+      if (trans.completed) {
+        const newRealImp = f === 'realImporte' ? v : trans.realImporte;
+        const newPen     = f === 'penalizacion' ? v : trans.penalizacion;
+        const newReim    = f === 'reembolso'    ? v : trans.reembolso;
+        const realImp    = rVal(newRealImp, 1000);
+        setTimeout(() => syncExtratoEntry(`transferencia_${trans.id}`, {
+          importeEsquema: realImp,
+          importeBonoT1:  0,
+          bonoVal:        0,
+          penalizacion:   newPen,
+          reembolso:      newReim,
+          category:       'scheme',
+        }), 0);
+      }
+      // sync Transferencia bono extrato entry
+      if (trans.transCompleted) {
+        const newTransBono = f === 'transRealBono'      ? v : trans.transRealBono;
+        const newTransPen  = f === 'transPenalizacion'  ? v : trans.transPenalizacion;
+        const newTransReim = f === 'transReembolso'     ? v : trans.transReembolso;
+        const realBono     = rVal(newTransBono, 500);
+        setTimeout(() => syncExtratoEntry(`trans_bono_${trans.id}`, {
+          importeEsquema: 0,
+          importeBonoT1:  0,
+          bonoVal:        realBono,
+          penalizacion:   newTransPen,
+          reembolso:      newTransReim,
+          category:       'scheme',
+        }), 0);
+      }
+      return next;
+    });
+    debouncedSave();
+  };
 
-  // When "Beta positiva" is set on transferencia i, clear ALL subsequent transferencias'
-  // payment data AND remove their extrato entries (they are hidden and must not count).
   const handleBetaSuccessful = (i, checked) => {
     setTransferencias(prev => prev.map((t, idx) => {
       if (idx === i) return { ...t, successful: checked };
@@ -955,12 +992,127 @@ const PaymentsGestForm = () => {
     }
     autoSaveDeferred();
   };
-  const updateRowState       = (rid, f, v) => { setRowStates(p => ({ ...p, [rid]: { ...(p[rid] || initRS()), [f]: v } })); debouncedSave(); };
-  const updatePuerperioState = (rid, f, v) => { setPuerperioStates(p => ({ ...p, [rid]: { ...(p[rid] || initRS()), [f]: v } })); debouncedSave(); };
-  const updateBonoState      = (k, f, v)   => { setBonoStates(p => ({ ...p, [k]: { ...p[k], [f]: v } })); debouncedSave(); };
-  const updateBgCondition    = (k, v)      => { setBgConditions(p => ({ ...p, [k]: v })); debouncedSave(); };
-  const updateBgState        = (f, v)      => { setBgState(p => ({ ...p, [f]: v })); debouncedSave(); };
-  const updateAyudaState     = (f, v)      => { setAyudaState(p => ({ ...p, [f]: v })); debouncedSave(); };
+
+  // FIX 2: updateRowState syncs extrato when the row is already completed
+  const updateRowState = (rid, f, v) => {
+    setRowStates(prev => {
+      const existing = prev[rid] || initRS();
+      const next = { ...prev, [rid]: { ...existing, [f]: v } };
+      const state = next[rid];
+      if (state.completed) {
+        const row = FIXED_ROWS.find(r => r.id === rid);
+        if (row) {
+          const isSDG20T1       = rid === 'sdg20' && stateRef.current.transferencias?.[0]?.successful;
+          const sdg20BonoT1     = isSDG20T1 ? 5000 : 0;
+          const newRealImp      = f === 'realImporte'  ? v : existing.realImporte;
+          const newRealBono     = f === 'realBono'     ? v : existing.realBono;
+          const newPen          = f === 'penalizacion' ? v : existing.penalizacion;
+          const newReim         = f === 'reembolso'    ? v : existing.reembolso;
+          const baseImp         = getRowImporte(row, stateRef.current.formData?.scheme_value || '375000');
+          const plannedImp      = isSDG20T1 && baseImp !== null ? baseImp + 5000 : baseImp;
+          const realImp         = rVal(newRealImp, plannedImp ?? 0);
+          const sdg20EsquemaImp = isSDG20T1 ? Math.max(0, realImp - 5000) : realImp;
+          const plannedBono     = getRowBono(row, stateRef.current.formData?.scheme_value || '375000') || 0;
+          const realBono        = rVal(newRealBono, plannedBono);
+          setTimeout(() => syncExtratoEntry(`fixed_${rid}`, {
+            importeEsquema: sdg20EsquemaImp,
+            importeBonoT1:  sdg20BonoT1,
+            bonoVal:        realBono,
+            penalizacion:   newPen,
+            reembolso:      newReim,
+            category:       'scheme',
+          }), 0);
+        }
+      }
+      return next;
+    });
+    debouncedSave();
+  };
+
+  // FIX 2: updatePuerperioState syncs extrato when the row is already completed
+  const updatePuerperioState = (rid, f, v) => {
+    setPuerperioStates(prev => {
+      const existing = prev[rid] || initRS();
+      const next = { ...prev, [rid]: { ...existing, [f]: v } };
+      const state = next[rid];
+      if (state.completed) {
+        const newRealImp = f === 'realImporte'  ? v : existing.realImporte;
+        const newPen     = f === 'penalizacion' ? v : existing.penalizacion;
+        const newReim    = f === 'reembolso'    ? v : existing.reembolso;
+        // Planned amounts need current calculated values — use stateRef approximation
+        // The exact p1/p2/p3 amounts are recalculated each render; here we use rVal with 0 fallback
+        // since the importe field shows the live planned value anyway
+        const approxPlanned = rid === 'puerperio2'
+          ? (stateRef.current.formData?.scheme_value === '400000' ? 55000 : 50000)
+          : 0; // p1 and p3 are variable; we just pass the entered realImporte
+        const realImp = rVal(newRealImp, approxPlanned);
+        const p1BonoT1 = rid === 'puerperio1' && stateRef.current.sdg36BonusApplied ? 5000 : 0;
+        const p1EsquemaImp = rid === 'puerperio1' ? Math.max(0, realImp - p1BonoT1) : realImp;
+        setTimeout(() => syncExtratoEntry(`puerperio_${rid}`, {
+          importeEsquema: p1EsquemaImp,
+          importeBonoT1:  p1BonoT1,
+          bonoVal:        0,
+          penalizacion:   newPen,
+          reembolso:      newReim,
+          category:       'scheme',
+        }), 0);
+      }
+      return next;
+    });
+    debouncedSave();
+  };
+
+  const updateBonoState = (k, f, v) => { setBonoStates(p => ({ ...p, [k]: { ...p[k], [f]: v } })); debouncedSave(); };
+  const updateBgCondition = (k, v) => { setBgConditions(p => ({ ...p, [k]: v })); debouncedSave(); };
+  const updateBgState     = (f, v) => { setBgState(p => ({ ...p, [f]: v })); debouncedSave(); };
+
+  // FIX 2: updateAyudaState syncs extrato when already completed
+  const updateAyudaState = (f, v) => {
+    setAyudaState(prev => {
+      const next = { ...prev, [f]: v };
+      if (next.completed) {
+        const newRealImp = f === 'realImporte'  ? v : prev.realImporte;
+        const newPen     = f === 'penalizacion' ? v : prev.penalizacion;
+        const newReim    = f === 'reembolso'    ? v : prev.reembolso;
+        const ayudaNum   = parseFloat(stateRef.current.ayudaAmount) || 0;
+        const realImp    = rVal(newRealImp, ayudaNum);
+        setTimeout(() => syncExtratoEntry('ayuda_maternidad', {
+          importeEsquema: realImp,
+          importeBonoT1:  0,
+          bonoVal:        0,
+          penalizacion:   newPen,
+          reembolso:      newReim,
+          category:       'scheme',
+        }), 0);
+      }
+      return next;
+    });
+    debouncedSave();
+  };
+
+  // FIX 2: updateBonoPosSDG40State syncs extrato when already completed
+  const updateBonoPosSDG40State = (f, v) => {
+    setBonoPosSDG40State(prev => {
+      const next = { ...prev, [f]: v };
+      if (next.completed) {
+        const newRealImp = f === 'realImporte'  ? v : prev.realImporte;
+        const newPen     = f === 'penalizacion' ? v : prev.penalizacion;
+        const newReim    = f === 'reembolso'    ? v : prev.reembolso;
+        const planned    = parseFloat(stateRef.current.bonoPosSDG40Amount) || 0;
+        const realImp    = rVal(newRealImp, planned);
+        setTimeout(() => syncExtratoEntry('bono_pos_sdg40', {
+          importeEsquema: realImp,
+          importeBonoT1:  0,
+          bonoVal:        0,
+          penalizacion:   newPen,
+          reembolso:      newReim,
+          category:       'bono',
+        }), 0);
+      }
+      return next;
+    });
+    debouncedSave();
+  };
 
   const handleExtratoSort = (key) => {
     setExtratoSort(prev => ({ key, dir: prev.key === key && prev.dir === 'asc' ? 'desc' : 'asc' }));
@@ -982,8 +1134,6 @@ const PaymentsGestForm = () => {
     debouncedSave();
   };
 
-  // Selecting a semana de parto cancels all SDG rows AFTER it. Any already-registered
-  // payment for those rows must be erased (uncompleted + extrato entry removed).
   const handleSemanaPartoChange = (value) => {
     setSemanaParto(value);
     const idx = BIRTH_WEEK_ORDER.indexOf(value);
@@ -1030,7 +1180,6 @@ const PaymentsGestForm = () => {
     autoSaveDeferred();
   };
 
-  // Enter key confirms the payment as soon as the date modal is open (date defaults to today)
   useEffect(() => {
     if (!showDateModal) return;
     const handler = (e) => {
@@ -1082,6 +1231,7 @@ const PaymentsGestForm = () => {
     else if (autoKey.startsWith('parcialidad_'))   { const i = parseInt(autoKey.split('_')[1]); setParcCompleted(prev => prev.map((v, j) => j === i ? false : v)); }
     else if (autoKey === 'ayuda_maternidad')        { updateAyudaState('completed', false); }
     else if (autoKey === 'buena_gestante')          { updateBgState('completed', false); }
+    else if (autoKey === 'bono_pos_sdg40')          { updateBonoPosSDG40State('completed', false); }
   };
 
   const handleDeletePasswordSubmit = () => {
@@ -1113,7 +1263,7 @@ const PaymentsGestForm = () => {
     const existing = rowComments[key];
     setCommentCtx({ key, label });
     setCommentDraft(existing || '');
-    setCommentEditMode(!lockedComments[key]);   // locked comment → view mode, else edit mode
+    setCommentEditMode(!lockedComments[key]);
     setCommentPwVisible(false);
     setCommentPw('');
     setCommentPwError('');
@@ -1156,7 +1306,6 @@ const PaymentsGestForm = () => {
     if (exportCols.pen)     cols.push({ key: 'pen',     label: 'Penalización' });
     if (exportCols.reim)    cols.push({ key: 'reim',    label: 'Reembolso' });
     cols.push({ key: 'total', label: 'TOTAL' });
-    // Order by Movimiento ascending (same custom logic as the on-screen column)
     const ordered = [...filteredAndSortedExtrato].sort(
       (a, b) => getMovimientoOrder(a.movimiento) - getMovimientoOrder(b.movimiento)
     );
@@ -1166,7 +1315,6 @@ const PaymentsGestForm = () => {
         if (col.key === 'fecha')      return new Date(e.fecha + 'T12:00:00').toLocaleDateString('es-MX');
         if (col.key === 'motivo')     return e.motivo || '';
         if (col.key === 'movimiento') return e.movimiento || '';
-        // for total, recompute based ONLY on selected components
         if (col.key === 'total') {
           let t = 0;
           if (exportCols.esquema) t += c.esquema;
@@ -1190,13 +1338,12 @@ const PaymentsGestForm = () => {
     const { cols, rows, totals } = buildExportRows();
     const numKeys = new Set(['esquema', 'bonos', 'bono', 'pen', 'reim', 'total']);
 
-    // Build AOA: title rows + header + data + totals
     const aoa = [];
     aoa.push(['Extrato Gastos']);
     aoa.push([`GESCA: ${formData.gesca || '—'}`, '', `IP: ${formData.ip || '—'}`, '', `Esquema: ${fmt(schemeValue)}`]);
     aoa.push([`Generado: ${new Date().toLocaleString('es-MX')}`]);
-    aoa.push([]);                              // spacer
-    const headerRowIdx = aoa.length;           // 0-based row index of the header
+    aoa.push([]);
+    const headerRowIdx = aoa.length;
     aoa.push(cols.map(c => c.label));
     rows.forEach(r => aoa.push(r));
     aoa.push(totals);
@@ -1204,7 +1351,6 @@ const PaymentsGestForm = () => {
 
     const ws = XLSXStyle.utils.aoa_to_sheet(aoa);
 
-    // Column widths
     const widthFor = (key) => {
       if (key === 'fecha') return 14;
       if (key === 'motivo') return 20;
@@ -1212,8 +1358,6 @@ const PaymentsGestForm = () => {
       return 18;
     };
     ws['!cols'] = cols.map(c => ({ wch: widthFor(c.key) }));
-
-    // Merge title across all columns
     ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: cols.length - 1 } }];
 
     const navy   = '2D3748';
@@ -1228,14 +1372,12 @@ const PaymentsGestForm = () => {
       ws[ref].s = { ...(ws[ref].s || {}), ...style };
     };
 
-    // Title styling
     setCell(0, 0, { font: { bold: true, sz: 18, color: { rgb: navy } } });
     setCell(1, 0, { font: { bold: true, sz: 10, color: { rgb: navy } } });
     setCell(1, 2, { font: { bold: true, sz: 10, color: { rgb: navy } } });
     setCell(1, 4, { font: { bold: true, sz: 10, color: { rgb: navy } } });
     setCell(2, 0, { font: { sz: 9, color: { rgb: '666666' } } });
 
-    // Header row
     cols.forEach((col, ci) => {
       setCell(headerRowIdx, ci, {
         fill: { fgColor: { rgb: headBg } },
@@ -1244,7 +1386,6 @@ const PaymentsGestForm = () => {
       });
     });
 
-    // Data rows: number format + alternating stripes
     rows.forEach((r, ri) => {
       const rowIdx = headerRowIdx + 1 + ri;
       const striped = ri % 2 === 1;
@@ -1263,7 +1404,6 @@ const PaymentsGestForm = () => {
       });
     });
 
-    // Totals row
     cols.forEach((col, ci) => {
       const ref = XLSXStyle.utils.encode_cell({ r: totalRowIdx, c: ci });
       const isNum = numKeys.has(col.key);
@@ -1288,7 +1428,6 @@ const PaymentsGestForm = () => {
     const pageW = doc.internal.pageSize.getWidth();
     const marginX = 32;
 
-    // Brand colours (Babyboom template)
     const navy     = [45, 55, 72];
     const headBlue = [107, 137, 190];
     const footBlue = [214, 224, 242];
@@ -1297,15 +1436,14 @@ const PaymentsGestForm = () => {
     const pink     = [236, 96, 154];
     const brandNavy = [45, 58, 140];
 
-    // Vector Babyboom brand mark (top-left of mark area at x,y)
     const drawBabyboomLogo = (x, y) => {
       doc.setFillColor(...pink);
-      doc.circle(x + 12, y + 12, 11, 'F');           // pink balloon
+      doc.circle(x + 12, y + 12, 11, 'F');
       doc.setFillColor(255, 255, 255);
-      doc.circle(x + 12, y + 9, 4, 'F');             // head
-      doc.roundedRect(x + 8, y + 12, 8, 7, 3, 3, 'F'); // body
+      doc.circle(x + 12, y + 9, 4, 'F');
+      doc.roundedRect(x + 8, y + 12, 8, 7, 3, 3, 'F');
       doc.setFillColor(...brandNavy);
-      doc.circle(x + 22, y + 6, 4, 'F');             // small blue balloon
+      doc.circle(x + 22, y + 6, 4, 'F');
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(22);
       doc.setTextColor(...pink);
@@ -1316,7 +1454,6 @@ const PaymentsGestForm = () => {
       doc.text('Surrogacy', x + 30 + w - doc.getTextWidth('Surrogacy'), y + 26);
     };
 
-    // ── Header ──
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(26);
     doc.setTextColor(...navy);
@@ -1373,7 +1510,6 @@ const PaymentsGestForm = () => {
   };
 
   // ── Auto-save system ──────────────────────────────────────────────────────
-  // buildPayload: snapshot of ALL saveable state, accepts overrides for mid-render calls
   const buildPayload = (overrides = {}) => {
     const s = { ...stateRef.current, ...overrides };
     return {
@@ -1396,6 +1532,10 @@ const PaymentsGestForm = () => {
       ayuda_maternidad: s.ayudaMaternidad,
       ayuda_amount:    parseFloat(s.ayudaAmount) || 0,
       ayuda_state:     s.ayudaState,
+      // FIX 1: include bonoPosSDG40 in payload
+      bono_pos_sdg40_title:  s.bonoPosSDG40Title  || '',
+      bono_pos_sdg40_amount: parseFloat(s.bonoPosSDG40Amount) || 0,
+      bono_pos_sdg40_state:  s.bonoPosSDG40State,
       extrato_gastos:  s.extratoGastos,
       row_comments:    s.rowComments,
     };
@@ -1403,7 +1543,6 @@ const PaymentsGestForm = () => {
 
   const autoSave = async (overrides = {}) => {
     const s = { ...stateRef.current, ...overrides };
-    // guard: need minimum required fields + confirmed scheme
     if (!s.formData?.gesca || !s.formData?.scheme_value) return;
     if (!s.schemeSelected) return;
     if (isSavingRef.current) return;
@@ -1415,11 +1554,9 @@ const PaymentsGestForm = () => {
     const payload = buildPayload(overrides);
     try {
       if (!recordIdRef.current) {
-        // First save — POST and capture the returned id
         const res = await api.post('/api/payments-gest', payload, { withCredentials: true });
         const newId = res.data.id || res.data.data?.id;
         recordIdRef.current = newId;
-        // Update URL without triggering React Router remount (navigate unmounts the component)
         window.history.replaceState(null, '', `/progestor/payments-gest/${newId}`);
         setSchemeLocked(true);
       } else {
@@ -1434,13 +1571,10 @@ const PaymentsGestForm = () => {
     }
   };
 
-  // autoSaveDeferred: call AFTER a batch of setState so stateRef has been updated.
-  // Uses setTimeout(0) which fires after React's commit + effects phase.
   const autoSaveDeferred = (overrides = {}) => {
     setTimeout(() => autoSave(overrides), 0);
   };
 
-  // debouncedSave: for rapid input changes (NumInput, text fields, checkboxes)
   const debouncedSave = () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => autoSave(), 1500);
@@ -1512,7 +1646,6 @@ const PaymentsGestForm = () => {
     const realImp     = (!isBlocked && plannedImp !== null) ? rVal(state.realImporte, plannedImp) : 0;
     const realBono    = hasBono ? rVal(state.realBono, plannedBono) : 0;
     const locked      = state.completed || isBlocked;
-    // Original amounts for strikethrough display on blocked rows
     const origImp     = getRowImporte(row, sv);
     const origBono    = getRowBono(row, sv);
     const isSDG20T1     = row.id === 'sdg20' && t1Exitosa;
@@ -1568,11 +1701,15 @@ const PaymentsGestForm = () => {
     </div>
   );
 
-  // Props shared by all LockedFormInput fields
   const fieldProps = {
     onChange:      handleFormChange,
     onLockRequest: handleFieldLockRequest,
   };
+
+  // ── FIX 1: Bono pos-SDG40 row render ─────────────────────────────────────
+  const bonoPosSDG40AmountNum = parseFloat(bonoPosSDG40Amount) || 0;
+  const bonoPosSDG40Locked    = bonoPosSDG40State.completed;
+  const bonoPosSDG40RealImp   = rVal(bonoPosSDG40State.realImporte, bonoPosSDG40AmountNum);
 
   return (
     <CContainer fluid>
@@ -1602,7 +1739,6 @@ const PaymentsGestForm = () => {
         .form-row-equal           { display: grid; gap: 1rem; }
         .form-row-equal.cols-2    { grid-template-columns: repeat(2, 1fr); }
         .form-row-equal.cols-3    { grid-template-columns: repeat(3, 1fr); }
-        /* ON = green (condition met / bonus active), OFF = red (discount / inactive) */
         .toggle-btn-on  { background-color: #dcfce7 !important; border-color: #86efac !important; color: #166534 !important; }
         .toggle-btn-on:hover  { background-color: #bbf7d0 !important; }
         .toggle-btn-off { background-color: #fee2e2 !important; border-color: #fca5a5 !important; color: #991b1b !important; }
@@ -1631,7 +1767,6 @@ const PaymentsGestForm = () => {
           </CButton>
         </CCol>
         <CCol xs="auto">
-          {/* Auto-save status indicator */}
           {autoSaving && (
             <span className="text-muted small d-flex align-items-center gap-1">
               <CSpinner size="sm" />Guardando…
@@ -1658,7 +1793,6 @@ const PaymentsGestForm = () => {
           <CAccordionHeader><strong>Datos del esquema</strong></CAccordionHeader>
           <CAccordionBody style={{ paddingBottom: '2rem' }}>
 
-            {/* ── Scheme selector ── */}
             <div className="p-3 rounded mb-4" style={{
               border: `2px solid ${schemeSelected ? 'var(--cui-success)' : 'var(--cui-primary)'}`,
               backgroundColor: schemeSelected
@@ -1695,7 +1829,6 @@ const PaymentsGestForm = () => {
                       </CFormSelect>
                     )}
 
-                    {/* Confirmar button — only visible when not yet locked */}
                     {!schemeLocked && (
                       <CButton
                         color="success"
@@ -1708,7 +1841,6 @@ const PaymentsGestForm = () => {
                       </CButton>
                     )}
 
-                    {/* Change button — only visible when locked */}
                     {schemeLocked && (
                       <CButton
                         color="warning"
@@ -1735,7 +1867,6 @@ const PaymentsGestForm = () => {
               </div>
             </div>
 
-            {/* ── Form fields — each locks individually ── */}
             <div className="form-row-equal cols-2 mb-3">
               <div>
                 <LockedFormInput name="gesca" label="GESCA *" value={formData.gesca} locked={lockedFields.gesca} {...fieldProps} />
@@ -1831,63 +1962,55 @@ const PaymentsGestForm = () => {
                     );
                   })()}
                   {/* VIH */}
-                  {(() => {
-                    return (
-                      <CTableRow style={bonoVIH ? undefined : { opacity: 0.7 }}>
-                        <CTableDataCell style={cs}>
-                          <CButton
-                            size="sm"
-                            className={`d-flex align-items-center gap-2 px-3 py-1 ${bonoVIH ? 'toggle-btn-on' : 'toggle-btn-off'}`}
-                            style={{ borderRadius: '6px', minWidth: '110px', justifyContent: 'space-between', border: '1px solid', transition: 'background-color 0.15s' }}
-                            onClick={() => { setBonoVIH(v => !v); debouncedSave(); }}
-                          >
-                            <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>VIH</span>
-                            <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
-                              {bonoVIH ? <>ON +{fmt(50000)}</> : <>OFF</>}
-                            </span>
-                          </CButton>
-                        </CTableDataCell>
-                        <CTableDataCell style={cs}>
-                          <span className="fw-semibold" style={{ color: bonoVIH ? 'var(--cui-primary)' : 'var(--cui-secondary-color)' }}>{fmt(50000)}</span>
-                        </CTableDataCell>
-                        <CTableDataCell style={cs}><CBadge color={bonoVIH ? 'success' : 'secondary'}>{bonoVIH ? 'Aplica' : 'No aplica'}</CBadge></CTableDataCell>
-                        <CTableDataCell style={cs}><CFormInput size="sm" disabled value="No hay" style={{ width: '110px', textAlign: 'right', color: 'var(--cui-secondary-color)' }} /></CTableDataCell>
-                        <CTableDataCell style={cs}><CFormInput size="sm" disabled value="No hay" style={{ width: '110px', textAlign: 'right', color: 'var(--cui-secondary-color)' }} /></CTableDataCell>
-                        <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
-                          <small className="text-muted">Ver Puerperio 2</small>
-                        </CTableDataCell>
-                      </CTableRow>
-                    );
-                  })()}
+                  <CTableRow style={bonoVIH ? undefined : { opacity: 0.7 }}>
+                    <CTableDataCell style={cs}>
+                      <CButton
+                        size="sm"
+                        className={`d-flex align-items-center gap-2 px-3 py-1 ${bonoVIH ? 'toggle-btn-on' : 'toggle-btn-off'}`}
+                        style={{ borderRadius: '6px', minWidth: '110px', justifyContent: 'space-between', border: '1px solid', transition: 'background-color 0.15s' }}
+                        onClick={() => { setBonoVIH(v => !v); debouncedSave(); }}
+                      >
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>VIH</span>
+                        <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+                          {bonoVIH ? <>ON +{fmt(50000)}</> : <>OFF</>}
+                        </span>
+                      </CButton>
+                    </CTableDataCell>
+                    <CTableDataCell style={cs}>
+                      <span className="fw-semibold" style={{ color: bonoVIH ? 'var(--cui-primary)' : 'var(--cui-secondary-color)' }}>{fmt(50000)}</span>
+                    </CTableDataCell>
+                    <CTableDataCell style={cs}><CBadge color={bonoVIH ? 'success' : 'secondary'}>{bonoVIH ? 'Aplica' : 'No aplica'}</CBadge></CTableDataCell>
+                    <CTableDataCell style={cs}><CFormInput size="sm" disabled value="No hay" style={{ width: '110px', textAlign: 'right', color: 'var(--cui-secondary-color)' }} /></CTableDataCell>
+                    <CTableDataCell style={cs}><CFormInput size="sm" disabled value="No hay" style={{ width: '110px', textAlign: 'right', color: 'var(--cui-secondary-color)' }} /></CTableDataCell>
+                    <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
+                      <small className="text-muted">Ver Puerperio 2</small>
+                    </CTableDataCell>
+                  </CTableRow>
                   {/* Gemelar */}
-                  {(() => {
-                    return (
-                      <CTableRow style={bonoGemelar ? undefined : { opacity: 0.7 }}>
-                        <CTableDataCell style={cs}>
-                          <CButton
-                            size="sm"
-                            className={`d-flex align-items-center gap-2 px-3 py-1 ${bonoGemelar ? 'toggle-btn-on' : 'toggle-btn-off'}`}
-                            style={{ borderRadius: '6px', minWidth: '120px', justifyContent: 'space-between', border: '1px solid', transition: 'background-color 0.15s' }}
-                            onClick={() => { setBonoGemelar(v => !v); debouncedSave(); }}
-                          >
-                            <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Gemelar</span>
-                            <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
-                              {bonoGemelar ? <>ON +{fmt(20000)}</> : <>OFF</>}
-                            </span>
-                          </CButton>
-                        </CTableDataCell>
-                        <CTableDataCell style={cs}>
-                          <span className="fw-semibold" style={{ color: bonoGemelar ? 'var(--cui-primary)' : 'var(--cui-secondary-color)' }}>{fmt(20000)}</span>
-                        </CTableDataCell>
-                        <CTableDataCell style={cs}><CBadge color={bonoGemelar ? 'success' : 'secondary'}>{bonoGemelar ? 'Aplica' : 'No aplica'}</CBadge></CTableDataCell>
-                        <CTableDataCell style={cs}><CFormInput size="sm" disabled value="No hay" style={{ width: '110px', textAlign: 'right', color: 'var(--cui-secondary-color)' }} /></CTableDataCell>
-                        <CTableDataCell style={cs}><CFormInput size="sm" disabled value="No hay" style={{ width: '110px', textAlign: 'right', color: 'var(--cui-secondary-color)' }} /></CTableDataCell>
-                        <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
-                          <small className="text-muted">Ver Puerperio 2</small>
-                        </CTableDataCell>
-                      </CTableRow>
-                    );
-                  })()}
+                  <CTableRow style={bonoGemelar ? undefined : { opacity: 0.7 }}>
+                    <CTableDataCell style={cs}>
+                      <CButton
+                        size="sm"
+                        className={`d-flex align-items-center gap-2 px-3 py-1 ${bonoGemelar ? 'toggle-btn-on' : 'toggle-btn-off'}`}
+                        style={{ borderRadius: '6px', minWidth: '120px', justifyContent: 'space-between', border: '1px solid', transition: 'background-color 0.15s' }}
+                        onClick={() => { setBonoGemelar(v => !v); debouncedSave(); }}
+                      >
+                        <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Gemelar</span>
+                        <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
+                          {bonoGemelar ? <>ON +{fmt(20000)}</> : <>OFF</>}
+                        </span>
+                      </CButton>
+                    </CTableDataCell>
+                    <CTableDataCell style={cs}>
+                      <span className="fw-semibold" style={{ color: bonoGemelar ? 'var(--cui-primary)' : 'var(--cui-secondary-color)' }}>{fmt(20000)}</span>
+                    </CTableDataCell>
+                    <CTableDataCell style={cs}><CBadge color={bonoGemelar ? 'success' : 'secondary'}>{bonoGemelar ? 'Aplica' : 'No aplica'}</CBadge></CTableDataCell>
+                    <CTableDataCell style={cs}><CFormInput size="sm" disabled value="No hay" style={{ width: '110px', textAlign: 'right', color: 'var(--cui-secondary-color)' }} /></CTableDataCell>
+                    <CTableDataCell style={cs}><CFormInput size="sm" disabled value="No hay" style={{ width: '110px', textAlign: 'right', color: 'var(--cui-secondary-color)' }} /></CTableDataCell>
+                    <CTableDataCell style={{ ...cs, textAlign: 'center' }}>
+                      <small className="text-muted">Ver Puerperio 2</small>
+                    </CTableDataCell>
+                  </CTableRow>
                 </CTableBody>
               </CTable>
             </div>
@@ -1921,7 +2044,6 @@ const PaymentsGestForm = () => {
                     const realTransBono = rVal(trans.transRealBono, 500);
                     return (
                       <React.Fragment key={trans.id}>
-                        {/* Transferencia row — no importe, bono transporte $500 */}
                         <CTableRow style={transLocked ? rowLocked : undefined}>
                           <CTableDataCell style={cs}>
                             <strong>Transferencia {trans.id}</strong>
@@ -1939,7 +2061,6 @@ const PaymentsGestForm = () => {
                             commentKey={`trans_bono_${trans.id}`}
                             onCommitTrue={() => updateTransferencia(idx, 'transCompleted', true)} onUncomplete={() => updateTransferencia(idx, 'transCompleted', false)} />
                         </CTableRow>
-                        {/* Prueba Beta row — importe $1,000, no bono */}
                         <CTableRow style={betaLocked ? rowLocked : trans.successful ? rowPrimary : undefined}>
                           <CTableDataCell style={cs}>
                             <strong>Prueba Beta {trans.id}</strong>
@@ -1989,7 +2110,81 @@ const PaymentsGestForm = () => {
             <div className="table-responsive">
               <CTable hover striped className="gest-table">
                 <CTableHead><TheadFull /></CTableHead>
-                <CTableBody>{section3Rows.map(row => renderFixedRow(row))}</CTableBody>
+                <CTableBody>
+                  {section3Rows.map(row => renderFixedRow(row))}
+
+                  {/* ── FIX 1: Bono extra post-SDG40 ── */}
+                  <CTableRow style={bonoPosSDG40Locked ? rowLocked : { borderTop: '2px dashed var(--cui-border-color)' }}>
+                    <CTableDataCell style={cs}>
+                      <div className="d-flex align-items-start gap-2 flex-column">
+                        <strong className="d-flex align-items-center gap-2">
+                          Bono extra post-SDG40
+                          <CBadge color="info" style={{ fontSize: '0.65rem' }}>Opcional</CBadge>
+                        </strong>
+                        <CFormInput
+                          size="sm"
+                          placeholder="Título del bono (ej. Bono lactancia)…"
+                          value={bonoPosSDG40Title}
+                          disabled={bonoPosSDG40Locked}
+                          onChange={e => { setBonoPosSDG40Title(e.target.value); debouncedSave(); }}
+                          style={{ maxWidth: '240px' }}
+                        />
+                      </div>
+                    </CTableDataCell>
+                    <CTableDataCell style={cs}>
+                      {bonoPosSDG40Locked ? (
+                        <ImporteCell
+                          planned={bonoPosSDG40AmountNum}
+                          realValue={bonoPosSDG40State.realImporte ?? ''}
+                          disabled={true}
+                        />
+                      ) : (
+                        <div style={{ minWidth: '110px' }}>
+                          <div className="text-muted" style={{ fontSize: '0.75rem', lineHeight: 1.2, marginBottom: '3px' }}>
+                            Monto del bono:
+                          </div>
+                          <NumInput
+                            value={bonoPosSDG40Amount}
+                            onChange={e => { setBonoPosSDG40Amount(e.target.value); debouncedSave(); }}
+                            placeholder="0"
+                            disabled={false}
+                          />
+                        </div>
+                      )}
+                    </CTableDataCell>
+                    <CTableDataCell style={cs}><span className="text-muted small">—</span></CTableDataCell>
+                    <CTableDataCell style={cs}>
+                      <CurrencyInput
+                        disabled={bonoPosSDG40Locked}
+                        value={bonoPosSDG40State.penalizacion}
+                        onChange={e => updateBonoPosSDG40State('penalizacion', e.target.value)}
+                        inputStyle={{ color: 'var(--cui-danger)' }}
+                      />
+                    </CTableDataCell>
+                    <CTableDataCell style={cs}>
+                      <CurrencyInput
+                        disabled={bonoPosSDG40Locked}
+                        value={bonoPosSDG40State.reembolso}
+                        onChange={e => updateBonoPosSDG40State('reembolso', e.target.value)}
+                        inputStyle={{ color: 'var(--cui-info)' }}
+                      />
+                    </CTableDataCell>
+                    <CompletedCell
+                      completed={bonoPosSDG40Locked}
+                      autoKey="bono_pos_sdg40"
+                      label={bonoPosSDG40Title || 'Bono extra post-SDG40'}
+                      importe={bonoPosSDG40RealImp}
+                      importeBonoT1={0}
+                      bonoVal={0}
+                      penalizacion={bonoPosSDG40State.penalizacion}
+                      reembolso={bonoPosSDG40State.reembolso}
+                      category="bono"
+                      commentKey="bono_pos_sdg40"
+                      onCommitTrue={() => updateBonoPosSDG40State('completed', true)}
+                      onUncomplete={() => updateBonoPosSDG40State('completed', false)}
+                    />
+                  </CTableRow>
+                </CTableBody>
               </CTable>
             </div>
 
@@ -2156,8 +2351,7 @@ const PaymentsGestForm = () => {
               </CTable>
             </div>
 
-
-            {/* Parcialidades — variable amounts from cálculo puerperio 4 */}
+            {/* Parcialidades */}
             <div className="mt-3 p-3 rounded" style={{ border: '1px solid var(--cui-border-color)' }}>
               <div className="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
                 <div>
@@ -2218,7 +2412,7 @@ const PaymentsGestForm = () => {
               </CTable>
             </div>
 
-            {/* Bonificación extra (CDO. GESCA) */}
+            {/* Bonificación extra */}
             <div className="mt-3 p-3 rounded" style={{ border: '1px solid var(--cui-border-color)' }}>
               <h6 className="mb-3">Bonificación extra</h6>
               <CTable hover striped className="gest-table mb-0">
@@ -2294,7 +2488,6 @@ const PaymentsGestForm = () => {
           </CAccordionBody>
         </CAccordionItem>
 
-
         {/* ═══ Resumen del esquema ════════════════════════════════════════ */}
         <CAccordionItem itemKey={7} style={disabledSection}>
           <CAccordionHeader><strong>Resumen del esquema</strong></CAccordionHeader>
@@ -2313,9 +2506,7 @@ const PaymentsGestForm = () => {
                 <tbody>
                   <tr className="row-base">
                     <td className="text-muted small">Total a pagar</td>
-                    <td>
-                      {fmt(effectiveSchemeValue - extraBonus)}
-                    </td>
+                    <td>{fmt(effectiveSchemeValue - extraBonus)}</td>
                     <td>{fmt(bonoTransporteTotal)}</td>
                     <td>{totalBonos > 0 ? fmt(totalBonos) : <span className="text-muted">—</span>}</td>
                     <td>{fmt(grandTotalWithExtras)}</td>
@@ -2323,9 +2514,17 @@ const PaymentsGestForm = () => {
                   {extraBonus > 0 && (
                     <tr className="row-actual">
                       <td className="text-danger">Bono extra descontado</td>
-                      <td className="text-danger">− {fmt(extraBonus)} <small>(de Puerperio 4 / esquema)</small></td>
-                      <td className="text-danger" title="Transporte sobre el tope de $8,500">
-                        {bonoTransporteTotal > TOTAL_BONUS_CAP ? `+${fmt(bonoTransporteTotal - TOTAL_BONUS_CAP)} sobre tope` : <span className="text-muted">—</span>}
+                      <td className="text-danger">
+                        − {fmt(extraBonus)} <small>(del esquema)</small>
+                        <small className="d-block text-danger" style={{ fontWeight: 400 }}>
+                          {bonoTransportePlanned > TOTAL_BONUS_CAP && <span>Tope excedido: +{fmt(bonoTransportePlanned - TOTAL_BONUS_CAP)}</span>}
+                          {bonoTransporteOverage > 0 && <span className="d-block">Sobre planeado: +{fmt(bonoTransporteOverage)}</span>}
+                          {bonoPosSDG40Extra > 0 && <span className="d-block">Post-SDG40: +{fmt(bonoPosSDG40Extra)}</span>}
+                          {(parseFloat(bgExtraImporte) || 0) > 0 && <span className="d-block">Gemelar/otro: +{fmt(parseFloat(bgExtraImporte))}</span>}
+                        </small>
+                      </td>
+                      <td className="text-danger" title="Bono de transporte real vs planeado">
+                        {bonoTransporteOverage > 0 ? `+${fmt(bonoTransporteOverage)} sobre planeado` : <span className="text-muted">—</span>}
                       </td>
                       <td className="text-muted">—</td>
                       <td className="text-muted">—</td>
@@ -2355,7 +2554,6 @@ const PaymentsGestForm = () => {
               </table>
             </div>
 
-            {/* 6 summary squares: 3 + 3 */}
             <CRow className="g-3 mb-3">
               <CCol md={4}><SummarySquare label="Esquema de pagos" sublabel="Pagos realizados (Esquema y otros)" value={schemePlannedPaid} color="secondary" /></CCol>
               <CCol md={4}>
@@ -2363,9 +2561,10 @@ const PaymentsGestForm = () => {
                   <small className="text-muted d-block mb-0" style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Total pagado</small>
                   <small className="fw-semibold d-block mb-1" style={{ fontSize: '0.8rem' }}>Transporte</small>
                   <h5 className="mb-0 fw-bold text-primary">{fmt(bonoTransportePaid)}</h5>
-                  {bonoTransporteTotal > TOTAL_BONUS_CAP && (
+                  {(bonoTransportePlanned > TOTAL_BONUS_CAP || bonoTransporteOverage > 0) && (
                     <small className="text-danger d-block mt-1" style={{ fontSize: '0.72rem' }}>
-                      Incluye {fmt(bonoTransporteTotal - TOTAL_BONUS_CAP)} sobre el tope de {fmt(TOTAL_BONUS_CAP)}
+                      {bonoTransportePlanned > TOTAL_BONUS_CAP && <span>Tope excedido: +{fmt(bonoTransportePlanned - TOTAL_BONUS_CAP)}</span>}
+                      {bonoTransporteOverage > 0 && <span className="d-block">Sobre planeado: +{fmt(bonoTransporteOverage)}</span>}
                     </small>
                   )}
                 </div>
@@ -2389,7 +2588,6 @@ const PaymentsGestForm = () => {
               <CCol md={4}><SummarySquare label="Total pagado" sublabel="Reembolso" value={totalReembolso} color="info" /></CCol>
             </CRow>
 
-            {/* Grand total — comprehensive total paid (scheme + transporte + bonos) */}
             <div className="mt-3 p-3 rounded" style={{
               border: '2px solid var(--cui-primary)',
               backgroundColor: 'color-mix(in srgb, var(--cui-primary) 8%, transparent)',
@@ -2419,7 +2617,7 @@ const PaymentsGestForm = () => {
                 {extratoAlert.message}
               </CAlert>
             )}
-            {/* ── Add entry row ── */}
+            {/* Add entry row */}
             <CRow className="mb-3 align-items-end g-2">
               <CCol md={2}><CFormLabel className="small text-muted mb-1">Fecha</CFormLabel>
                 <CFormInput type="date" size="sm" value={newExtrato.fecha} onChange={e => setNewExtrato(p => ({ ...p, fecha: e.target.value }))} /></CCol>
@@ -2437,7 +2635,7 @@ const PaymentsGestForm = () => {
               <CCol md={1}><CButton color="primary" size="sm" onClick={addExtratoEntry} className="w-100"><CIcon icon={cilPlus} /></CButton></CCol>
             </CRow>
 
-            {/* ── Filters ── */}
+            {/* Filters */}
             <div className="p-3 mb-3 rounded" style={{ border: '1px solid var(--cui-border-color)', backgroundColor: 'color-mix(in srgb, var(--cui-secondary) 4%, transparent)' }}>
               <div className="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
                 <strong className="small text-muted" style={{ textTransform: 'uppercase', letterSpacing: '0.04em' }}>Filtros</strong>
@@ -2542,10 +2740,12 @@ const PaymentsGestForm = () => {
                           {entry.isAuto && c.bono ? <span style={{ color: '#16a34a', fontWeight: 600 }}>{fmt(c.bono)}</span> : <span className="text-muted">—</span>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
+                          {/* FIX 3: show penalizacion for all auto entries (not just when non-zero) */}
                           {entry.isAuto && c.pen ? <span style={{ color: 'var(--cui-danger)', fontWeight: 600 }}>{fmt(c.pen)}</span> : <span className="text-muted">—</span>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
-                          {entry.isAuto && c.reim ? <span style={{ color: 'var(--cui-info)', fontWeight: 600 }}>{fmt(c.reim)}</span> : <span className="text-muted">—</span>}
+                          {/* FIX 3: show reembolso for ALL entries that have reembolsoVal > 0, not just isAuto */}
+                          {c.reim > 0 ? <span style={{ color: 'var(--cui-info)', fontWeight: 600 }}>{fmt(c.reim)}</span> : <span className="text-muted">—</span>}
                         </CTableDataCell>
                         <CTableDataCell style={cs}>
                           <span className="fw-bold" style={{ color: c.total < 0 ? 'var(--cui-danger)' : 'var(--cui-body-color)' }}>{fmt(c.total)}</span>
