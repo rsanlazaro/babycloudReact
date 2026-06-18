@@ -20,6 +20,7 @@ import {
   CFormSelect,
   CFormCheck,
   CFormLabel,
+  CFormTextarea,
   CButton,
   CSpinner,
   CAlert,
@@ -61,55 +62,25 @@ import api from '../../../services/api';
 
 // Tab configuration with colors and icons
 const TAB_CONFIG = [
-  { 
-    id: 'alta-gesca', 
-    label: 'ALTA GESCA', 
-    color: '#d97ea1', 
-    icon: cilUser 
-  },
-  { 
-    id: 'checklist', 
-    label: 'CHECK LIST', 
-    color: '#0071b8', 
-    icon: cilClipboard 
-  },
-  { 
-    id: 'seguro-med', 
-    label: 'SEGURO MED', 
-    color: '#899973', 
-    icon: cilShieldAlt 
-  },
-  { 
-    id: 'psico-social', 
-    label: 'PSICO SOCIAL', 
-    color: '#0098b3', 
-    icon: cilPeople 
-  },
-  { 
-    id: 'cita-previa', 
-    label: 'CITA PREVIA', 
-    color: '#a14567', 
-    icon: cilCalendar 
-  },
+  { id: 'alta-gesca',  label: 'ALTA GESCA',  color: '#d97ea1', icon: cilUser      },
+  { id: 'checklist',  label: 'CHECK LIST',   color: '#0071b8', icon: cilClipboard },
+  { id: 'seguro-med', label: 'SEGURO MED',   color: '#899973', icon: cilShieldAlt },
+  { id: 'psico-social', label: 'PSICO SOCIAL', color: '#0098b3', icon: cilPeople  },
+  { id: 'cita-previa', label: 'CITA PREVIA', color: '#a14567', icon: cilCalendar  },
 ];
 
 const SortGes = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  // Active tab state
   const [activeTab, setActiveTab] = useState('alta-gesca');
-
-  // Data state
   const [candidate, setCandidate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
-
-  // Alert state
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
 
-  // Field locking state
+  // Field locking
   const [lockedFields, setLockedFields] = useState({});
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
@@ -117,109 +88,139 @@ const SortGes = () => {
   const [fieldToUnlock, setFieldToUnlock] = useState({ section: null, field: null });
   const [unlockPassword, setUnlockPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
-  
-  // Use ref for active editing field to avoid race conditions with blur/focus events
   const activeEditingFieldRef = useRef({ section: null, field: null, initialValue: null });
+  const UNLOCK_PASSWORD = '26213256';
 
-  // Password for unlocking fields
-  const UNLOCK_PASSWORD = 'adm@bbcloud1';
+  // Historial gate — password-protected visibility per seguimiento
+  const [historialUnlocked, setHistorialUnlocked] = useState({}); // { [segId]: true }
+  const [showHistorialModal, setShowHistorialModal] = useState(false);
+  const [historialTargetId, setHistorialTargetId] = useState(null);
+  const [historialPassword, setHistorialPassword] = useState('');
+  const [historialPasswordError, setHistorialPasswordError] = useState('');
 
-  // Form data state - Alta GESCA - Registro Inicial
+  // ─────────────────────────────────────────────────────────────
+  // ALTA GESCA state
+  // ─────────────────────────────────────────────────────────────
   const [registroInicial, setRegistroInicial] = useState({
-    nombre_completo: '',
-    curp: '',
-    rfc: '',
-    esquema_ofrecido: '$400,000.00',
-    tel_1: '',
-    tel_2: '',
-    email: '',
-    estado_civil: '',
-    rni: '',
-    fecha_nacimiento: '',
-    edad: '',
-    banco: '',
-    clabe_interbancaria: '',
-    direccion: '',
-    numero: '',
-    postal: '',
-    alcaldia_municipio: '',
-    estado: '',
-    ocupacion: '',
+    nombre_completo: '', curp: '', rfc: '', esquema_ofrecido: '$400,000.00',
+    tel_1: '', tel_2: '', email: '', estado_civil: '', rni: '',
+    fecha_nacimiento: '', edad: '', banco: '', clabe_interbancaria: '',
+    direccion: '', numero: '', postal: '', alcaldia_municipio: '',
+    estado: '', ocupacion: '',
   });
 
-  // Form data state - Checklist - Archivado de documentación
-  const [documentos, setDocumentos] = useState({
-    certificado_nacimiento: null,
-    curp: null,
-    comprobante_domicilio: null,
-    poliza_seguro: null,
-    cita_entrega: '',
-  });
-
-  // Form data state - Checklist - Consentimientos firmados
-  const [consentimientos, setConsentimientos] = useState({
-    cita_firma: '',
-    consentimiento_informado: false,
-    consentimiento_transferencia: false,
-    aviso_privacidad: false,
-    informacion_personal: false,
-    regular: false,
-    hiv: false,
-    gemelar: false,
-    full: false,
-  });
-
-  // Form data state - Alta GESCA - Datos de Salud
   const [datosSalud, setDatosSalud] = useState({
-    tipo_sangre: '',
-    peso: '',
-    fumador: false,
-    metodo_aco: '',
-    embarazos: '',
-    cesareas: '',
-    partos: '',
-    abortos: '',
-    altura: '',
-    imc: '',
-    imc_clasificacion: '',
-    fumador_desde: '',
-    tiempo_metodo_aco: '',
-    fecha_ultima_menstruacion: '',
-    hijos: '',
-    ultima_cesarea: '',
+    tipo_sangre: '', peso: '', fumador: false, metodo_aco: '',
+    embarazos: '', cesareas: '', partos: '', abortos: '', altura: '',
+    imc: '', imc_clasificacion: '', fumador_desde: '',
+    tiempo_metodo_aco: '', fecha_ultima_menstruacion: '',
+    hijos: '', ultima_cesarea: '',
   });
 
-  // Form data state - PSICO SOCIAL - Perfil Psicológico
-  const [perfilPsicologico, setPerfilPsicologico] = useState([
-    { id: 1, descripcion: '', fecha: '', estado: '', perfil: '', responsable: '' },
-  ]);
+  // ─────────────────────────────────────────────────────────────
+  // CHECK LIST state
+  // ─────────────────────────────────────────────────────────────
+  const [documentos, setDocumentos] = useState({
+    certificado_nacimiento: null, curp: null,
+    comprobante_domicilio: null, poliza_seguro: null, cita_entrega: '',
+  });
 
-  // Estado options for perfil psicológico
-  const estadoPsicoOptions = [
-    { value: '', label: 'Seleccionar...' },
-    { value: 'programar', label: 'Programar' },
-    { value: 'concluido', label: 'Concluido' },
-    { value: 'no_aplica', label: 'No aplica' },
+  const [consentimientos, setConsentimientos] = useState({
+    cita_firma: '', consentimiento_informado: false,
+    consentimiento_transferencia: false, aviso_privacidad: false,
+    informacion_personal: false, regular: false, hiv: false,
+    gemelar: false, full: false,
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // SEGURO MED — Seguro de Vida
+  // Each entry: { id, fecha_alta, aseguradora, gestor, cuotas, valor, vencimiento }
+  // ─────────────────────────────────────────────────────────────
+  const [segurosVida, setSegurosVida] = useState([]);
+  // Modal: 'new' | 'edit' | 'detail' | null
+  const [modalVida, setModalVida] = useState(null);
+  const [editingVidaId, setEditingVidaId] = useState(null);
+  const VIDA_EMPTY = { fecha_alta: '', aseguradora: '', gestor: '', cuotas: '', valor: '', vencimiento: '' };
+  const [formVida, setFormVida] = useState(VIDA_EMPTY);
+  const [detailVida, setDetailVida] = useState(null); // which record to show detail for
+
+  // ─────────────────────────────────────────────────────────────
+  // SEGURO MED — Seguro de Maternidad
+  // Each policy: { id, gestor, cantidad_cuotas, valor_cuota, fecha_liberacion,
+  //               fecha_alta, fecha_vencimiento, aseguradora, numero_poliza,
+  //               pagos: [{ cuota_num, vencimiento, fecha_pago, status }] }
+  // ─────────────────────────────────────────────────────────────
+  const [segurosMat, setSegurosMat] = useState([]);
+  // Modal: 'new' | 'pago' | null
+  const [modalMat, setModalMat] = useState(null);
+  const MAT_EMPTY = {
+    gestor: '', cantidad_cuotas: '', valor_cuota: '',
+    fecha_liberacion: '', fecha_alta: '', fecha_vencimiento: '',
+    aseguradora: '', numero_poliza: '',
+  };
+  const [formMat, setFormMat] = useState(MAT_EMPTY);
+  // For "Añadir pago" modal: which policy + which cuota row
+  const [pagoTarget, setPagoTarget] = useState({ polizaId: null, cuotaNum: null });
+  const [fechaPagoInput, setFechaPagoInput] = useState('');
+
+  const [savingSeguro, setSavingSeguro] = useState(false);
+
+  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────
+  // PSICO SOCIAL state
+  // ─────────────────────────────────────────────────────────────
+
+  // Psico Inicial — fixed 7 rows, each editable
+  const PSICO_INICIAL_ETAPAS = [
+    'Entrevista admisión',
+    'Psicométrico',
+    'Estudios Socio Económicos',
+    'HIM 1',
+    'HIM 2',
+    'HIM 3',
+    'HIM 4',
   ];
+  const [psicoInicial, setPsicoInicial] = useState(
+    PSICO_INICIAL_ETAPAS.map((etapa, i) => ({
+      id: i + 1,
+      etapa,
+      fecha: '',
+      estado: '',
+      recomendacion: '',
+    }))
+  );
 
+  // Seguimiento Psicológico — dynamic list, each is an accordion item
+  const SEG_EMPTY = {
+    etapa: '',
+    motivo: '',
+    complemento: '',
+    complemento2: '',
+    programar: '',
+    status: 'sin_dts',
+    asistencia: '',
+    informe: '',
+    incidencia: '',
+    historial: '',
+  };
+  const [seguimientos, setSeguimientos] = useState([]);
+  // Track which seguimiento accordion items are open (by id)
+  const [seguimientoOpen, setSeguimientoOpen] = useState([]);
+
+  // ─────────────────────────────────────────────────────────────
   // Select options
+  // ─────────────────────────────────────────────────────────────
   const esquemaOptions = [
     { value: '$400,000.00', label: '$400,000.00' },
     { value: '$375,000.00', label: '$375,000.00' },
   ];
-
   const tipoSangreOptions = [
     { value: '', label: 'Seleccionar...' },
-    { value: 'A+', label: 'A+' },
-    { value: 'A-', label: 'A-' },
-    { value: 'B+', label: 'B+' },
-    { value: 'B-', label: 'B-' },
-    { value: 'AB+', label: 'AB+' },
-    { value: 'AB-', label: 'AB-' },
-    { value: 'O+', label: 'O+' },
-    { value: 'O-', label: 'O-' },
+    { value: 'A+', label: 'A+' }, { value: 'A-', label: 'A-' },
+    { value: 'B+', label: 'B+' }, { value: 'B-', label: 'B-' },
+    { value: 'AB+', label: 'AB+' }, { value: 'AB-', label: 'AB-' },
+    { value: 'O+', label: 'O+' }, { value: 'O-', label: 'O-' },
   ];
-
   const metodoAcoOptions = [
     { value: '', label: 'Seleccionar...' },
     { value: 'implante', label: 'Implante' },
@@ -230,7 +231,6 @@ const SortGes = () => {
     { value: 'preservativo', label: 'Preservativo' },
     { value: 'otros', label: 'Otros' },
   ];
-
   const estadoCivilOptions = [
     { value: '', label: 'Seleccionar...' },
     { value: 'soltera', label: 'Soltera' },
@@ -239,246 +239,410 @@ const SortGes = () => {
     { value: 'viuda', label: 'Viuda' },
     { value: 'union_libre', label: 'Unión Libre' },
   ];
+  // ── Psico Inicial selects ────────────────────────────────────
+  const estadoPsicoOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'concluido',  label: 'Concluido'  },
+    { value: 'agendado',   label: 'Agendado'   },
+    { value: 'programar',  label: 'Programar'  },
+  ];
+  const recomendacionOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'apta',             label: 'Apta'             },
+    { value: 'recomendable',     label: 'Recomendable'     },
+    { value: 'con_reservas',     label: 'Con reservas'     },
+    { value: 'no_recomendable',  label: 'No recomendable'  },
+  ];
+  // ── Seguimiento Psicológico selects ─────────────────────────
+  const motivoOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'him',              label: 'HIM'                },
+    { value: 'cita_psicologica', label: 'Cita psicológica'   },
+    { value: 'psicometria',      label: 'Psicometría'        },
+    { value: 'otro',             label: 'Otro'               },
+  ];
+  const complementoOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'inicial',              label: 'Inicial'              },
+    { value: 'seguimiento',          label: 'Seguimiento'          },
+    { value: 'retencion_emocional',  label: 'Retención emocional'  },
+    { value: 'puerperio',            label: 'Puerperio'            },
+    { value: 'alta_psicologica',     label: 'Alta psicológica'     },
+  ];
+  const complemento2Opts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'semana_12',  label: 'Semana 12' },
+    { value: 'semana_16',  label: 'Semana 16' },
+    { value: 'semana_24',  label: 'Semana 24' },
+    { value: 'familiar',   label: 'Familiar'  },
+    { value: 'otro',       label: 'Otro'      },
+  ];
+  const segStatusOpts = [
+    { value: 'sin_dts',     label: 'Sin dts',     color: 'secondary' },
+    { value: 'programada',  label: 'Programada',  color: 'info'      },
+    { value: 'reprogramar', label: 'Reprogramar', color: 'warning'   },
+    { value: 'completado',  label: 'Completado',  color: 'success'   },
+  ];
+  const asistenciaOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'asistio',          label: 'Asistió'             },
+    { value: 'no_asistio',       label: 'No asistió'          },
+    { value: 'reprogramar_ai',   label: 'Reprogramar (AI)'    },
+    { value: 'remarco',          label: 'Remarcó'             },
+    { value: 'otro',             label: 'Otro'                },
+  ];
+  const informeOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'apta',              label: 'Apta'               },
+    { value: 'recomendable',      label: 'Recomendable'       },
+    { value: 'con_reserva',       label: 'Con reserva'        },
+    { value: 'alerta_incidencia', label: 'Alerta incidencia'  },
+  ];
+  const incidenciaOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'sin_incidencias',     label: 'Sin incidencias'     },
+    { value: 'situacion_emocional', label: 'Situación emocional' },
+    { value: 'situacion_parental',  label: 'Situación parental'  },
+    { value: 'situacion_medica',    label: 'Situación médica'    },
+    { value: 'administrativa',      label: 'Administrativa'      },
+    { value: 'inconformidad',       label: 'Inconformidad'       },
+  ];
+  // Vida status derived from vencimiento date
+  const getVidaStatus = (vencimiento) => {
+    if (!vencimiento) return { label: 'Sin datos', color: 'secondary' };
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const venc = new Date(vencimiento);
+    if (venc < hoy) return { label: 'Vencido', color: 'danger' };
+    const diff = Math.ceil((venc - hoy) / 86400000);
+    if (diff <= 30) return { label: 'Por vencer', color: 'warning' };
+    return { label: 'Asegurada', color: 'success' };
+  };
 
-  // Fetch candidate on mount
-  useEffect(() => {
-    if (id) {
-      fetchCandidate();
-    }
-  }, [id]);
+  // Maternidad cuota status derived from vencimiento + whether payment registered
+  const getCuotaStatus = (cuota) => {
+    if (cuota.status === 'cancelado') return { label: 'Cancelado', color: 'dark' };
+    if (cuota.fecha_pago) return { label: 'Abonado', color: 'success' };
+    if (!cuota.vencimiento) return { label: 'Sin datos', color: 'secondary' };
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const venc = new Date(cuota.vencimiento);
+    const diff = Math.ceil((venc - hoy) / 86400000);
+    if (diff >= 10) return { label: 'Esperando pago', color: 'info' };
+    if (venc < hoy) return { label: 'Carencia', color: 'danger' };
+    return { label: 'Esperando pago', color: 'info' };
+  };
 
-  // Calculate IMC when peso or altura changes
+  // Build pagos array from cantidad_cuotas + fecha_liberacion + valor_cuota
+  const buildPagos = (cantidad, valorCuota, fechaLiberacion) => {
+    const n = parseInt(cantidad, 10);
+    if (!n || n < 1) return [];
+    return Array.from({ length: n }, (_, i) => {
+      let vencimiento = '';
+      if (fechaLiberacion) {
+        const d = new Date(fechaLiberacion);
+        d.setMonth(d.getMonth() + i);
+        vencimiento = d.toISOString().split('T')[0];
+      }
+      return { cuota_num: i + 1, total: n, vencimiento, fecha_pago: '', status: 'pendiente' };
+    });
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // Effects
+  // ─────────────────────────────────────────────────────────────
+  useEffect(() => { if (id) fetchCandidate(); }, [id]);
+
   useEffect(() => {
     const peso = parseFloat(datosSalud.peso);
     const altura = parseFloat(datosSalud.altura);
-    
     if (peso > 0 && altura > 0) {
       const imc = peso / (altura * altura);
       const imcRounded = imc.toFixed(1);
       let clasificacion = '';
-      
-      if (imc < 18.5) {
-        clasificacion = 'Bajo peso';
-      } else if (imc >= 18.5 && imc < 23) {
-        clasificacion = 'Peso normal';
-      } else if (imc >= 23 && imc < 25) {
-        clasificacion = 'Riesgo de sobrepeso';
-      } else if (imc >= 25 && imc < 30) {
-        clasificacion = 'Sobrepeso';
-      } else {
-        clasificacion = 'Obesidad';
-      }
-      
-      setDatosSalud(prev => ({
-        ...prev,
-        imc: imcRounded,
-        imc_clasificacion: clasificacion,
-      }));
+      if (imc < 18.5) clasificacion = 'Bajo peso';
+      else if (imc < 23) clasificacion = 'Peso normal';
+      else if (imc < 25) clasificacion = 'Riesgo de sobrepeso';
+      else if (imc < 30) clasificacion = 'Sobrepeso';
+      else clasificacion = 'Obesidad';
+      setDatosSalud(prev => ({ ...prev, imc: imcRounded, imc_clasificacion: clasificacion }));
     }
   }, [datosSalud.peso, datosSalud.altura]);
 
-  // Calculate age from fecha_nacimiento
   useEffect(() => {
     if (registroInicial.fecha_nacimiento) {
       const today = new Date();
       const birthDate = new Date(registroInicial.fecha_nacimiento);
       let age = today.getFullYear() - birthDate.getFullYear();
-      const monthDiff = today.getMonth() - birthDate.getMonth();
-      if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-        age--;
-      }
+      const m = today.getMonth() - birthDate.getMonth();
+      if (m < 0 || (m === 0 && today.getDate() < birthDate.getDate())) age--;
       setRegistroInicial(prev => ({ ...prev, edad: age.toString() }));
     }
   }, [registroInicial.fecha_nacimiento]);
 
+  useEffect(() => {
+    if (getDocumentosStatus().label === 'Completado') {
+      const today = new Date().toISOString().split('T')[0];
+      setDocumentos(prev => ({ ...prev, cita_entrega: today }));
+    }
+  }, [documentos.certificado_nacimiento, documentos.curp, documentos.comprobante_domicilio, documentos.poliza_seguro]);
+
+  useEffect(() => {
+    if (getConsentimientosStatus().label === 'Completado') {
+      const today = new Date().toISOString().split('T')[0];
+      setConsentimientos(prev => ({ ...prev, cita_firma: today }));
+    }
+  }, [
+    consentimientos.consentimiento_informado, consentimientos.consentimiento_transferencia,
+    consentimientos.aviso_privacidad, consentimientos.informacion_personal,
+    consentimientos.regular, consentimientos.hiv, consentimientos.gemelar, consentimientos.full,
+  ]);
+
+  // ─────────────────────────────────────────────────────────────
+  // Fetch candidate
+  // ─────────────────────────────────────────────────────────────
   const fetchCandidate = async () => {
     try {
       setLoading(true);
       // TODO: Replace with actual API endpoint
       // const res = await api.get(`/api/sort-ges/${id}`, { withCredentials: true });
-      // setCandidate(res.data);
-      
-      // Mock data for development
       const mockData = {
-        id: parseInt(id),
-        nombre: 'Maria',
-        apellido: 'de Las Flores Vasquez',
+        id: parseInt(id), nombre: 'Maria', apellido: 'de Las Flores Vasquez',
         foto: 'https://randomuser.me/api/portraits/women/1.jpg',
         direccion: 'Calle de la Gloria Altiva 36 Lote 5',
-        ciudad: 'Miguel Hidalgo',
-        estado: 'Mexico',
-        cp: '25001',
-        telefono: '+52 5514789658',
-        status: 'iniciales',
+        ciudad: 'Miguel Hidalgo', estado: 'Mexico', cp: '25001',
+        telefono: '+52 5514789658', status: 'iniciales',
         ip_responsable: 'Ronaldo Fenomeno',
-        // Registro Inicial data
         nombre_completo: 'Maria de Las Flores Vasquez',
-        curp: 'FLVM900515HDFRRS09',
-        rfc: 'FLVM900515AB1',
+        curp: 'FLVM900515HDFRRS09', rfc: 'FLVM900515AB1',
         esquema_ofrecido: '$400,000.00',
-        tel_1: '+52 5514789658',
-        tel_2: '+52 5512345678',
-        email: 'maria.flores@email.com',
-        estado_civil: 'casada',
-        rni: 'RNI-2024-001234',
-        fecha_nacimiento: '1990-05-15',
-        banco: 'BBVA',
-        clabe_interbancaria: '012345678901234567',
-        numero: '36',
-        postal: '25001',
-        alcaldia_municipio: 'Miguel Hidalgo',
-        ocupacion: 'Profesionista',
-        // Datos de Salud
-        tipo_sangre: 'O+',
-        peso: '65',
-        fumador: false,
-        metodo_aco: 'diu_cobre',
-        embarazos: '2',
-        cesareas: '0',
-        partos: '2',
-        abortos: '0',
-        altura: '1.65',
-        fumador_desde: '',
-        tiempo_metodo_aco: '2022-01-15',
-        fecha_ultima_menstruacion: '2024-01-10',
-        hijos: '2',
-        ultima_cesarea: '',
+        tel_1: '+52 5514789658', tel_2: '+52 5512345678',
+        email: 'maria.flores@email.com', estado_civil: 'casada',
+        rni: 'RNI-2024-001234', fecha_nacimiento: '1990-05-15',
+        banco: 'BBVA', clabe_interbancaria: '012345678901234567',
+        numero: '36', postal: '25001', alcaldia_municipio: 'Miguel Hidalgo',
+        ocupacion: 'Profesionista', tipo_sangre: 'O+', peso: '65',
+        fumador: false, metodo_aco: 'diu_cobre', embarazos: '2',
+        cesareas: '0', partos: '2', abortos: '0', altura: '1.65',
+        fumador_desde: '', tiempo_metodo_aco: '2022-01-15',
+        fecha_ultima_menstruacion: '2024-01-10', hijos: '2', ultima_cesarea: '',
       };
-      
       setCandidate(mockData);
-      
-      // Populate form data
       setRegistroInicial({
         nombre_completo: mockData.nombre_completo || '',
-        curp: mockData.curp || '',
-        rfc: mockData.rfc || '',
+        curp: mockData.curp || '', rfc: mockData.rfc || '',
         esquema_ofrecido: mockData.esquema_ofrecido || '$400,000.00',
-        tel_1: mockData.tel_1 || '',
-        tel_2: mockData.tel_2 || '',
-        email: mockData.email || '',
-        estado_civil: mockData.estado_civil || '',
-        rni: mockData.rni || '',
-        fecha_nacimiento: mockData.fecha_nacimiento || '',
-        edad: '',
-        banco: mockData.banco || '',
+        tel_1: mockData.tel_1 || '', tel_2: mockData.tel_2 || '',
+        email: mockData.email || '', estado_civil: mockData.estado_civil || '',
+        rni: mockData.rni || '', fecha_nacimiento: mockData.fecha_nacimiento || '',
+        edad: '', banco: mockData.banco || '',
         clabe_interbancaria: mockData.clabe_interbancaria || '',
-        direccion: mockData.direccion || '',
-        numero: mockData.numero || '',
-        postal: mockData.postal || '',
-        alcaldia_municipio: mockData.alcaldia_municipio || '',
-        estado: mockData.estado || '',
-        ocupacion: mockData.ocupacion || '',
+        direccion: mockData.direccion || '', numero: mockData.numero || '',
+        postal: mockData.postal || '', alcaldia_municipio: mockData.alcaldia_municipio || '',
+        estado: mockData.estado || '', ocupacion: mockData.ocupacion || '',
       });
-      
       setDatosSalud({
-        tipo_sangre: mockData.tipo_sangre || '',
-        peso: mockData.peso || '',
-        fumador: mockData.fumador || false,
-        metodo_aco: mockData.metodo_aco || '',
-        embarazos: mockData.embarazos || '',
-        cesareas: mockData.cesareas || '',
-        partos: mockData.partos || '',
-        abortos: mockData.abortos || '',
-        altura: mockData.altura || '',
-        imc: '',
-        imc_clasificacion: '',
+        tipo_sangre: mockData.tipo_sangre || '', peso: mockData.peso || '',
+        fumador: mockData.fumador || false, metodo_aco: mockData.metodo_aco || '',
+        embarazos: mockData.embarazos || '', cesareas: mockData.cesareas || '',
+        partos: mockData.partos || '', abortos: mockData.abortos || '',
+        altura: mockData.altura || '', imc: '', imc_clasificacion: '',
         fumador_desde: mockData.fumador_desde || '',
         tiempo_metodo_aco: mockData.tiempo_metodo_aco || '',
         fecha_ultima_menstruacion: mockData.fecha_ultima_menstruacion || '',
-        hijos: mockData.hijos || '',
-        ultima_cesarea: mockData.ultima_cesarea || '',
+        hijos: mockData.hijos || '', ultima_cesarea: mockData.ultima_cesarea || '',
       });
-      
+
+      // TODO: also load seguro data
+      // const segRes = await api.get(`/api/sort-ges/${id}/seguro-med`, { withCredentials: true });
+      // if (segRes.data?.data) { populate seguroVida / seguroMaternidad }
+
       setError(null);
     } catch (err) {
-      console.error('Error fetching candidate:', err);
       setError('Error al cargar los datos del candidato');
     } finally {
       setLoading(false);
     }
   };
 
-  // Show notification
+  // ─────────────────────────────────────────────────────────────
+  // Notifications
+  // ─────────────────────────────────────────────────────────────
   const showNotification = (type, message) => {
     setAlert({ show: true, type, message });
     setTimeout(() => setAlert({ show: false, type: '', message: '' }), 5000);
   };
 
-  // Handle Registro Inicial changes
+  // ─────────────────────────────────────────────────────────────
+  // Field change handlers
+  // ─────────────────────────────────────────────────────────────
   const handleRegistroInicialChange = (e) => {
     const { name, value } = e.target;
-    // Only allow changes if field is not locked
-    if (!isFieldLocked('registroInicial', name)) {
+    if (!isFieldLocked('registroInicial', name))
       setRegistroInicial(prev => ({ ...prev, [name]: value }));
-    }
   };
 
-  // Handle Datos Salud changes
   const handleDatosSaludChange = (e) => {
     const { name, value, type, checked } = e.target;
-    // Only allow changes if field is not locked
-    if (!isFieldLocked('datosSalud', name)) {
-      setDatosSalud(prev => ({
-        ...prev,
-        [name]: type === 'checkbox' ? checked : value,
-      }));
+    if (!isFieldLocked('datosSalud', name))
+      setDatosSalud(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+  };
+
+  // ── Seguro de Vida CRUD ──────────────────────────────────────
+  const openNuevoVida = () => {
+    setFormVida(VIDA_EMPTY);
+    setEditingVidaId(null);
+    setModalVida('new');
+  };
+  const openEditVida = (seg) => {
+    setFormVida({ fecha_alta: seg.fecha_alta, aseguradora: seg.aseguradora, gestor: seg.gestor, cuotas: seg.cuotas, valor: seg.valor, vencimiento: seg.vencimiento });
+    setEditingVidaId(seg.id);
+    setModalVida('new');
+  };
+  const saveVida = () => {
+    if (editingVidaId !== null) {
+      setSegurosVida(prev => prev.map(s => s.id === editingVidaId ? { ...s, ...formVida } : s));
+    } else {
+      const newId = Date.now();
+      setSegurosVida(prev => [...prev, { id: newId, ...formVida }]);
+    }
+    setModalVida(null);
+    showNotification('success', editingVidaId ? 'Seguro actualizado' : 'Seguro de vida registrado');
+  };
+  const deleteVida = (segId) => {
+    setSegurosVida(prev => prev.filter(s => s.id !== segId));
+    showNotification('info', 'Seguro eliminado');
+  };
+
+  // ── Seguro de Maternidad CRUD ────────────────────────────────
+  const openNuevoMat = () => {
+    setFormMat(MAT_EMPTY);
+    setModalMat('new');
+  };
+  const saveMat = () => {
+    const newId = Date.now();
+    const pagos = buildPagos(formMat.cantidad_cuotas, formMat.valor_cuota, formMat.fecha_liberacion);
+    setSegurosMat(prev => [...prev, { id: newId, ...formMat, pagos }]);
+    setModalMat(null);
+    showNotification('success', 'Seguro de maternidad registrado');
+  };
+  const deleteMat = (polizaId) => {
+    setSegurosMat(prev => prev.filter(p => p.id !== polizaId));
+    showNotification('info', 'Póliza eliminada');
+  };
+
+  // Open "Guardar pago" modal for a specific cuota
+  const openPagoModal = (polizaId, cuotaNum) => {
+    setPagoTarget({ polizaId, cuotaNum });
+    setFechaPagoInput(new Date().toISOString().split('T')[0]);
+    setModalMat('pago');
+  };
+  const savePago = () => {
+    setSegurosMat(prev => prev.map(p => {
+      if (p.id !== pagoTarget.polizaId) return p;
+      return {
+        ...p,
+        pagos: p.pagos.map(c =>
+          c.cuota_num === pagoTarget.cuotaNum
+            ? { ...c, fecha_pago: fechaPagoInput, status: 'abonado' }
+            : c
+        ),
+      };
+    }));
+    setModalMat(null);
+    showNotification('success', 'Pago registrado');
+  };
+  const anularCuota = (polizaId, cuotaNum) => {
+    setSegurosMat(prev => prev.map(p => {
+      if (p.id !== polizaId) return p;
+      return {
+        ...p,
+        pagos: p.pagos.map(c =>
+          c.cuota_num === cuotaNum ? { ...c, status: 'cancelado', fecha_pago: '' } : c
+        ),
+      };
+    }));
+  };
+
+  // ── Psico Inicial handlers ───────────────────────────────────
+  const handlePsicoInicialChange = (rowId, field, value) => {
+    setPsicoInicial(prev => prev.map(r => r.id === rowId ? { ...r, [field]: value } : r));
+  };
+
+  // ── Seguimiento Psicológico handlers ────────────────────────
+  const addSeguimiento = () => {
+    const newId = Date.now();
+    setSeguimientos(prev => [...prev, { id: newId, ...SEG_EMPTY }]);
+    setSeguimientoOpen(prev => [...prev, newId]); // auto-expand new item
+  };
+
+  const updateSeguimiento = (segId, field, value) => {
+    setSeguimientos(prev => prev.map(s => s.id === segId ? { ...s, [field]: value } : s));
+  };
+
+  const deleteSeguimiento = (segId) => {
+    setSeguimientos(prev => prev.filter(s => s.id !== segId));
+    setSeguimientoOpen(prev => prev.filter(id => id !== segId));
+  };
+
+  const toggleSeguimientoOpen = (segId) => {
+    setSeguimientoOpen(prev =>
+      prev.includes(segId) ? prev.filter(id => id !== segId) : [...prev, segId]
+    );
+  };
+
+  // Auto-derive status from programar date
+  const deriveSeguimientoStatus = (seg) => {
+    if (!seg.programar) return 'sin_dts';
+    const hoy = new Date(); hoy.setHours(0,0,0,0);
+    const prog = new Date(seg.programar);
+    if (seg.asistencia === 'asistio') return 'completado';
+    if (prog < hoy) return 'reprogramar';
+    return 'programada';
+  };
+
+  // ── Historial gate handlers ──────────────────────────────────
+  const requestHistorialUnlock = (segId) => {
+    setHistorialTargetId(segId);
+    setHistorialPassword('');
+    setHistorialPasswordError('');
+    setShowHistorialModal(true);
+  };
+
+  const confirmHistorialUnlock = () => {
+    if (historialPassword === UNLOCK_PASSWORD) {
+      setHistorialUnlocked(prev => ({ ...prev, [historialTargetId]: true }));
+      setShowHistorialModal(false);
+      setHistorialTargetId(null);
+      setHistorialPassword('');
+      setHistorialPasswordError('');
+    } else {
+      setHistorialPasswordError('Contraseña incorrecta');
     }
   };
 
-  // Handle Perfil Psicológico table changes
-  const handlePerfilPsicoChange = (id, field, value) => {
-    setPerfilPsicologico(prev => prev.map(row => 
-      row.id === id ? { ...row, [field]: value } : row
-    ));
+  const cancelHistorialUnlock = () => {
+    setShowHistorialModal(false);
+    setHistorialTargetId(null);
+    setHistorialPassword('');
+    setHistorialPasswordError('');
   };
 
-  // Handle perfil radio selection (only one can be selected)
-  const handlePerfilRadioChange = (id, selectedPerfil) => {
-    setPerfilPsicologico(prev => prev.map(row => 
-      row.id === id ? { ...row, perfil: selectedPerfil } : row
-    ));
+  // ─────────────────────────────────────────────────────────────
+  // Unified field locking — works for ALL tabs
+  // Key format: "section.field"  (section can be any string, e.g. "psico.1.fecha")
+  // ─────────────────────────────────────────────────────────────
+  const isFieldLocked = (section, field) => lockedFields[`${section}.${field}`] === true;
+
+  const lockField = (section, field) => {
+    setLockedFields(prev => ({ ...prev, [`${section}.${field}`]: true }));
   };
 
-  // Add new row to perfil psicológico
-  const addPerfilPsicoRow = () => {
-    const newId = Math.max(...perfilPsicologico.map(r => r.id), 0) + 1;
-    setPerfilPsicologico(prev => [...prev, {
-      id: newId,
-      descripcion: '',
-      fecha: '',
-      estado: '',
-      perfil: '',
-      responsable: '',
-    }]);
-  };
-
-  // Remove row from perfil psicológico
-  const removePerfilPsicoRow = (id) => {
-    if (perfilPsicologico.length > 1) {
-      setPerfilPsicologico(prev => prev.filter(row => row.id !== id));
-    }
-  };
-
-  // Check if a field is locked
-  const isFieldLocked = (section, field) => {
-    return lockedFields[`${section}.${field}`] === true;
-  };
-
-  // Handle field focus - track which field is being edited and its initial value
   const handleFieldFocus = (section, field, currentValue) => {
     activeEditingFieldRef.current = { section, field, initialValue: currentValue || '' };
   };
 
-  // Handle field blur - show confirmation to lock the field that was being edited
   const handleFieldBlur = (section, field, currentValue) => {
     const activeField = activeEditingFieldRef.current;
-    
-    // Only process if this is the field we were tracking
-    if (activeField.section !== section || activeField.field !== field) {
-      return;
-    }
-    
-    // Don't show modal for empty values, already locked fields, or auto-calculated fields
+    if (activeField.section !== section || activeField.field !== field) return;
     if (!currentValue || currentValue === '' || isFieldLocked(section, field)) {
       activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
       return;
@@ -487,35 +651,26 @@ const SortGes = () => {
       activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
       return;
     }
-    
-    // Check if value changed from initial
     if (currentValue !== activeField.initialValue) {
       setPendingFieldLock({ section, field, value: currentValue });
       setShowConfirmModal(true);
     }
-    
     activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
   };
 
-  // Confirm field lock
   const confirmFieldLock = () => {
     const { section, field } = pendingFieldLock;
-    setLockedFields(prev => ({
-      ...prev,
-      [`${section}.${field}`]: true,
-    }));
+    lockField(section, field);
     setShowConfirmModal(false);
     setPendingFieldLock({ section: null, field: null, value: null });
     showNotification('success', 'Campo guardado y bloqueado');
   };
 
-  // Cancel field lock
   const cancelFieldLock = () => {
     setShowConfirmModal(false);
     setPendingFieldLock({ section: null, field: null, value: null });
   };
 
-  // Request to unlock a field
   const requestUnlock = (section, field) => {
     setFieldToUnlock({ section, field });
     setUnlockPassword('');
@@ -523,14 +678,13 @@ const SortGes = () => {
     setShowPasswordModal(true);
   };
 
-  // Verify password and unlock field
   const verifyPasswordAndUnlock = () => {
     if (unlockPassword === UNLOCK_PASSWORD) {
       const { section, field } = fieldToUnlock;
       setLockedFields(prev => {
-        const newLocked = { ...prev };
-        delete newLocked[`${section}.${field}`];
-        return newLocked;
+        const n = { ...prev };
+        delete n[`${section}.${field}`];
+        return n;
       });
       setShowPasswordModal(false);
       setFieldToUnlock({ section: null, field: null });
@@ -542,7 +696,6 @@ const SortGes = () => {
     }
   };
 
-  // Cancel unlock
   const cancelUnlock = () => {
     setShowPasswordModal(false);
     setFieldToUnlock({ section: null, field: null });
@@ -550,77 +703,56 @@ const SortGes = () => {
     setPasswordError('');
   };
 
-  // Render lockable input field
+  // ─────────────────────────────────────────────────────────────
+  // Lockable field renderers
+  // ─────────────────────────────────────────────────────────────
+
+  // Lock icon button — reused in all renderers
+  const LockBtn = ({ section, field }) => (
+    <CButton
+      color="warning" variant="outline" size="sm"
+      onClick={() => requestUnlock(section, field)}
+      title="Editar campo"
+      style={{ borderRadius: '0 4px 4px 0', whiteSpace: 'nowrap' }}
+    >
+      <CIcon icon={cilLockLocked} />
+    </CButton>
+  );
+
+  // ── Standard input (Alta GESCA, Checklist) ───────────────────
   const renderLockableInput = (section, field, value, onChange, props = {}) => {
     const locked = isFieldLocked(section, field);
     const { type = 'text', placeholder = '', disabled: propsDisabled, ...restProps } = props;
-    
-    const handleFocus = (e) => {
-      handleFieldFocus(section, field, e.target.value);
-    };
-    
-    const handleKeyDown = (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        e.target.blur(); // This will trigger the blur handler
-      }
-    };
-    
-    const handleBlur = (e) => {
-      const currentValue = e.target.value;
-      handleFieldBlur(section, field, currentValue);
-    };
-    
     return (
       <CInputGroup>
         <CFormInput
-          type={type}
-          name={field}
-          value={value || ''}
+          type={type} name={field} value={value || ''}
           onChange={onChange}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
-          onKeyDown={handleKeyDown}
+          onFocus={(e) => handleFieldFocus(section, field, e.target.value)}
+          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
           placeholder={placeholder}
           disabled={locked || propsDisabled}
           style={locked ? { backgroundColor: '#e9ecef' } : {}}
           {...restProps}
         />
-        {locked ? (
-          <CButton
-            color="warning"
-            variant="outline"
-            onClick={() => requestUnlock(section, field)}
-            title="Desbloquear campo"
-          >
-            <CIcon icon={cilLockLocked} />
-          </CButton>
-        ) : value ? (
-          <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
-            <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.5 }} />
-          </CInputGroupText>
-        ) : null}
+        {locked
+          ? <LockBtn section={section} field={field} />
+          : value
+            ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
+                <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
+              </CInputGroupText>
+            : null
+        }
       </CInputGroup>
     );
   };
 
-  // Render lockable select field
+  // ── Standard select (Alta GESCA, Checklist) ──────────────────
   const renderLockableSelect = (section, field, value, onChange, options, props = {}) => {
     const locked = isFieldLocked(section, field);
-    
-    const handleFocus = (e) => {
-      handleFieldFocus(section, field, e.target.value);
-    };
-    
-    const handleBlur = (e) => {
-      const currentValue = e.target.value;
-      handleFieldBlur(section, field, currentValue);
-    };
-
     const handleChange = (e) => {
-      // First update the value
       onChange(e);
-      // Then check if we should show lock confirmation
       const currentValue = e.target.value;
       const initialValue = activeEditingFieldRef.current.initialValue;
       if (currentValue && currentValue !== '' && currentValue !== initialValue) {
@@ -629,250 +761,289 @@ const SortGes = () => {
         activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
       }
     };
-    
     return (
       <CInputGroup>
         <CFormSelect
-          name={field}
-          value={value || ''}
+          name={field} value={value || ''}
           onChange={handleChange}
-          onFocus={handleFocus}
-          onBlur={handleBlur}
+          onFocus={(e) => handleFieldFocus(section, field, e.target.value)}
+          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
           disabled={locked}
           style={locked ? { backgroundColor: '#e9ecef' } : {}}
           {...props}
         >
-          {options.map(opt => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
+          {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
         </CFormSelect>
-        {locked ? (
-          <CButton
-            color="warning"
-            variant="outline"
-            onClick={() => requestUnlock(section, field)}
-            title="Desbloquear campo"
-          >
-            <CIcon icon={cilLockLocked} />
-          </CButton>
-        ) : value ? (
-          <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
-            <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.5 }} />
-          </CInputGroupText>
-        ) : null}
+        {locked
+          ? <LockBtn section={section} field={field} />
+          : value
+            ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
+                <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
+              </CInputGroupText>
+            : null
+        }
       </CInputGroup>
     );
   };
 
-  // Save data
+  // ── Table cell input (Psico Inicial) ─────────────────────────
+  // section = e.g. "psico_row_1"
+  const renderTableInput = (section, field, value, onChange, type = 'text') => {
+    const locked = isFieldLocked(section, field);
+    return (
+      <CInputGroup size="sm">
+        <CFormInput
+          type={type}
+          size="sm"
+          value={value || ''}
+          onChange={onChange}
+          onFocus={() => handleFieldFocus(section, field, value)}
+          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+          disabled={locked}
+          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+        />
+        {locked && <LockBtn section={section} field={field} />}
+      </CInputGroup>
+    );
+  };
+
+  // ── Table cell select (Psico Inicial) ────────────────────────
+  const renderTableSelect = (section, field, value, onChange, options) => {
+    const locked = isFieldLocked(section, field);
+    const handleChange = (e) => {
+      onChange(e);
+      const cv = e.target.value;
+      const init = activeEditingFieldRef.current.initialValue;
+      if (cv && cv !== '' && cv !== init) {
+        setPendingFieldLock({ section, field, value: cv });
+        setShowConfirmModal(true);
+        activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+      }
+    };
+    return (
+      <CInputGroup size="sm">
+        <CFormSelect
+          size="sm"
+          value={value || ''}
+          onChange={handleChange}
+          onFocus={() => handleFieldFocus(section, field, value)}
+          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
+          disabled={locked}
+          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+        >
+          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </CFormSelect>
+        {locked && <LockBtn section={section} field={field} />}
+      </CInputGroup>
+    );
+  };
+
+  // ── Seguimiento input (scoped by segId) ──────────────────────
+  const renderSegInput = (segId, field, value, type = 'text', placeholder = '') => {
+    const section = `seg_${segId}`;
+    const locked = isFieldLocked(section, field);
+    return (
+      <CInputGroup size="sm">
+        <CFormInput
+          type={type}
+          size="sm"
+          value={value || ''}
+          placeholder={placeholder}
+          onChange={e => updateSeguimiento(segId, field, e.target.value)}
+          onFocus={() => handleFieldFocus(section, field, value)}
+          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+          disabled={locked}
+          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+        />
+        {locked
+          ? <LockBtn section={section} field={field} />
+          : value
+            ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
+                <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
+              </CInputGroupText>
+            : null
+        }
+      </CInputGroup>
+    );
+  };
+
+  // ── Seguimiento select (scoped by segId) ─────────────────────
+  const renderSegSelect = (segId, field, value, options) => {
+    const section = `seg_${segId}`;
+    const locked = isFieldLocked(section, field);
+    const handleChange = (e) => {
+      updateSeguimiento(segId, field, e.target.value);
+      const cv = e.target.value;
+      const init = activeEditingFieldRef.current.initialValue;
+      if (cv && cv !== '' && cv !== init) {
+        setPendingFieldLock({ section, field, value: cv });
+        setShowConfirmModal(true);
+        activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+      }
+    };
+    return (
+      <CInputGroup size="sm">
+        <CFormSelect
+          size="sm"
+          value={value || ''}
+          onChange={handleChange}
+          onFocus={() => handleFieldFocus(section, field, value)}
+          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
+          disabled={locked}
+          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+        >
+          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </CFormSelect>
+        {locked
+          ? <LockBtn section={section} field={field} />
+          : value
+            ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
+                <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
+              </CInputGroupText>
+            : null
+        }
+      </CInputGroup>
+    );
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // Save handlers
+  // ─────────────────────────────────────────────────────────────
   const handleSave = async () => {
     try {
       setSaving(true);
-      // TODO: Implement save API call
-      // await api.put(`/api/sort-ges/${id}`, { registroInicial, datosSalud }, { withCredentials: true });
-      
-      // Simulate save delay
+      // TODO: await api.put(`/api/sort-ges/${id}`, { registroInicial, datosSalud }, { withCredentials: true });
       await new Promise(resolve => setTimeout(resolve, 500));
-      
       showNotification('success', 'Datos guardados correctamente');
     } catch (err) {
-      console.error('Error saving data:', err);
       showNotification('danger', 'Error al guardar los datos');
     } finally {
       setSaving(false);
     }
   };
 
-  // Get status badge color
+  // TODO: replace with real API call when backend is ready
+  const handleSaveSeguroMed = async () => {
+    try {
+      setSavingSeguro(true);
+      // TODO: await api.put(`/api/sort-ges/${id}/seguro-med`, { segurosVida, segurosMat }, { withCredentials: true });
+      await new Promise(resolve => setTimeout(resolve, 400));
+      showNotification('success', 'Seguros guardados correctamente');
+    } catch (err) {
+      showNotification('danger', 'Error al guardar los seguros');
+    } finally {
+      setSavingSeguro(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────────
+  // Status helpers
+  // ─────────────────────────────────────────────────────────────
   const getStatusBadge = (status) => {
-    const statusMap = {
-      iniciales: { label: 'Iniciales', color: 'info' },
-      en_proceso: { label: 'En Proceso', color: 'warning' },
-      aprobado: { label: 'Aprobado', color: 'success' },
-      rechazado: { label: 'Rechazado', color: 'danger' },
+    const map = {
+      iniciales:  { label: 'Iniciales',  color: 'info'      },
+      en_proceso: { label: 'En Proceso', color: 'warning'   },
+      aprobado:   { label: 'Aprobado',   color: 'success'   },
+      rechazado:  { label: 'Rechazado',  color: 'danger'    },
     };
-    return statusMap[status] || { label: status, color: 'secondary' };
+    return map[status] || { label: status, color: 'secondary' };
   };
 
-  // Get IMC badge color
   const getIMCBadgeColor = (clasificacion) => {
-    const colorMap = {
-      'Bajo peso': 'warning',
-      'Peso normal': 'success',
-      'Riesgo de sobrepeso': 'info',
-      'Sobrepeso': 'warning',
-      'Obesidad': 'danger',
+    const map = {
+      'Bajo peso': 'warning', 'Peso normal': 'success',
+      'Riesgo de sobrepeso': 'info', 'Sobrepeso': 'warning', 'Obesidad': 'danger',
     };
-    return colorMap[clasificacion] || 'secondary';
+    return map[clasificacion] || 'secondary';
   };
 
-  // Calculate document upload status
   const getDocumentosStatus = () => {
-    const docs = [
-      documentos.certificado_nacimiento,
-      documentos.curp,
-      documentos.comprobante_domicilio,
-      documentos.poliza_seguro,
-    ];
-    const uploadedCount = docs.filter(doc => doc !== null).length;
-    
-    if (uploadedCount === 0) return { label: 'Sin dts', color: 'secondary' };
-    if (uploadedCount === 4) return { label: 'Completado', color: 'success' };
+    const docs = [documentos.certificado_nacimiento, documentos.curp, documentos.comprobante_domicilio, documentos.poliza_seguro];
+    const n = docs.filter(Boolean).length;
+    if (n === 0) return { label: 'Sin dts', color: 'secondary' };
+    if (n === 4) return { label: 'Completado', color: 'success' };
     return { label: 'Incompleto', color: 'warning' };
   };
 
-  // Calculate cita entrega status
   const getCitaEntregaStatus = () => {
     const docStatus = getDocumentosStatus();
-    
-    if (docStatus.label === 'Completado') {
-      return { label: 'Completado', color: 'success' };
-    }
-    
-    // Check if date is selected - show programada/reprogramar based on date
+    if (docStatus.label === 'Completado') return { label: 'Completado', color: 'success' };
     if (documentos.cita_entrega) {
       const citaDate = new Date(documentos.cita_entrega);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      citaDate.setHours(0, 0, 0, 0);
-      
-      if (citaDate < today) {
-        return { label: 'Reprogramar', color: 'danger' };
-      }
-      return { label: 'Programada', color: 'info' };
+      const today = new Date(); today.setHours(0,0,0,0); citaDate.setHours(0,0,0,0);
+      return citaDate < today ? { label: 'Reprogramar', color: 'danger' } : { label: 'Programada', color: 'info' };
     }
-    
-    // No date selected
     return { label: 'Sin dts', color: 'secondary' };
   };
 
-  // Calculate consentimientos status
   const getConsentimientosStatus = () => {
     const checks = [
-      consentimientos.consentimiento_informado,
-      consentimientos.consentimiento_transferencia,
-      consentimientos.aviso_privacidad,
-      consentimientos.informacion_personal,
-      consentimientos.regular,
-      consentimientos.hiv,
-      consentimientos.gemelar,
-      consentimientos.full,
+      consentimientos.consentimiento_informado, consentimientos.consentimiento_transferencia,
+      consentimientos.aviso_privacidad, consentimientos.informacion_personal,
+      consentimientos.regular, consentimientos.hiv, consentimientos.gemelar, consentimientos.full,
     ];
-    const checkedCount = checks.filter(Boolean).length;
-    
-    if (checkedCount === 0) return { label: 'Sin dts', color: 'secondary' };
-    if (checkedCount === 8) return { label: 'Completado', color: 'success' };
+    const n = checks.filter(Boolean).length;
+    if (n === 0) return { label: 'Sin dts', color: 'secondary' };
+    if (n === 8) return { label: 'Completado', color: 'success' };
     return { label: 'Incompleto', color: 'warning' };
   };
 
-  // Calculate cita firma status
   const getCitaFirmaStatus = () => {
-    const consentStatus = getConsentimientosStatus();
-    
-    if (consentStatus.label === 'Completado') {
-      return { label: 'Completado', color: 'success' };
-    }
-    
-    // Check if date is selected - show programada/reprogramar based on date
+    const s = getConsentimientosStatus();
+    if (s.label === 'Completado') return { label: 'Completado', color: 'success' };
     if (consentimientos.cita_firma) {
       const citaDate = new Date(consentimientos.cita_firma);
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      citaDate.setHours(0, 0, 0, 0);
-      
-      if (citaDate < today) {
-        return { label: 'Reprogramar', color: 'danger' };
-      }
-      return { label: 'Programada', color: 'info' };
+      const today = new Date(); today.setHours(0,0,0,0); citaDate.setHours(0,0,0,0);
+      return citaDate < today ? { label: 'Reprogramar', color: 'danger' } : { label: 'Programada', color: 'info' };
     }
-    
-    // No date selected
     return { label: 'Sin dts', color: 'secondary' };
   };
 
-  // Handle document file upload
+  // ─────────────────────────────────────────────────────────────
+  // Document upload helpers
+  // ─────────────────────────────────────────────────────────────
   const handleDocumentUpload = (fieldName, event) => {
     const file = event.target.files[0];
     if (file && file.type === 'application/pdf') {
-      setDocumentos(prev => ({
-        ...prev,
-        [fieldName]: {
-          name: file.name,
-          file: file,
-          uploadedAt: new Date().toISOString(),
-        },
-      }));
+      setDocumentos(prev => ({ ...prev, [fieldName]: { name: file.name, file, uploadedAt: new Date().toISOString() } }));
       showNotification('success', `Archivo "${file.name}" cargado correctamente`);
     } else if (file) {
       showNotification('danger', 'Por favor seleccione un archivo PDF');
     }
   };
 
-  // Remove uploaded document
   const handleRemoveDocument = (fieldName) => {
-    setDocumentos(prev => ({
-      ...prev,
-      [fieldName]: null,
-    }));
+    setDocumentos(prev => ({ ...prev, [fieldName]: null }));
     showNotification('info', 'Archivo eliminado');
   };
 
-  // Handle consentimiento checkbox change
   const handleConsentimientoChange = (fieldName) => {
-    setConsentimientos(prev => ({
-      ...prev,
-      [fieldName]: !prev[fieldName],
-    }));
+    setConsentimientos(prev => ({ ...prev, [fieldName]: !prev[fieldName] }));
   };
 
-  // Handle cita date changes
-  const handleCitaEntregaChange = (e) => {
-    setDocumentos(prev => ({
-      ...prev,
-      cita_entrega: e.target.value,
-    }));
-  };
+  // ─────────────────────────────────────────────────────────────
+  // Render helpers
+  // ─────────────────────────────────────────────────────────────
 
-  const handleCitaFirmaChange = (e) => {
-    setConsentimientos(prev => ({
-      ...prev,
-      cita_firma: e.target.value,
-    }));
-  };
+  /** Reusable money input */
+  const renderMoneyInput = (stateObj, fieldName, handler, placeholder = '0.00') => (
+    <CInputGroup>
+      <CInputGroupText>$</CInputGroupText>
+      <CFormInput
+        type="number" min="0" step="0.01"
+        name={fieldName}
+        value={stateObj[fieldName]}
+        onChange={handler}
+        placeholder={placeholder}
+      />
+    </CInputGroup>
+  );
 
-  // Auto-set cita_entrega to today when all documents are uploaded
-  useEffect(() => {
-    const docStatus = getDocumentosStatus();
-    if (docStatus.label === 'Completado') {
-      const today = new Date().toISOString().split('T')[0];
-      setDocumentos(prev => ({
-        ...prev,
-        cita_entrega: today,
-      }));
-    }
-  }, [documentos.certificado_nacimiento, documentos.curp, documentos.comprobante_domicilio, documentos.poliza_seguro]);
-
-  // Auto-set cita_firma to today when all consentimientos are checked
-  useEffect(() => {
-    const consentStatus = getConsentimientosStatus();
-    if (consentStatus.label === 'Completado') {
-      const today = new Date().toISOString().split('T')[0];
-      setConsentimientos(prev => ({
-        ...prev,
-        cita_firma: today,
-      }));
-    }
-  }, [
-    consentimientos.consentimiento_informado,
-    consentimientos.consentimiento_transferencia,
-    consentimientos.aviso_privacidad,
-    consentimientos.informacion_personal,
-    consentimientos.regular,
-    consentimientos.hiv,
-    consentimientos.gemelar,
-    consentimientos.full,
-  ]);
-
+  // ─────────────────────────────────────────────────────────────
+  // Loading / error guards
+  // ─────────────────────────────────────────────────────────────
   if (loading) {
     return (
       <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
@@ -886,8 +1057,7 @@ const SortGes = () => {
       <CContainer className="mx-5">
         <CAlert color="danger">{error || 'Candidato no encontrado'}</CAlert>
         <CButton color="secondary" onClick={() => navigate('/babysite/sortGes')}>
-          <CIcon icon={cilArrowLeft} className="me-2" />
-          Volver a la lista
+          <CIcon icon={cilArrowLeft} className="me-2" />Volver a la lista
         </CButton>
       </CContainer>
     );
@@ -895,6 +1065,9 @@ const SortGes = () => {
 
   const statusInfo = getStatusBadge(candidate.status);
 
+  // ═════════════════════════════════════════════════════════════
+  // RENDER
+  // ═════════════════════════════════════════════════════════════
   return (
     <CContainer fluid>
       {alert.show && (
@@ -910,68 +1083,38 @@ const SortGes = () => {
             <CButton color="light" variant="ghost" className="rounded-circle">
               <CIcon icon={cilFile} />
             </CButton>
-            <CButton 
-              color="primary" 
-              style={{ 
-                backgroundColor: '#d97ea1', 
-                borderColor: '#d97ea1',
-                borderRadius: '50%',
-                width: '40px',
-                height: '40px',
-                padding: 0,
-              }}
-            >
+            <CButton color="primary" style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1', borderRadius: '50%', width: '40px', height: '40px', padding: 0 }}>
               <CIcon icon={cilFile} />
             </CButton>
           </div>
         </CCardHeader>
+
         <CCardBody>
-          {/* Candidate Header Info */}
+          {/* Candidate header */}
           <CRow className="mb-4">
             <CCol md={8}>
               <div className="d-flex align-items-start">
                 <div>
-                  <h3 className="mb-1" style={{ color: '#5856d6' }}>
-                    {candidate.nombre} {candidate.apellido}
-                  </h3>
+                  <h3 className="mb-1" style={{ color: '#5856d6' }}>{candidate.nombre} {candidate.apellido}</h3>
                   <p className="text-muted mb-1">{candidate.direccion}</p>
                   <p className="text-muted mb-1">{candidate.cp} - {candidate.ciudad} - {candidate.estado}</p>
                   <p className="text-muted mb-1">{candidate.telefono}</p>
-                  <p className="mb-1">
-                    Status: <CBadge color={statusInfo.color}>{statusInfo.label}</CBadge>
-                  </p>
-                  <p className="text-muted mb-0">
-                    <strong>IP:</strong> {candidate.ip_responsable}
-                  </p>
+                  <p className="mb-1">Status: <CBadge color={statusInfo.color}>{statusInfo.label}</CBadge></p>
+                  <p className="text-muted mb-0"><strong>IP:</strong> {candidate.ip_responsable}</p>
                 </div>
                 <div className="ms-3">
-                  <CButton 
-                    color="light" 
-                    variant="outline"
-                    size="sm"
-                    style={{ color: '#dc3545' }}
-                  >
-                    <CIcon icon={cilFile} className="me-1" />
-                    PDF
+                  <CButton color="light" variant="outline" size="sm" style={{ color: '#dc3545' }}>
+                    <CIcon icon={cilFile} className="me-1" />PDF
                   </CButton>
                 </div>
               </div>
             </CCol>
             <CCol md={4} className="text-end">
-              <CAvatar 
-                src={candidate.foto} 
-                size="xl" 
-                style={{ 
-                  width: '120px', 
-                  height: '120px', 
-                  borderRadius: '50%',
-                  objectFit: 'cover',
-                }}
-              />
+              <CAvatar src={candidate.foto} size="xl" style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover' }} />
             </CCol>
           </CRow>
 
-          {/* Tabs Navigation */}
+          {/* Tab navigation */}
           <CNav variant="tabs" className="mb-3" style={{ borderBottom: 'none' }}>
             {TAB_CONFIG.map((tab) => (
               <CNavItem key={tab.id}>
@@ -982,80 +1125,57 @@ const SortGes = () => {
                     backgroundColor: activeTab === tab.id ? tab.color : 'transparent',
                     color: activeTab === tab.id ? '#fff' : tab.color,
                     border: `2px solid ${tab.color}`,
-                    borderRadius: '8px',
-                    marginRight: '8px',
-                    padding: '10px 20px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
+                    borderRadius: '8px', marginRight: '8px',
+                    padding: '10px 20px', fontWeight: 600, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: '8px',
                   }}
                 >
-                  <CIcon icon={tab.icon} />
-                  {tab.label}
+                  <CIcon icon={tab.icon} />{tab.label}
                 </CNavLink>
               </CNavItem>
             ))}
           </CNav>
 
-          {/* Tab Content */}
+          {/* ════════════════════════════════════════════════════
+              TAB CONTENT
+          ════════════════════════════════════════════════════ */}
           <CTabContent>
-            {/* ALTA GESCA Tab */}
+
+            {/* ── ALTA GESCA ─────────────────────────────────── */}
             <CTabPane visible={activeTab === 'alta-gesca'}>
               <CAccordion activeItemKey={1} alwaysOpen>
-                {/* Accordion 1: Registro Inicial / Datos personales */}
                 <CAccordionItem itemKey={1}>
-                  <CAccordionHeader>
-                    <strong>Registro Inicial / Datos personales</strong>
-                  </CAccordionHeader>
+                  <CAccordionHeader><strong>Registro Inicial / Datos personales</strong></CAccordionHeader>
                   <CAccordionBody>
                     <CRow>
-                      {/* First Column - Narrower */}
                       <CCol md={4}>
-                        <div className="mb-2">
-                          <CFormLabel>Nombre completo:</CFormLabel>
-                          {renderLockableInput('registroInicial', 'nombre_completo', registroInicial.nombre_completo, handleRegistroInicialChange, { placeholder: 'Nombre completo' })}
-                        </div>
-                        <div className="mb-2">
-                          <CFormLabel>CURP:</CFormLabel>
-                          {renderLockableInput('registroInicial', 'curp', registroInicial.curp, handleRegistroInicialChange, { placeholder: 'CURP', maxLength: 18 })}
-                        </div>
-                        <div className="mb-2">
-                          <CFormLabel>RFC:</CFormLabel>
-                          {renderLockableInput('registroInicial', 'rfc', registroInicial.rfc, handleRegistroInicialChange, { placeholder: 'RFC' })}
-                        </div>
+                        {[
+                          ['Nombre completo:', 'nombre_completo', { placeholder: 'Nombre completo' }],
+                          ['CURP:', 'curp', { placeholder: 'CURP', maxLength: 18 }],
+                          ['RFC:', 'rfc', { placeholder: 'RFC' }],
+                          ['Tel 1:', 'tel_1', { placeholder: 'Teléfono 1' }],
+                          ['Tel 2:', 'tel_2', { placeholder: 'Teléfono 2' }],
+                          ['Email:', 'email', { type: 'email', placeholder: 'correo@ejemplo.com' }],
+                        ].map(([label, field, props]) => (
+                          <div className="mb-2" key={field}>
+                            <CFormLabel>{label}</CFormLabel>
+                            {renderLockableInput('registroInicial', field, registroInicial[field], handleRegistroInicialChange, props)}
+                          </div>
+                        ))}
                         <div className="mb-2">
                           <CFormLabel>Esquema ofrecido:</CFormLabel>
                           {renderLockableSelect('registroInicial', 'esquema_ofrecido', registroInicial.esquema_ofrecido, handleRegistroInicialChange, esquemaOptions)}
-                        </div>
-                        <div className="mb-2">
-                          <CFormLabel>Tel 1:</CFormLabel>
-                          {renderLockableInput('registroInicial', 'tel_1', registroInicial.tel_1, handleRegistroInicialChange, { placeholder: 'Teléfono 1' })}
-                        </div>
-                        <div className="mb-2">
-                          <CFormLabel>Tel 2:</CFormLabel>
-                          {renderLockableInput('registroInicial', 'tel_2', registroInicial.tel_2, handleRegistroInicialChange, { placeholder: 'Teléfono 2' })}
-                        </div>
-                        <div className="mb-2">
-                          <CFormLabel>Email:</CFormLabel>
-                          {renderLockableInput('registroInicial', 'email', registroInicial.email, handleRegistroInicialChange, { type: 'email', placeholder: 'correo@ejemplo.com' })}
                         </div>
                         <div className="mb-2">
                           <CFormLabel>Estado civil:</CFormLabel>
                           {renderLockableSelect('registroInicial', 'estado_civil', registroInicial.estado_civil, handleRegistroInicialChange, estadoCivilOptions)}
                         </div>
                       </CCol>
-
-                      {/* Second Column - Wider with split fields */}
                       <CCol md={8}>
-                        {/* RNI - full width at the beginning */}
                         <div className="mb-2">
                           <CFormLabel>RNI:</CFormLabel>
                           {renderLockableInput('registroInicial', 'rni', registroInicial.rni, handleRegistroInicialChange, { placeholder: 'RNI' })}
                         </div>
-
-                        {/* Fecha de nacimiento + Edad */}
                         <CRow>
                           <CCol md={6}>
                             <div className="mb-2">
@@ -1066,18 +1186,10 @@ const SortGes = () => {
                           <CCol md={6}>
                             <div className="mb-2">
                               <CFormLabel>Edad:</CFormLabel>
-                              <CFormInput
-                                name="edad"
-                                value={registroInicial.edad}
-                                readOnly
-                                disabled
-                                placeholder="Automático"
-                              />
+                              <CFormInput name="edad" value={registroInicial.edad} readOnly disabled placeholder="Automático" />
                             </div>
                           </CCol>
                         </CRow>
-
-                        {/* Banco + CLABE */}
                         <CRow>
                           <CCol md={4}>
                             <div className="mb-2">
@@ -1092,14 +1204,10 @@ const SortGes = () => {
                             </div>
                           </CCol>
                         </CRow>
-
-                        {/* Dirección - full width */}
                         <div className="mb-2">
                           <CFormLabel>Dirección:</CFormLabel>
                           {renderLockableInput('registroInicial', 'direccion', registroInicial.direccion, handleRegistroInicialChange, { placeholder: 'Calle y nombre' })}
                         </div>
-
-                        {/* Número + Código Postal */}
                         <CRow>
                           <CCol md={6}>
                             <div className="mb-2">
@@ -1114,8 +1222,6 @@ const SortGes = () => {
                             </div>
                           </CCol>
                         </CRow>
-
-                        {/* Alcaldía/municipio + Estado */}
                         <CRow>
                           <CCol md={6}>
                             <div className="mb-2">
@@ -1130,8 +1236,6 @@ const SortGes = () => {
                             </div>
                           </CCol>
                         </CRow>
-
-                        {/* Ocupación - full width */}
                         <div className="mb-2">
                           <CFormLabel>Ocupación (especificar):</CFormLabel>
                           {renderLockableInput('registroInicial', 'ocupacion', registroInicial.ocupacion, handleRegistroInicialChange, { placeholder: 'Ocupación' })}
@@ -1141,16 +1245,11 @@ const SortGes = () => {
                   </CAccordionBody>
                 </CAccordionItem>
 
-                {/* Accordion 2: Datos de Salud Iniciales */}
                 <CAccordionItem itemKey={2}>
-                  <CAccordionHeader>
-                    <strong>Datos de Salud Iniciales de Requisitos al Programa</strong>
-                  </CAccordionHeader>
+                  <CAccordionHeader><strong>Datos de Salud Iniciales de Requisitos al Programa</strong></CAccordionHeader>
                   <CAccordionBody>
                     <CRow>
-                      {/* First Column */}
                       <CCol md={6}>
-                        {/* Tipo de sangre + IMC */}
                         <CRow>
                           <CCol md={6}>
                             <div className="mb-2">
@@ -1162,13 +1261,7 @@ const SortGes = () => {
                             <div className="mb-2">
                               <CFormLabel>IMC:</CFormLabel>
                               <CInputGroup>
-                                <CFormInput
-                                  name="imc"
-                                  value={datosSalud.imc}
-                                  readOnly
-                                  disabled
-                                  placeholder="Auto"
-                                />
+                                <CFormInput name="imc" value={datosSalud.imc} readOnly disabled placeholder="Auto" />
                                 {datosSalud.imc_clasificacion && (
                                   <CInputGroupText style={{ padding: '0.25rem 0.5rem' }}>
                                     <CBadge color={getIMCBadgeColor(datosSalud.imc_clasificacion)} style={{ fontSize: '0.7rem' }}>
@@ -1180,8 +1273,6 @@ const SortGes = () => {
                             </div>
                           </CCol>
                         </CRow>
-
-                        {/* Peso + Altura */}
                         <CRow>
                           <CCol md={6}>
                             <div className="mb-2">
@@ -1196,39 +1287,21 @@ const SortGes = () => {
                             </div>
                           </CCol>
                         </CRow>
-
-                        {/* Fumador + Fumador desde */}
                         <CRow>
                           <CCol md={6}>
                             <div className="mb-2">
                               <CFormLabel>Fumador:</CFormLabel>
                               <div className="d-flex align-items-center gap-3 mt-1">
-                                <CFormCheck
-                                  type="radio"
-                                  name="fumador"
-                                  id="fumadorSi"
-                                  label="Sí"
+                                <CFormCheck type="radio" name="fumador" id="fumadorSi" label="Sí"
                                   checked={datosSalud.fumador === true}
                                   onChange={() => !isFieldLocked('datosSalud', 'fumador') && setDatosSalud(prev => ({ ...prev, fumador: true }))}
-                                  disabled={isFieldLocked('datosSalud', 'fumador')}
-                                />
-                                <CFormCheck
-                                  type="radio"
-                                  name="fumador"
-                                  id="fumadorNo"
-                                  label="No"
+                                  disabled={isFieldLocked('datosSalud', 'fumador')} />
+                                <CFormCheck type="radio" name="fumador" id="fumadorNo" label="No"
                                   checked={datosSalud.fumador === false}
                                   onChange={() => !isFieldLocked('datosSalud', 'fumador') && setDatosSalud(prev => ({ ...prev, fumador: false }))}
-                                  disabled={isFieldLocked('datosSalud', 'fumador')}
-                                />
+                                  disabled={isFieldLocked('datosSalud', 'fumador')} />
                                 {isFieldLocked('datosSalud', 'fumador') && (
-                                  <CButton
-                                    color="warning"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => requestUnlock('datosSalud', 'fumador')}
-                                    title="Desbloquear campo"
-                                  >
+                                  <CButton color="warning" variant="outline" size="sm" onClick={() => requestUnlock('datosSalud', 'fumador')}>
                                     <CIcon icon={cilLockLocked} />
                                   </CButton>
                                 )}
@@ -1242,8 +1315,6 @@ const SortGes = () => {
                             </div>
                           </CCol>
                         </CRow>
-
-                        {/* Método ACO + Fecha inicio ACO */}
                         <CRow>
                           <CCol md={6}>
                             <div className="mb-2">
@@ -1259,32 +1330,17 @@ const SortGes = () => {
                           </CCol>
                         </CRow>
                       </CCol>
-
-                      {/* Second Column */}
                       <CCol md={6}>
-                        {/* Embarazos + Cesáreas + Hijos */}
                         <CRow>
-                          <CCol md={4}>
-                            <div className="mb-2">
-                              <CFormLabel>Embarazos:</CFormLabel>
-                              {renderLockableInput('datosSalud', 'embarazos', datosSalud.embarazos, handleDatosSaludChange, { type: 'number', min: '0', placeholder: '#' })}
-                            </div>
-                          </CCol>
-                          <CCol md={4}>
-                            <div className="mb-2">
-                              <CFormLabel>Cesáreas:</CFormLabel>
-                              {renderLockableInput('datosSalud', 'cesareas', datosSalud.cesareas, handleDatosSaludChange, { type: 'number', min: '0', placeholder: '#' })}
-                            </div>
-                          </CCol>
-                          <CCol md={4}>
-                            <div className="mb-2">
-                              <CFormLabel>Hijos:</CFormLabel>
-                              {renderLockableInput('datosSalud', 'hijos', datosSalud.hijos, handleDatosSaludChange, { type: 'number', min: '0', placeholder: '#' })}
-                            </div>
-                          </CCol>
+                          {[['Embarazos:', 'embarazos'], ['Cesáreas:', 'cesareas'], ['Hijos:', 'hijos']].map(([label, field]) => (
+                            <CCol md={4} key={field}>
+                              <div className="mb-2">
+                                <CFormLabel>{label}</CFormLabel>
+                                {renderLockableInput('datosSalud', field, datosSalud[field], handleDatosSaludChange, { type: 'number', min: '0', placeholder: '#' })}
+                              </div>
+                            </CCol>
+                          ))}
                         </CRow>
-
-                        {/* Fecha última menstruación + Fecha última cesárea */}
                         <CRow>
                           <CCol md={6}>
                             <div className="mb-2">
@@ -1299,8 +1355,6 @@ const SortGes = () => {
                             </div>
                           </CCol>
                         </CRow>
-
-                        {/* Partos + Abortos */}
                         <CRow>
                           <CCol md={6}>
                             <div className="mb-2">
@@ -1322,248 +1376,65 @@ const SortGes = () => {
               </CAccordion>
             </CTabPane>
 
-            {/* CHECK LIST Tab */}
+            {/* ── CHECK LIST ─────────────────────────────────── */}
             <CTabPane visible={activeTab === 'checklist'}>
               <CAccordion alwaysOpen activeItemKey={1}>
-                {/* Archivado de documentación */}
                 <CAccordionItem itemKey={1}>
-                  <CAccordionHeader>
-                    <strong>Archivado de documentación</strong>
-                  </CAccordionHeader>
+                  <CAccordionHeader><strong>Archivado de documentación</strong></CAccordionHeader>
                   <CAccordionBody>
                     <CRow>
-                      {/* First Column - Document uploads */}
                       <CCol md={6}>
-                        {/* Certificado de nacimiento */}
-                        <div className="mb-3">
-                          <CFormLabel>Certificado de nacimiento:</CFormLabel>
-                          <div className="d-flex align-items-center gap-2">
-                            <input
-                              type="file"
-                              accept=".pdf"
-                              id="certificado_nacimiento"
-                              style={{ display: 'none' }}
-                              onChange={(e) => handleDocumentUpload('certificado_nacimiento', e)}
-                            />
-                            <CButton
-                              color={documentos.certificado_nacimiento ? 'success' : undefined}
-                              variant="outline"
-                              onClick={() => document.getElementById('certificado_nacimiento').click()}
-                              className={`d-flex align-items-center gap-2 ${!documentos.certificado_nacimiento ? 'pdf-upload-btn' : ''}`}
-                              style={!documentos.certificado_nacimiento ? { borderColor: '#0071b8', color: '#0071b8' } : {}}
-                            >
-                              {documentos.certificado_nacimiento ? (
+                        {[
+                          { key: 'certificado_nacimiento', label: 'Certificado de nacimiento:', inputId: 'certificado_nacimiento' },
+                          { key: 'curp',                   label: 'CURP:',                       inputId: 'curp_doc'               },
+                          { key: 'comprobante_domicilio',  label: 'Comprobante de domicilio:',    inputId: 'comprobante_domicilio'  },
+                          { key: 'poliza_seguro',          label: 'Póliza de seguro:',            inputId: 'poliza_seguro'          },
+                        ].map(({ key, label, inputId }) => (
+                          <div className="mb-3" key={key}>
+                            <CFormLabel>{label}</CFormLabel>
+                            <div className="d-flex align-items-center gap-2">
+                              <input type="file" accept=".pdf" id={inputId} style={{ display: 'none' }} onChange={(e) => handleDocumentUpload(key, e)} />
+                              <CButton
+                                color={documentos[key] ? 'success' : undefined}
+                                style={!documentos[key] ? { borderColor: '#0071b8', color: '#0071b8' } : {}}
+                                variant="outline"
+                                onClick={() => document.getElementById(inputId).click()}
+                                className={`d-flex align-items-center gap-2 ${!documentos[key] ? 'pdf-upload-btn' : ''}`}
+                              >
+                                <CIcon icon={documentos[key] ? cilFile : cilCloudUpload} />
+                                {documentos[key] ? 'PDF' : 'Subir PDF'}
+                              </CButton>
+                              {documentos[key] && (
                                 <>
-                                  <CIcon icon={cilFile} />
-                                  PDF
-                                </>
-                              ) : (
-                                <>
-                                  <CIcon icon={cilCloudUpload} />
-                                  Subir PDF
-                                </>
-                              )}
-                            </CButton>
-                            {documentos.certificado_nacimiento && (
-                              <>
-                                <span className="text-muted small text-truncate" style={{ maxWidth: '150px' }}>
-                                  {documentos.certificado_nacimiento.name}
-                                </span>
-                                <CButton
-                                  color="danger"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="remove-file-btn"
-                                  onClick={() => handleRemoveDocument('certificado_nacimiento')}
-                                >
-                                  <CIcon icon={cilXCircle} />
-                                </CButton>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* CURP */}
-                        <div className="mb-3">
-                          <CFormLabel>CURP:</CFormLabel>
-                          <div className="d-flex align-items-center gap-2">
-                            <input
-                              type="file"
-                              accept=".pdf"
-                              id="curp_doc"
-                              style={{ display: 'none' }}
-                              onChange={(e) => handleDocumentUpload('curp', e)}
-                            />
-                            <CButton
-                              color={documentos.curp ? 'success' : undefined}
-                              style={!documentos.curp ? { borderColor: '#0071b8', color: '#0071b8' } : {}}
-                              variant="outline"
-                              onClick={() => document.getElementById('curp_doc').click()}
-                              className={`d-flex align-items-center gap-2 ${!documentos.curp ? 'pdf-upload-btn' : ''}`}
-                            >
-                              {documentos.curp ? (
-                                <>
-                                  <CIcon icon={cilFile} />
-                                  PDF
-                                </>
-                              ) : (
-                                <>
-                                  <CIcon icon={cilCloudUpload} />
-                                  Subir PDF
+                                  <span className="text-muted small text-truncate" style={{ maxWidth: '150px' }}>{documentos[key].name}</span>
+                                  <CButton color="danger" variant="ghost" size="sm" className="remove-file-btn" onClick={() => handleRemoveDocument(key)}>
+                                    <CIcon icon={cilXCircle} />
+                                  </CButton>
                                 </>
                               )}
-                            </CButton>
-                            {documentos.curp && (
-                              <>
-                                <span className="text-muted small text-truncate" style={{ maxWidth: '150px' }}>
-                                  {documentos.curp.name}
-                                </span>
-                                <CButton
-                                  color="danger"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="remove-file-btn"
-                                  onClick={() => handleRemoveDocument('curp')}
-                                >
-                                  <CIcon icon={cilXCircle} />
-                                </CButton>
-                              </>
-                            )}
+                            </div>
                           </div>
-                        </div>
-
-                        {/* Comprobante de domicilio */}
-                        <div className="mb-3">
-                          <CFormLabel>Comprobante de domicilio:</CFormLabel>
-                          <div className="d-flex align-items-center gap-2">
-                            <input
-                              type="file"
-                              accept=".pdf"
-                              id="comprobante_domicilio"
-                              style={{ display: 'none' }}
-                              onChange={(e) => handleDocumentUpload('comprobante_domicilio', e)}
-                            />
-                            <CButton
-                              color={documentos.comprobante_domicilio ? 'success' : undefined}
-                              style={!documentos.comprobante_domicilio ? { borderColor: '#0071b8', color: '#0071b8' } : {}}
-                              variant="outline"
-                              onClick={() => document.getElementById('comprobante_domicilio').click()}
-                              className={`d-flex align-items-center gap-2 ${!documentos.comprobante_domicilio ? 'pdf-upload-btn' : ''}`}
-                            >
-                              {documentos.comprobante_domicilio ? (
-                                <>
-                                  <CIcon icon={cilFile} />
-                                  PDF
-                                </>
-                              ) : (
-                                <>
-                                  <CIcon icon={cilCloudUpload} />
-                                  Subir PDF
-                                </>
-                              )}
-                            </CButton>
-                            {documentos.comprobante_domicilio && (
-                              <>
-                                <span className="text-muted small text-truncate" style={{ maxWidth: '150px' }}>
-                                  {documentos.comprobante_domicilio.name}
-                                </span>
-                                <CButton
-                                  color="danger"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="remove-file-btn"
-                                  onClick={() => handleRemoveDocument('comprobante_domicilio')}
-                                >
-                                  <CIcon icon={cilXCircle} />
-                                </CButton>
-                              </>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Poliza de seguro */}
-                        <div className="mb-3">
-                          <CFormLabel>Póliza de seguro:</CFormLabel>
-                          <div className="d-flex align-items-center gap-2">
-                            <input
-                              type="file"
-                              accept=".pdf"
-                              id="poliza_seguro"
-                              style={{ display: 'none' }}
-                              onChange={(e) => handleDocumentUpload('poliza_seguro', e)}
-                            />
-                            <CButton
-                              color={documentos.poliza_seguro ? 'success' : undefined}
-                              style={!documentos.poliza_seguro ? { borderColor: '#0071b8', color: '#0071b8' } : {}}
-                              variant="outline"
-                              onClick={() => document.getElementById('poliza_seguro').click()}
-                              className={`d-flex align-items-center gap-2 ${!documentos.poliza_seguro ? 'pdf-upload-btn' : ''}`}
-                            >
-                              {documentos.poliza_seguro ? (
-                                <>
-                                  <CIcon icon={cilFile} />
-                                  PDF
-                                </>
-                              ) : (
-                                <>
-                                  <CIcon icon={cilCloudUpload} />
-                                  Subir PDF
-                                </>
-                              )}
-                            </CButton>
-                            {documentos.poliza_seguro && (
-                              <>
-                                <span className="text-muted small text-truncate" style={{ maxWidth: '150px' }}>
-                                  {documentos.poliza_seguro.name}
-                                </span>
-                                <CButton
-                                  color="danger"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="remove-file-btn"
-                                  onClick={() => handleRemoveDocument('poliza_seguro')}
-                                >
-                                  <CIcon icon={cilXCircle} />
-                                </CButton>
-                              </>
-                            )}
-                          </div>
-                        </div>
+                        ))}
                       </CCol>
-
-                      {/* Second Column - Cita and Status */}
                       <CCol md={6}>
                         <div className="mb-3">
                           <CFormLabel>Programar cita para entrega:</CFormLabel>
                           <CInputGroup>
-                            <CFormInput
-                              type="date"
-                              value={documentos.cita_entrega}
-                              onChange={handleCitaEntregaChange}
+                            <CFormInput type="date" value={documentos.cita_entrega}
+                              onChange={(e) => setDocumentos(prev => ({ ...prev, cita_entrega: e.target.value }))}
                               disabled={getDocumentosStatus().label === 'Completado'}
-                              style={getDocumentosStatus().label === 'Completado' ? { backgroundColor: '#e9ecef' } : {}}
-                            />
+                              style={getDocumentosStatus().label === 'Completado' ? { backgroundColor: '#e9ecef' } : {}} />
                             <CInputGroupText>
-                              <CBadge color={getCitaEntregaStatus().color}>
-                                {getCitaEntregaStatus().label}
-                              </CBadge>
+                              <CBadge color={getCitaEntregaStatus().color}>{getCitaEntregaStatus().label}</CBadge>
                             </CInputGroupText>
                           </CInputGroup>
                         </div>
-
                         <div className="mb-3">
                           <CFormLabel>Estado de documentación:</CFormLabel>
                           <CInputGroup>
-                            <CFormInput
-                              value={getDocumentosStatus().label}
-                              readOnly
-                              disabled
-                              style={{ backgroundColor: '#e9ecef' }}
-                            />
+                            <CFormInput value={getDocumentosStatus().label} readOnly disabled style={{ backgroundColor: '#e9ecef' }} />
                             <CInputGroupText>
-                              <CBadge color={getDocumentosStatus().color}>
-                                {getDocumentosStatus().label}
-                              </CBadge>
+                              <CBadge color={getDocumentosStatus().color}>{getDocumentosStatus().label}</CBadge>
                             </CInputGroupText>
                           </CInputGroup>
                         </div>
@@ -1572,29 +1443,20 @@ const SortGes = () => {
                   </CAccordionBody>
                 </CAccordionItem>
 
-                {/* Consentimientos firmados */}
                 <CAccordionItem itemKey={2}>
-                  <CAccordionHeader>
-                    <strong>Consentimientos firmados</strong>
-                  </CAccordionHeader>
+                  <CAccordionHeader><strong>Consentimientos firmados</strong></CAccordionHeader>
                   <CAccordionBody>
                     <CRow className="mb-4">
-                      {/* Cita para firma and status */}
                       <CCol md={6}>
                         <div className="mb-3">
                           <CFormLabel>Programar cita para firma:</CFormLabel>
                           <CInputGroup>
-                            <CFormInput
-                              type="date"
-                              value={consentimientos.cita_firma}
-                              onChange={handleCitaFirmaChange}
+                            <CFormInput type="date" value={consentimientos.cita_firma}
+                              onChange={(e) => setConsentimientos(prev => ({ ...prev, cita_firma: e.target.value }))}
                               disabled={getConsentimientosStatus().label === 'Completado'}
-                              style={getConsentimientosStatus().label === 'Completado' ? { backgroundColor: '#e9ecef' } : {}}
-                            />
+                              style={getConsentimientosStatus().label === 'Completado' ? { backgroundColor: '#e9ecef' } : {}} />
                             <CInputGroupText>
-                              <CBadge color={getCitaFirmaStatus().color}>
-                                {getCitaFirmaStatus().label}
-                              </CBadge>
+                              <CBadge color={getCitaFirmaStatus().color}>{getCitaFirmaStatus().label}</CBadge>
                             </CInputGroupText>
                           </CInputGroup>
                         </div>
@@ -1603,91 +1465,34 @@ const SortGes = () => {
                         <div className="mb-3">
                           <CFormLabel>Estado de consentimientos:</CFormLabel>
                           <CInputGroup>
-                            <CFormInput
-                              value={getConsentimientosStatus().label}
-                              readOnly
-                              disabled
-                              style={{ backgroundColor: '#e9ecef' }}
-                            />
+                            <CFormInput value={getConsentimientosStatus().label} readOnly disabled style={{ backgroundColor: '#e9ecef' }} />
                             <CInputGroupText>
-                              <CBadge color={getConsentimientosStatus().color}>
-                                {getConsentimientosStatus().label}
-                              </CBadge>
+                              <CBadge color={getConsentimientosStatus().color}>{getConsentimientosStatus().label}</CBadge>
                             </CInputGroupText>
                           </CInputGroup>
                         </div>
                       </CCol>
                     </CRow>
-
-                    {/* Checkboxes for consentimientos */}
                     <CRow>
                       <CCol md={6}>
-                        <div className="mb-3">
-                          <CFormCheck
-                            id="consentimiento_informado"
-                            label="Consentimiento informado"
-                            checked={consentimientos.consentimiento_informado}
-                            onChange={() => handleConsentimientoChange('consentimiento_informado')}
-                          />
-                        </div>
-                        <div className="mb-3">
-                          <CFormCheck
-                            id="consentimiento_transferencia"
-                            label="Consentimiento de transferencia embrionaria"
-                            checked={consentimientos.consentimiento_transferencia}
-                            onChange={() => handleConsentimientoChange('consentimiento_transferencia')}
-                          />
-                        </div>
-                        <div className="mb-3">
-                          <CFormCheck
-                            id="aviso_privacidad"
-                            label="Aviso de privacidad"
-                            checked={consentimientos.aviso_privacidad}
-                            onChange={() => handleConsentimientoChange('aviso_privacidad')}
-                          />
-                        </div>
-                        <div className="mb-3">
-                          <CFormCheck
-                            id="informacion_personal"
-                            label="Información personal"
-                            checked={consentimientos.informacion_personal}
-                            onChange={() => handleConsentimientoChange('informacion_personal')}
-                          />
-                        </div>
+                        {['consentimiento_informado', 'consentimiento_transferencia', 'aviso_privacidad', 'informacion_personal'].map(field => (
+                          <div className="mb-3" key={field}>
+                            <CFormCheck id={field}
+                              label={{ consentimiento_informado: 'Consentimiento informado', consentimiento_transferencia: 'Consentimiento de transferencia embrionaria', aviso_privacidad: 'Aviso de privacidad', informacion_personal: 'Información personal' }[field]}
+                              checked={consentimientos[field]}
+                              onChange={() => handleConsentimientoChange(field)} />
+                          </div>
+                        ))}
                       </CCol>
                       <CCol md={6}>
-                        <div className="mb-3">
-                          <CFormCheck
-                            id="regular"
-                            label="Regular"
-                            checked={consentimientos.regular}
-                            onChange={() => handleConsentimientoChange('regular')}
-                          />
-                        </div>
-                        <div className="mb-3">
-                          <CFormCheck
-                            id="hiv"
-                            label="HIV"
-                            checked={consentimientos.hiv}
-                            onChange={() => handleConsentimientoChange('hiv')}
-                          />
-                        </div>
-                        <div className="mb-3">
-                          <CFormCheck
-                            id="gemelar"
-                            label="Gemelar"
-                            checked={consentimientos.gemelar}
-                            onChange={() => handleConsentimientoChange('gemelar')}
-                          />
-                        </div>
-                        <div className="mb-3">
-                          <CFormCheck
-                            id="full"
-                            label="Full"
-                            checked={consentimientos.full}
-                            onChange={() => handleConsentimientoChange('full')}
-                          />
-                        </div>
+                        {['regular', 'hiv', 'gemelar', 'full'].map(field => (
+                          <div className="mb-3" key={field}>
+                            <CFormCheck id={field}
+                              label={{ regular: 'Regular', hiv: 'HIV', gemelar: 'Gemelar', full: 'Full' }[field]}
+                              checked={consentimientos[field]}
+                              onChange={() => handleConsentimientoChange(field)} />
+                          </div>
+                        ))}
                       </CCol>
                     </CRow>
                   </CAccordionBody>
@@ -1695,222 +1500,529 @@ const SortGes = () => {
               </CAccordion>
             </CTabPane>
 
-            {/* SEGURO MED Tab */}
+            {/* ══════════════════════════════════════════════════
+                SEGURO MED TAB
+            ══════════════════════════════════════════════════ */}
             <CTabPane visible={activeTab === 'seguro-med'}>
-              <CAccordion alwaysOpen>
-                <CAccordionItem itemKey={1}>
-                  <CAccordionHeader>
-                    <strong>Información del Seguro Médico</strong>
-                  </CAccordionHeader>
-                  <CAccordionBody>
-                    <p className="text-muted">Contenido del seguro médico...</p>
-                    {/* TODO: Add insurance content */}
-                  </CAccordionBody>
-                </CAccordionItem>
-                <CAccordionItem itemKey={2}>
-                  <CAccordionHeader>
-                    <strong>Cobertura y Beneficios</strong>
-                  </CAccordionHeader>
-                  <CAccordionBody>
-                    <p className="text-muted">Contenido de cobertura...</p>
-                    {/* TODO: Add coverage content */}
-                  </CAccordionBody>
-                </CAccordionItem>
-              </CAccordion>
-            </CTabPane>
+              <CAccordion alwaysOpen activeItemKey={1}>
 
-            {/* PSICO SOCIAL Tab */}
-            <CTabPane visible={activeTab === 'psico-social'}>
-              <CAccordion alwaysOpen>
+                {/* ────────────────────────────────────────────
+                    SEGURO DE VIDA
+                ──────────────────────────────────────────── */}
                 <CAccordionItem itemKey={1}>
-                  <CAccordionHeader>
-                    <strong>Perfil psicológico</strong>
-                  </CAccordionHeader>
+                  <CAccordionHeader><strong>Seguro de Vida</strong></CAccordionHeader>
                   <CAccordionBody>
-                    <CTable bordered hover responsive>
-                      <CTableHead>
-                        <CTableRow>
-                          <CTableHeaderCell style={{ minWidth: '180px' }}>Descripción</CTableHeaderCell>
-                          <CTableHeaderCell style={{ minWidth: '140px' }}>Fecha</CTableHeaderCell>
-                          <CTableHeaderCell style={{ minWidth: '140px' }}>Estado</CTableHeaderCell>
-                          <CTableHeaderCell colSpan={4} className="text-center" style={{ backgroundColor: '#f8f9fa' }}>Perfil</CTableHeaderCell>
-                          <CTableHeaderCell style={{ minWidth: '150px' }}>Responsable</CTableHeaderCell>
-                          <CTableHeaderCell style={{ width: '50px' }}></CTableHeaderCell>
-                        </CTableRow>
-                        <CTableRow>
-                          <CTableHeaderCell></CTableHeaderCell>
-                          <CTableHeaderCell></CTableHeaderCell>
-                          <CTableHeaderCell></CTableHeaderCell>
-                          <CTableHeaderCell className="text-center" style={{ fontSize: '0.85rem', minWidth: '70px' }}>Apta</CTableHeaderCell>
-                          <CTableHeaderCell className="text-center" style={{ fontSize: '0.85rem', minWidth: '90px' }}>Recomendable</CTableHeaderCell>
-                          <CTableHeaderCell className="text-center" style={{ fontSize: '0.85rem', minWidth: '90px' }}>Con reservas</CTableHeaderCell>
-                          <CTableHeaderCell className="text-center" style={{ fontSize: '0.85rem', minWidth: '110px' }}>No recomendable</CTableHeaderCell>
-                          <CTableHeaderCell></CTableHeaderCell>
-                          <CTableHeaderCell></CTableHeaderCell>
-                        </CTableRow>
-                      </CTableHead>
-                      <CTableBody>
-                        {perfilPsicologico.map((row) => (
-                          <CTableRow key={row.id}>
-                            <CTableDataCell>
-                              <CFormInput
-                                size="sm"
-                                value={row.descripcion}
-                                onChange={(e) => handlePerfilPsicoChange(row.id, 'descripcion', e.target.value)}
-                                placeholder="Descripción..."
-                              />
-                            </CTableDataCell>
-                            <CTableDataCell>
-                              <CFormInput
-                                type="date"
-                                size="sm"
-                                value={row.fecha}
-                                onChange={(e) => handlePerfilPsicoChange(row.id, 'fecha', e.target.value)}
-                              />
-                            </CTableDataCell>
-                            <CTableDataCell>
-                              <CFormSelect
-                                size="sm"
-                                value={row.estado}
-                                onChange={(e) => handlePerfilPsicoChange(row.id, 'estado', e.target.value)}
-                              >
-                                {estadoPsicoOptions.map(opt => (
-                                  <option key={opt.value} value={opt.value}>{opt.label}</option>
+
+                    {/* ── Summary cards (shown after ≥1 record) ── */}
+                    {segurosVida.length > 0 && (
+                      <div className="mb-4">
+                        {segurosVida.map((seg) => {
+                          const st = getVidaStatus(seg.vencimiento);
+                          return (
+                            <div
+                              key={seg.id}
+                              className="d-flex align-items-center justify-content-between p-3 mb-2 rounded border"
+                              style={{ backgroundColor: '#f8f9fa' }}
+                            >
+                              {/* Left: three summary fields */}
+                              <div className="d-flex gap-4 align-items-center flex-wrap">
+                                <div>
+                                  <div className="text-muted small">Estatus</div>
+                                  <CBadge color={st.color} style={{ fontSize: '0.8rem' }}>{st.label}</CBadge>
+                                </div>
+                                <div>
+                                  <div className="text-muted small">Fecha de alta</div>
+                                  <strong>{seg.fecha_alta || '—'}</strong>
+                                </div>
+                                <div>
+                                  <div className="text-muted small">Vencimiento cobertura</div>
+                                  <strong>{seg.vencimiento || '—'}</strong>
+                                </div>
+                                <div>
+                                  <div className="text-muted small">Aseguradora</div>
+                                  <span>{seg.aseguradora || '—'}</span>
+                                </div>
+                              </div>
+                              {/* Right: actions */}
+                              <div className="d-flex gap-2 ms-3 flex-shrink-0">
+                                <CButton
+                                  size="sm" color="info" variant="outline"
+                                  onClick={() => setDetailVida(detailVida === seg.id ? null : seg.id)}
+                                  title="Ver detalle"
+                                >
+                                  {detailVida === seg.id ? 'Ocultar' : 'Ver más'}
+                                </CButton>
+                                <CButton
+                                  size="sm" color="warning" variant="outline"
+                                  onClick={() => openEditVida(seg)}
+                                  title="Editar"
+                                >
+                                  Editar
+                                </CButton>
+                                <CButton
+                                  size="sm" color="danger" variant="outline"
+                                  onClick={() => deleteVida(seg.id)}
+                                  title="Eliminar"
+                                >
+                                  <CIcon icon={cilTrash} />
+                                </CButton>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Expanded detail panel */}
+                        {detailVida !== null && (() => {
+                          const seg = segurosVida.find(s => s.id === detailVida);
+                          if (!seg) return null;
+                          return (
+                            <div className="border rounded p-3 mb-3" style={{ backgroundColor: '#fff' }}>
+                              <CRow>
+                                {[
+                                  ['Aseguradora', seg.aseguradora],
+                                  ['Gestor', seg.gestor],
+                                  ['Cuotas', seg.cuotas],
+                                  ['Valor', seg.valor ? `$${seg.valor}` : '—'],
+                                  ['Fecha de alta', seg.fecha_alta],
+                                  ['Vencimiento', seg.vencimiento],
+                                ].map(([label, val]) => (
+                                  <CCol md={4} className="mb-2" key={label}>
+                                    <div className="text-muted small">{label}</div>
+                                    <strong>{val || '—'}</strong>
+                                  </CCol>
                                 ))}
-                              </CFormSelect>
-                            </CTableDataCell>
-                            <CTableDataCell className="text-center">
-                              <CFormCheck
-                                type="radio"
-                                name={`perfil-${row.id}`}
-                                checked={row.perfil === 'apta'}
-                                onChange={() => handlePerfilRadioChange(row.id, 'apta')}
-                              />
-                            </CTableDataCell>
-                            <CTableDataCell className="text-center">
-                              <CFormCheck
-                                type="radio"
-                                name={`perfil-${row.id}`}
-                                checked={row.perfil === 'recomendable'}
-                                onChange={() => handlePerfilRadioChange(row.id, 'recomendable')}
-                              />
-                            </CTableDataCell>
-                            <CTableDataCell className="text-center">
-                              <CFormCheck
-                                type="radio"
-                                name={`perfil-${row.id}`}
-                                checked={row.perfil === 'con_reservas'}
-                                onChange={() => handlePerfilRadioChange(row.id, 'con_reservas')}
-                              />
-                            </CTableDataCell>
-                            <CTableDataCell className="text-center">
-                              <CFormCheck
-                                type="radio"
-                                name={`perfil-${row.id}`}
-                                checked={row.perfil === 'no_recomendable'}
-                                onChange={() => handlePerfilRadioChange(row.id, 'no_recomendable')}
-                              />
-                            </CTableDataCell>
-                            <CTableDataCell>
-                              <CFormInput
-                                size="sm"
-                                value={row.responsable}
-                                onChange={(e) => handlePerfilPsicoChange(row.id, 'responsable', e.target.value)}
-                                placeholder="Responsable..."
-                              />
-                            </CTableDataCell>
-                            <CTableDataCell className="text-center">
-                              <CButton
-                                color="danger"
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => removePerfilPsicoRow(row.id)}
-                                disabled={perfilPsicologico.length === 1}
-                                title="Eliminar fila"
-                              >
-                                <CIcon icon={cilTrash} />
-                              </CButton>
-                            </CTableDataCell>
-                          </CTableRow>
-                        ))}
-                      </CTableBody>
-                    </CTable>
+                              </CRow>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+
+                    {/* Empty state */}
+                    {segurosVida.length === 0 && (
+                      <p className="text-muted small mb-3">No hay seguros de vida registrados.</p>
+                    )}
+
+                    {/* "Nuevo seguro" button */}
                     <CButton
                       color="primary"
                       variant="outline"
                       size="sm"
-                      onClick={addPerfilPsicoRow}
-                      className="mt-2"
+                      onClick={openNuevoVida}
+                      style={{ borderColor: '#899973', color: '#899973' }}
                     >
-                      <CIcon icon={cilPlus} className="me-1" />
-                      Agregar fila
+                      <CIcon icon={cilPlus} className="me-1" />Nuevo seguro
                     </CButton>
                   </CAccordionBody>
                 </CAccordionItem>
+
+                {/* ────────────────────────────────────────────
+                    SEGURO DE MATERNIDAD
+                ──────────────────────────────────────────── */}
                 <CAccordionItem itemKey={2}>
-                  <CAccordionHeader>
-                    <strong>Seguimiento psicológico</strong>
-                  </CAccordionHeader>
+                  <CAccordionHeader><strong>Seguro de Maternidad</strong></CAccordionHeader>
                   <CAccordionBody>
-                    <p className="text-muted">Contenido de seguimiento psicológico...</p>
-                    {/* TODO: Add psychological follow-up content */}
+
+                    {/* Polizas list */}
+                    {segurosMat.map((poliza) => (
+                      <div key={poliza.id} className="mb-4 border rounded p-3">
+                        {/* Poliza header */}
+                        <div className="d-flex justify-content-between align-items-center mb-3">
+                          <div>
+                            <strong>{poliza.aseguradora || 'Sin aseguradora'}</strong>
+                            <span className="text-muted ms-2 small">Póliza {poliza.numero_poliza || '—'}</span>
+                            <span className="text-muted ms-2 small">· Gestor: {poliza.gestor || '—'}</span>
+                          </div>
+                          <CButton
+                            size="sm" color="danger" variant="ghost"
+                            onClick={() => deleteMat(poliza.id)}
+                            title="Eliminar póliza"
+                          >
+                            <CIcon icon={cilTrash} />
+                          </CButton>
+                        </div>
+
+                        {/* Cuotas table */}
+                        <CTable bordered responsive size="sm">
+                          <CTableHead color="light">
+                            <CTableRow>
+                              <CTableHeaderCell>Cuota</CTableHeaderCell>
+                              <CTableHeaderCell>Valor de pago</CTableHeaderCell>
+                              <CTableHeaderCell>Vencimiento</CTableHeaderCell>
+                              <CTableHeaderCell>Status</CTableHeaderCell>
+                              <CTableHeaderCell>Fecha de pago</CTableHeaderCell>
+                              <CTableHeaderCell style={{ width: '200px' }}>Acciones</CTableHeaderCell>
+                            </CTableRow>
+                          </CTableHead>
+                          <CTableBody>
+                            {poliza.pagos.map((cuota) => {
+                              const st = getCuotaStatus(cuota);
+                              const esCancelado = cuota.status === 'cancelado';
+                              const esPagado = !!cuota.fecha_pago && cuota.status !== 'cancelado';
+                              return (
+                                <CTableRow key={cuota.cuota_num}>
+                                  {/* Cuota N/Total */}
+                                  <CTableDataCell>
+                                    <strong>{cuota.cuota_num}/{cuota.total}</strong>
+                                  </CTableDataCell>
+                                  {/* Valor */}
+                                  <CTableDataCell>
+                                    {poliza.valor_cuota ? `$${Number(poliza.valor_cuota).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—'}
+                                  </CTableDataCell>
+                                  {/* Vencimiento */}
+                                  <CTableDataCell>{cuota.vencimiento || '—'}</CTableDataCell>
+                                  {/* Status badge */}
+                                  <CTableDataCell>
+                                    <CBadge color={st.color}>{st.label}</CBadge>
+                                  </CTableDataCell>
+                                  {/* Fecha de pago */}
+                                  <CTableDataCell>
+                                    {cuota.fecha_pago || '—'}
+                                  </CTableDataCell>
+                                  {/* Acciones */}
+                                  <CTableDataCell>
+                                    <div className="d-flex gap-1">
+                                      {!esCancelado && !esPagado && (
+                                        <CButton
+                                          size="sm"
+                                          color="success"
+                                          variant="outline"
+                                          onClick={() => openPagoModal(poliza.id, cuota.cuota_num)}
+                                          title="Registrar pago"
+                                        >
+                                          Guardar
+                                        </CButton>
+                                      )}
+                                      {!esCancelado && (
+                                        <CButton
+                                          size="sm"
+                                          color="danger"
+                                          variant="outline"
+                                          onClick={() => anularCuota(poliza.id, cuota.cuota_num)}
+                                          title="Anular cuota"
+                                        >
+                                          Anular
+                                        </CButton>
+                                      )}
+                                      {esCancelado && (
+                                        <span className="text-muted small">—</span>
+                                      )}
+                                    </div>
+                                  </CTableDataCell>
+                                </CTableRow>
+                              );
+                            })}
+                          </CTableBody>
+                        </CTable>
+                      </div>
+                    ))}
+
+                    {segurosMat.length === 0 && (
+                      <p className="text-muted small mb-3">No hay seguros de maternidad registrados.</p>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="d-flex gap-2">
+                      <CButton
+                        color="primary"
+                        variant="outline"
+                        size="sm"
+                        onClick={openNuevoMat}
+                        style={{ borderColor: '#899973', color: '#899973' }}
+                      >
+                        <CIcon icon={cilPlus} className="me-1" />Nuevo seguro
+                      </CButton>
+                    </div>
                   </CAccordionBody>
                 </CAccordionItem>
               </CAccordion>
             </CTabPane>
 
-            {/* CITA PREVIA Tab */}
+            {/* ── PSICO SOCIAL ───────────────────────────────── */}
+            <CTabPane visible={activeTab === 'psico-social'}>
+              <CAccordion alwaysOpen activeItemKey={1}>
+
+                {/* ════════════════════════════════════════════
+                    PSICO INICIAL
+                ════════════════════════════════════════════ */}
+                <CAccordionItem itemKey={1}>
+                  <CAccordionHeader><strong>Psico Inicial</strong></CAccordionHeader>
+                  <CAccordionBody>
+                    <CTable bordered responsive>
+                      <CTableHead color="light">
+                        <CTableRow>
+                          <CTableHeaderCell style={{ minWidth: '210px' }}>Etapa</CTableHeaderCell>
+                          <CTableHeaderCell style={{ minWidth: '155px' }}>Fecha</CTableHeaderCell>
+                          <CTableHeaderCell style={{ minWidth: '160px' }}>Estado</CTableHeaderCell>
+                          <CTableHeaderCell style={{ minWidth: '175px' }}>Recomendación</CTableHeaderCell>
+                        </CTableRow>
+                      </CTableHead>
+                      <CTableBody>
+                        {psicoInicial.map((row) => {
+                          const sec = `psico_row_${row.id}`;
+                          return (
+                          <CTableRow key={row.id}>
+                            {/* Etapa — fixed label */}
+                            <CTableDataCell>
+                              <span className="fw-semibold" style={{ color: '#0098b3' }}>{row.etapa}</span>
+                            </CTableDataCell>
+
+                            {/* Fecha */}
+                            <CTableDataCell>
+                              {renderTableInput(
+                                sec, 'fecha', row.fecha,
+                                e => handlePsicoInicialChange(row.id, 'fecha', e.target.value),
+                                'date'
+                              )}
+                            </CTableDataCell>
+
+                            {/* Estado */}
+                            <CTableDataCell>
+                              {renderTableSelect(
+                                sec, 'estado', row.estado,
+                                e => handlePsicoInicialChange(row.id, 'estado', e.target.value),
+                                estadoPsicoOpts
+                              )}
+                            </CTableDataCell>
+
+                            {/* Recomendación */}
+                            <CTableDataCell>
+                              {renderTableSelect(
+                                sec, 'recomendacion', row.recomendacion,
+                                e => handlePsicoInicialChange(row.id, 'recomendacion', e.target.value),
+                                recomendacionOpts
+                              )}
+                            </CTableDataCell>
+                          </CTableRow>
+                          );
+                        })}
+                      </CTableBody>
+                    </CTable>
+                  </CAccordionBody>
+                </CAccordionItem>
+
+                {/* ════════════════════════════════════════════
+                    SEGUIMIENTO PSICOLÓGICO
+                ════════════════════════════════════════════ */}
+                <CAccordionItem itemKey={2}>
+                  <CAccordionHeader><strong>Seguimiento Psicológico</strong></CAccordionHeader>
+                  <CAccordionBody>
+
+                    {/* "Nuevo seguimiento" button */}
+                    <div className="mb-3">
+                      <CButton
+                        color="primary"
+                        variant="outline"
+                        size="sm"
+                        onClick={addSeguimiento}
+                        style={{ borderColor: '#0098b3', color: '#0098b3' }}
+                      >
+                        <CIcon icon={cilPlus} className="me-1" />Nuevo seguimiento
+                      </CButton>
+                    </div>
+
+                    {seguimientos.length === 0 && (
+                      <p className="text-muted small">No hay seguimientos registrados.</p>
+                    )}
+
+                    {/* One accordion per seguimiento — nested inside the outer one */}
+                    {seguimientos.map((seg, idx) => {
+                      const isOpen = seguimientoOpen.includes(seg.id);
+                      const autoStatus = deriveSeguimientoStatus(seg);
+                      const statusInfo = segStatusOpts.find(o => o.value === autoStatus) || segStatusOpts[0];
+                      const informeLabel = informeOpts.find(o => o.value === seg.informe)?.label || '—';
+                      const incidenciaLabel = incidenciaOpts.find(o => o.value === seg.incidencia)?.label || '—';
+
+                      return (
+                        <div key={seg.id} className="border rounded mb-2 overflow-hidden">
+                          {/* ── Custom accordion header ── */}
+                          <div
+                            className="d-flex align-items-center justify-content-between px-3 py-2"
+                            style={{
+                              backgroundColor: isOpen ? '#e8f6f9' : '#f8f9fa',
+                              cursor: 'pointer',
+                              borderBottom: isOpen ? '1px solid #dee2e6' : 'none',
+                            }}
+                            onClick={() => toggleSeguimientoOpen(seg.id)}
+                          >
+                            {/* Summary chips */}
+                            <div className="d-flex align-items-center gap-2 flex-wrap">
+                              <strong style={{ color: '#0098b3', minWidth: '140px' }}>
+                                {seg.etapa || `Seguimiento ${idx + 1}`}
+                              </strong>
+                              {seg.programar && (
+                                <CBadge color="light" textColor="dark" className="border">
+                                  📅 {seg.programar}
+                                </CBadge>
+                              )}
+                              <CBadge color={statusInfo.color}>{statusInfo.label}</CBadge>
+                              {seg.informe && (
+                                <CBadge color="info" style={{ backgroundColor: '#0098b3' }}>
+                                  {informeLabel}
+                                </CBadge>
+                              )}
+                              {seg.incidencia && seg.incidencia !== 'sin_incidencias' && (
+                                <CBadge color="warning">{incidenciaLabel}</CBadge>
+                              )}
+                            </div>
+                            {/* Right actions */}
+                            <div className="d-flex align-items-center gap-2 ms-2 flex-shrink-0">
+                              <CButton
+                                size="sm"
+                                color="danger"
+                                variant="ghost"
+                                onClick={e => { e.stopPropagation(); deleteSeguimiento(seg.id); }}
+                                title="Eliminar seguimiento"
+                              >
+                                <CIcon icon={cilTrash} />
+                              </CButton>
+                              <span className="text-muted small">{isOpen ? '▲' : '▼'}</span>
+                            </div>
+                          </div>
+
+                          {/* ── Expanded form body ── */}
+                          {isOpen && (
+                            <div className="p-3">
+                              <CRow>
+                                {/* Etapa */}
+                                <CCol md={4} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">Etapa:</CFormLabel>
+                                  {renderSegInput(seg.id, 'etapa', seg.etapa, 'text', 'Nombre de la etapa')}
+                                </CCol>
+
+                                {/* Motivo */}
+                                <CCol md={4} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">Motivo:</CFormLabel>
+                                  {renderSegSelect(seg.id, 'motivo', seg.motivo, motivoOpts)}
+                                </CCol>
+
+                                {/* Complemento */}
+                                <CCol md={4} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">Complemento:</CFormLabel>
+                                  {renderSegSelect(seg.id, 'complemento', seg.complemento, complementoOpts)}
+                                </CCol>
+
+                                {/* Complemento 2 */}
+                                <CCol md={4} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">Complemento 2:</CFormLabel>
+                                  {renderSegSelect(seg.id, 'complemento2', seg.complemento2, complemento2Opts)}
+                                </CCol>
+
+                                {/* Programar */}
+                                <CCol md={4} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">Programar:</CFormLabel>
+                                  {renderSegInput(seg.id, 'programar', seg.programar, 'date')}
+                                </CCol>
+
+                                {/* Status — auto-derived, read-only */}
+                                <CCol md={4} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">Status:</CFormLabel>
+                                  <div className="mt-1">
+                                    <CBadge color={statusInfo.color} style={{ fontSize: '0.85rem', padding: '0.35em 0.65em' }}>
+                                      {statusInfo.label}
+                                    </CBadge>
+                                  </div>
+                                </CCol>
+
+                                {/* Asistencia */}
+                                <CCol md={4} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">Asistencia:</CFormLabel>
+                                  {renderSegSelect(seg.id, 'asistencia', seg.asistencia, asistenciaOpts)}
+                                </CCol>
+
+                                {/* Informe resolución */}
+                                <CCol md={4} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">Informe resolución:</CFormLabel>
+                                  {renderSegSelect(seg.id, 'informe', seg.informe, informeOpts)}
+                                </CCol>
+
+                                {/* Incidencia */}
+                                <CCol md={4} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">Incidencia:</CFormLabel>
+                                  {renderSegSelect(seg.id, 'incidencia', seg.incidencia, incidenciaOpts)}
+                                </CCol>
+
+                                {/* ── Historial de seguimiento — password-gated ── */}
+                                <CCol md={12} className="mb-3">
+                                  <CFormLabel className="fw-semibold small text-muted">
+                                    Historial de seguimiento:
+                                  </CFormLabel>
+                                  {historialUnlocked[seg.id] ? (
+                                    <div>
+                                      <CFormTextarea
+                                        rows={3}
+                                        size="sm"
+                                        value={seg.historial}
+                                        onChange={e => updateSeguimiento(seg.id, 'historial', e.target.value)}
+                                        placeholder="Notas del seguimiento…"
+                                      />
+                                      <div className="text-end mt-1">
+                                        <CButton
+                                          size="sm" color="secondary" variant="ghost"
+                                          onClick={() => setHistorialUnlocked(prev => {
+                                            const n = { ...prev }; delete n[seg.id]; return n;
+                                          })}
+                                          title="Ocultar historial"
+                                        >
+                                          <CIcon icon={cilLockLocked} className="me-1" />Ocultar
+                                        </CButton>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div
+                                      className="d-flex align-items-center gap-2 p-2 rounded"
+                                      style={{ backgroundColor: '#f8f9fa', border: '1px dashed #ced4da' }}
+                                    >
+                                      <CIcon icon={cilLockLocked} className="text-muted" />
+                                      <span className="text-muted small">Contenido protegido</span>
+                                      <CButton
+                                        size="sm" color="warning" variant="outline"
+                                        className="ms-auto"
+                                        onClick={() => requestHistorialUnlock(seg.id)}
+                                      >
+                                        <CIcon icon={cilLockLocked} className="me-1" />Desbloquear
+                                      </CButton>
+                                    </div>
+                                  )}
+                                </CCol>
+                              </CRow>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </CAccordionBody>
+                </CAccordionItem>
+              </CAccordion>
+            </CTabPane>
+
+            {/* ── CITA PREVIA ────────────────────────────────── */}
             <CTabPane visible={activeTab === 'cita-previa'}>
               <CAccordion alwaysOpen>
                 <CAccordionItem itemKey={1}>
-                  <CAccordionHeader>
-                    <strong>Historial de Citas</strong>
-                  </CAccordionHeader>
-                  <CAccordionBody>
-                    <p className="text-muted">Contenido del historial de citas...</p>
-                    {/* TODO: Add appointment history content */}
-                  </CAccordionBody>
+                  <CAccordionHeader><strong>Historial de Citas</strong></CAccordionHeader>
+                  <CAccordionBody><p className="text-muted">Contenido del historial de citas…</p></CAccordionBody>
                 </CAccordionItem>
                 <CAccordionItem itemKey={2}>
-                  <CAccordionHeader>
-                    <strong>Programar Nueva Cita</strong>
-                  </CAccordionHeader>
-                  <CAccordionBody>
-                    <p className="text-muted">Contenido para programar citas...</p>
-                    {/* TODO: Add appointment scheduling content */}
-                  </CAccordionBody>
+                  <CAccordionHeader><strong>Programar Nueva Cita</strong></CAccordionHeader>
+                  <CAccordionBody><p className="text-muted">Contenido para programar citas…</p></CAccordionBody>
                 </CAccordionItem>
               </CAccordion>
             </CTabPane>
+
           </CTabContent>
 
-          {/* Action Buttons */}
+          {/* ── Global action buttons ─────────────────────── */}
           <CRow className="mt-4">
             <CCol className="d-flex justify-content-between">
-              <CButton 
-                color="secondary" 
-                variant="outline"
-                onClick={() => navigate('/babysite/sortGes')}
-              >
-                <CIcon icon={cilArrowLeft} className="me-2" />
-                Volver a la lista
+              <CButton color="secondary" variant="outline" onClick={() => navigate('/babysite/sortGes')}>
+                <CIcon icon={cilArrowLeft} className="me-2" />Volver a la lista
               </CButton>
-              <CButton 
-                color="primary" 
-                className="app-button"
-                onClick={handleSave}
-                disabled={saving}
-              >
+              <CButton color="primary" className="app-button" onClick={handleSave} disabled={saving}>
                 {saving ? (
-                  <>
-                    <CSpinner size="sm" className="me-2" />
-                    Guardando...
-                  </>
+                  <><CSpinner size="sm" className="me-2" />Guardando...</>
                 ) : (
-                  <>
-                    <CIcon icon={cilSave} className="me-2" />
-                    Guardar cambios
-                  </>
+                  <><CIcon icon={cilSave} className="me-2" />Guardar cambios</>
                 )}
               </CButton>
             </CCol>
@@ -1918,105 +2030,231 @@ const SortGes = () => {
         </CCardBody>
       </CCard>
 
-      {/* Confirmation Modal for Field Lock */}
+      {/* ── Confirm lock modal ─────────────────────────────── */}
       <CModal visible={showConfirmModal} onClose={cancelFieldLock}>
-        <CModalHeader>
-          <CModalTitle>Confirmar guardado</CModalTitle>
-        </CModalHeader>
+        <CModalHeader><CModalTitle>Confirmar guardado</CModalTitle></CModalHeader>
         <CModalBody>
           <p>¿Desea guardar y bloquear este campo?</p>
-          {pendingFieldLock.field && (
-            <p><strong>Campo:</strong> {pendingFieldLock.field.replace(/_/g, ' ')}</p>
-          )}
-          {pendingFieldLock.value && (
-            <p><strong>Valor:</strong> {pendingFieldLock.value}</p>
-          )}
-          <p className="text-muted small">
-            Una vez bloqueado, necesitará una contraseña de administrador para poder editarlo.
-          </p>
+          {pendingFieldLock.field && <p><strong>Campo:</strong> {pendingFieldLock.field.replace(/_/g, ' ')}</p>}
+          {pendingFieldLock.value && <p><strong>Valor:</strong> {pendingFieldLock.value}</p>}
+          <p className="text-muted small">Una vez bloqueado, necesitará una contraseña de administrador para poder editarlo.</p>
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={cancelFieldLock}>
-            Cancelar
-          </CButton>
-          <CButton color="primary" onClick={confirmFieldLock}>
-            Guardar y bloquear
-          </CButton>
+          <CButton color="secondary" onClick={cancelFieldLock}>Cancelar</CButton>
+          <CButton color="primary" onClick={confirmFieldLock}>Guardar y bloquear</CButton>
         </CModalFooter>
       </CModal>
 
-      {/* Password Modal for Field Unlock */}
+      {/* ── Unlock password modal ──────────────────────────── */}
       <CModal visible={showPasswordModal} onClose={cancelUnlock}>
-        <CModalHeader>
-          <CModalTitle>Desbloquear campo</CModalTitle>
-        </CModalHeader>
+        <CModalHeader><CModalTitle>Desbloquear campo</CModalTitle></CModalHeader>
         <CModalBody>
           <p>Ingrese la contraseña de administrador para desbloquear este campo:</p>
           <CFormInput
-            type="password"
-            value={unlockPassword}
+            type="password" value={unlockPassword}
             onChange={(e) => setUnlockPassword(e.target.value)}
             placeholder="Contraseña"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') verifyPasswordAndUnlock();
-            }}
+            onKeyDown={(e) => { if (e.key === 'Enter') verifyPasswordAndUnlock(); }}
             invalid={!!passwordError}
           />
-          {passwordError && (
-            <div className="text-danger small mt-1">{passwordError}</div>
-          )}
+          {passwordError && <div className="text-danger small mt-1">{passwordError}</div>}
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={cancelUnlock}>
-            Cancelar
-          </CButton>
-          <CButton color="primary" onClick={verifyPasswordAndUnlock}>
-            Desbloquear
+          <CButton color="secondary" onClick={cancelUnlock}>Cancelar</CButton>
+          <CButton color="primary" onClick={verifyPasswordAndUnlock}>Desbloquear</CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: Nuevo / Editar Seguro de Vida ──────────── */}
+      <CModal visible={modalVida === 'new'} onClose={() => setModalVida(null)} size="lg">
+        <CModalHeader>
+          <CModalTitle>{editingVidaId !== null ? 'Editar seguro de vida' : 'Nuevo seguro de vida'}</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <CRow>
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Fecha de alta:</CFormLabel>
+              <CFormInput type="date" value={formVida.fecha_alta} onChange={e => setFormVida(p => ({ ...p, fecha_alta: e.target.value }))} />
+            </CCol>
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Aseguradora:</CFormLabel>
+              <CFormInput placeholder="Ej. GNP, Metlife…" value={formVida.aseguradora} onChange={e => setFormVida(p => ({ ...p, aseguradora: e.target.value }))} />
+            </CCol>
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Gestor:</CFormLabel>
+              <CFormInput placeholder="Nombre del gestor" value={formVida.gestor} onChange={e => setFormVida(p => ({ ...p, gestor: e.target.value }))} />
+            </CCol>
+            <CCol md={3} className="mb-3">
+              <CFormLabel>Cuotas:</CFormLabel>
+              <CFormInput type="number" min="1" placeholder="Nº de cuotas" value={formVida.cuotas} onChange={e => setFormVida(p => ({ ...p, cuotas: e.target.value }))} />
+            </CCol>
+            <CCol md={3} className="mb-3">
+              <CFormLabel>Valor:</CFormLabel>
+              <CInputGroup>
+                <CInputGroupText>$</CInputGroupText>
+                <CFormInput type="number" min="0" step="0.01" placeholder="0.00" value={formVida.valor} onChange={e => setFormVida(p => ({ ...p, valor: e.target.value }))} />
+              </CInputGroup>
+            </CCol>
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Vencimiento cobertura:</CFormLabel>
+              <CFormInput type="date" value={formVida.vencimiento} onChange={e => setFormVida(p => ({ ...p, vencimiento: e.target.value }))} />
+            </CCol>
+          </CRow>
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={() => setModalVida(null)}>Cancelar</CButton>
+          <CButton
+            color="primary"
+            onClick={saveVida}
+            style={{ backgroundColor: '#899973', borderColor: '#899973' }}
+          >
+            <CIcon icon={cilSave} className="me-1" />
+            {editingVidaId !== null ? 'Actualizar' : 'Registrar'}
           </CButton>
         </CModalFooter>
       </CModal>
 
-      {/* Custom styles for tabs */}
+      {/* ── Modal: Nuevo Seguro de Maternidad ─────────────── */}
+      <CModal visible={modalMat === 'new'} onClose={() => setModalMat(null)} size="lg">
+        <CModalHeader>
+          <CModalTitle>Nuevo seguro de maternidad</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <CRow>
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Gestor:</CFormLabel>
+              <CFormInput placeholder="Nombre del gestor" value={formMat.gestor} onChange={e => setFormMat(p => ({ ...p, gestor: e.target.value }))} />
+            </CCol>
+            <CCol md={3} className="mb-3">
+              <CFormLabel>Cantidad de cuotas:</CFormLabel>
+              <CFormInput type="number" min="1" placeholder="Ej. 4" value={formMat.cantidad_cuotas} onChange={e => setFormMat(p => ({ ...p, cantidad_cuotas: e.target.value }))} />
+            </CCol>
+            <CCol md={3} className="mb-3">
+              <CFormLabel>Valor por cuota:</CFormLabel>
+              <CInputGroup>
+                <CInputGroupText>$</CInputGroupText>
+                <CFormInput type="number" min="0" step="0.01" placeholder="0.00" value={formMat.valor_cuota} onChange={e => setFormMat(p => ({ ...p, valor_cuota: e.target.value }))} />
+              </CInputGroup>
+            </CCol>
+            <CCol md={4} className="mb-3">
+              <CFormLabel>Fecha de liberación:</CFormLabel>
+              <CFormInput type="date" value={formMat.fecha_liberacion} onChange={e => setFormMat(p => ({ ...p, fecha_liberacion: e.target.value }))} />
+            </CCol>
+            <CCol md={4} className="mb-3">
+              <CFormLabel>Fecha de alta:</CFormLabel>
+              <CFormInput type="date" value={formMat.fecha_alta} onChange={e => setFormMat(p => ({ ...p, fecha_alta: e.target.value }))} />
+            </CCol>
+            <CCol md={4} className="mb-3">
+              <CFormLabel>Fecha de vencimiento:</CFormLabel>
+              <CFormInput type="date" value={formMat.fecha_vencimiento} onChange={e => setFormMat(p => ({ ...p, fecha_vencimiento: e.target.value }))} />
+            </CCol>
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Aseguradora:</CFormLabel>
+              <CFormInput placeholder="Ej. GNP, Metlife…" value={formMat.aseguradora} onChange={e => setFormMat(p => ({ ...p, aseguradora: e.target.value }))} />
+            </CCol>
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Número de póliza:</CFormLabel>
+              <CFormInput placeholder="Ej. POL-000456" value={formMat.numero_poliza} onChange={e => setFormMat(p => ({ ...p, numero_poliza: e.target.value }))} />
+            </CCol>
+          </CRow>
+          {/* Preview of generated cuotas */}
+          {formMat.cantidad_cuotas && formMat.fecha_liberacion && (
+            <div className="mt-2">
+              <p className="text-muted small mb-2">Vista previa de cuotas generadas:</p>
+              <div className="d-flex flex-wrap gap-2">
+                {buildPagos(formMat.cantidad_cuotas, formMat.valor_cuota, formMat.fecha_liberacion).map(c => (
+                  <CBadge key={c.cuota_num} color="secondary">
+                    {c.cuota_num}/{c.total} — {c.vencimiento}
+                  </CBadge>
+                ))}
+              </div>
+            </div>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={() => setModalMat(null)}>Cancelar</CButton>
+          <CButton
+            color="primary"
+            onClick={saveMat}
+            style={{ backgroundColor: '#899973', borderColor: '#899973' }}
+          >
+            <CIcon icon={cilSave} className="me-1" />Registrar
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: Registrar Pago de Cuota ────────────────── */}
+      <CModal visible={modalMat === 'pago'} onClose={() => setModalMat(null)}>
+        <CModalHeader>
+          <CModalTitle>Registrar pago</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          {pagoTarget.cuotaNum && (
+            <p className="text-muted small mb-3">
+              Cuota <strong>{pagoTarget.cuotaNum}</strong> de la póliza seleccionada.
+            </p>
+          )}
+          <CFormLabel>Fecha de pago:</CFormLabel>
+          <CFormInput
+            type="date"
+            value={fechaPagoInput}
+            onChange={e => setFechaPagoInput(e.target.value)}
+          />
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={() => setModalMat(null)}>Cancelar</CButton>
+          <CButton
+            color="success"
+            onClick={savePago}
+            disabled={!fechaPagoInput}
+          >
+            <CIcon icon={cilSave} className="me-1" />Confirmar pago
+          </CButton>
+        </CModalFooter>
+      </CModal>
+      {/* ── Historial unlock modal ────────────────────────── */}
+      <CModal visible={showHistorialModal} onClose={cancelHistorialUnlock}>
+        <CModalHeader>
+          <CModalTitle>
+            <CIcon icon={cilLockLocked} className="me-2 text-warning" />
+            Historial de seguimiento
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="text-muted small mb-3">
+            Esta sección es confidencial. Ingrese la contraseña para ver y editar el historial.
+          </p>
+          <CFormLabel>Contraseña:</CFormLabel>
+          <CFormInput
+            type="password"
+            value={historialPassword}
+            onChange={e => setHistorialPassword(e.target.value)}
+            placeholder="Contraseña"
+            onKeyDown={e => { if (e.key === 'Enter') confirmHistorialUnlock(); }}
+            invalid={!!historialPasswordError}
+            autoFocus
+          />
+          {historialPasswordError && (
+            <div className="text-danger small mt-1">{historialPasswordError}</div>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={cancelHistorialUnlock}>Cancelar</CButton>
+          <CButton color="warning" onClick={confirmHistorialUnlock} disabled={!historialPassword}>
+            <CIcon icon={cilLockUnlocked} className="me-1" />Desbloquear
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
       <style>{`
-        .nav-link:hover {
-          opacity: 0.85;
-        }
-        .accordion-button:not(.collapsed) {
-          background-color: #f8f9fa;
-          color: #333;
-        }
-        .accordion-button:focus {
-          box-shadow: none;
-          border-color: rgba(0,0,0,.125);
-        }
-        .remove-file-btn {
-          background: transparent !important;
-          border: none !important;
-          box-shadow: none !important;
-        }
-        .remove-file-btn:hover {
-          background: transparent !important;
-          border: none !important;
-          box-shadow: none !important;
-        }
-        .remove-file-btn:focus {
-          background: transparent !important;
-          border: none !important;
-          box-shadow: none !important;
-        }
-        .form-check-input:checked {
-          background-color: #0071b8 !important;
-          border-color: #0071b8 !important;
-        }
-        .form-check-input:focus {
-          border-color: #0071b8 !important;
-          box-shadow: 0 0 0 0.25rem rgba(0, 113, 184, 0.25) !important;
-        }
-        .pdf-upload-btn:hover {
-          background-color: #0071b8 !important;
-          border-color: #0071b8 !important;
-          color: #fff !important;
-        }
+        .nav-link:hover { opacity: 0.85; }
+        .accordion-button:not(.collapsed) { background-color: #f8f9fa; color: #333; }
+        .accordion-button:focus { box-shadow: none; border-color: rgba(0,0,0,.125); }
+        .remove-file-btn { background: transparent !important; border: none !important; box-shadow: none !important; }
+        .remove-file-btn:hover, .remove-file-btn:focus { background: transparent !important; border: none !important; box-shadow: none !important; }
+        .form-check-input:checked { background-color: #0071b8 !important; border-color: #0071b8 !important; }
+        .form-check-input:focus { border-color: #0071b8 !important; box-shadow: 0 0 0 0.25rem rgba(0, 113, 184, 0.25) !important; }
+        .pdf-upload-btn:hover { background-color: #0071b8 !important; border-color: #0071b8 !important; color: #fff !important; }
       `}</style>
     </CContainer>
   );
