@@ -134,34 +134,54 @@ const SortGes = () => {
 
   // ─────────────────────────────────────────────────────────────
   // SEGURO MED — Seguro de Vida
-  // Each entry: { id, fecha_alta, aseguradora, gestor, cuotas, valor, vencimiento }
+  // Each entry: { id, fecha_alta, aseguradora, gestor, cuotas, valor, vencimiento,
+  //               pago_monto, pago_fecha }
+  // cuotas is ALWAYS 1 — fixed, never user-editable
   // ─────────────────────────────────────────────────────────────
   const [segurosVida, setSegurosVida] = useState([]);
-  // Modal: 'new' | 'edit' | 'detail' | null
+  // Modal: 'new' | 'pago' | null
   const [modalVida, setModalVida] = useState(null);
   const [editingVidaId, setEditingVidaId] = useState(null);
-  const VIDA_EMPTY = { fecha_alta: '', aseguradora: '', gestor: '', cuotas: '', valor: '', vencimiento: '' };
+  const VIDA_EMPTY = { fecha_alta: '', aseguradora: '', gestor: '', cuotas: '1', valor: '', vencimiento: '', pago_monto: '', pago_fecha: '' };
   const [formVida, setFormVida] = useState(VIDA_EMPTY);
   const [detailVida, setDetailVida] = useState(null); // which record to show detail for
 
+  // Edit-password gate for Seguro de Vida
+  const [showVidaEditModal, setShowVidaEditModal] = useState(false);
+  const [vidaEditTarget, setVidaEditTarget] = useState(null); // the seg object to edit after password
+  const [vidaEditPassword, setVidaEditPassword] = useState('');
+  const [vidaEditPasswordError, setVidaEditPasswordError] = useState('');
+
+  // Payment-only edit gate (separate from general info edit)
+  const [showVidaPagoEditModal, setShowVidaPagoEditModal] = useState(false);
+  const [vidaPagoEditTarget, setVidaPagoEditTarget] = useState(null);
+  const [vidaPagoEditPassword, setVidaPagoEditPassword] = useState('');
+  const [vidaPagoEditPasswordError, setVidaPagoEditPasswordError] = useState('');
+  const [editingPagoVidaId, setEditingPagoVidaId] = useState(null); // segId whose payment is being edited
+
+  // Staged (unsaved) payment inputs per segId: { [segId]: { monto, fecha } }
+  const [pendingPagoVida, setPendingPagoVida] = useState({});
+
   // ─────────────────────────────────────────────────────────────
   // SEGURO MED — Seguro de Maternidad
-  // Each policy: { id, gestor, cantidad_cuotas, valor_cuota, fecha_liberacion,
-  //               fecha_alta, fecha_vencimiento, aseguradora, numero_poliza,
-  //               pagos: [{ cuota_num, vencimiento, fecha_pago, status }] }
+  // Each policy: { id, gestor, tipo_pago, valor_cuota, fecha_alta,
+  //               fecha_liberacion, fecha_vencimiento, aseguradora, numero_poliza,
+  //               pagos: [{ cuota_num, total, vencimiento, fecha_pago, status }] }
   // ─────────────────────────────────────────────────────────────
   const [segurosMat, setSegurosMat] = useState([]);
   // Modal: 'new' | 'pago' | null
   const [modalMat, setModalMat] = useState(null);
+  const [editingMatId, setEditingMatId] = useState(null);
   const MAT_EMPTY = {
-    gestor: '', cantidad_cuotas: '', valor_cuota: '',
-    fecha_liberacion: '', fecha_alta: '', fecha_vencimiento: '',
+    gestor: '', tipo_pago: '', valor_cuota: '', total_estimado: '',
+    fecha_solicitud: '', fecha_alta: '', fecha_liberacion: '', fecha_vencimiento: '',
     aseguradora: '', numero_poliza: '',
   };
   const [formMat, setFormMat] = useState(MAT_EMPTY);
   // For "Añadir pago" modal: which policy + which cuota row
-  const [pagoTarget, setPagoTarget] = useState({ polizaId: null, cuotaNum: null });
+  const [pagoTarget, setPagoTarget] = useState({ polizaId: null, cuotaNum: null, valorSugerido: '' });
   const [fechaPagoInput, setFechaPagoInput] = useState('');
+  const [montoPagoInput, setMontoPagoInput] = useState('');
 
   const [savingSeguro, setSavingSeguro] = useState(false);
 
@@ -331,19 +351,44 @@ const SortGes = () => {
     return { label: 'Esperando pago', color: 'info' };
   };
 
-  // Build pagos array from cantidad_cuotas + fecha_liberacion + valor_cuota
-  const buildPagos = (cantidad, valorCuota, fechaLiberacion) => {
-    const n = parseInt(cantidad, 10);
-    if (!n || n < 1) return [];
-    return Array.from({ length: n }, (_, i) => {
-      let vencimiento = '';
-      if (fechaLiberacion) {
-        const d = new Date(fechaLiberacion);
-        d.setMonth(d.getMonth() + i);
-        vencimiento = d.toISOString().split('T')[0];
-      }
-      return { cuota_num: i + 1, total: n, vencimiento, fecha_pago: '', status: 'pendiente' };
+  // Tipo de pago config: months between payments, total payments over ~9 months coverage
+  const TIPO_PAGO_CONFIG = {
+    mensual:     { intervalo: 1,  label: 'Mensual',     cuotas: 12 },
+    bimestral:   { intervalo: 2,  label: 'Bimestral',   cuotas: 6  },
+    trimestral:  { intervalo: 3,  label: 'Trimestral',  cuotas: 3  },
+    semestral:   { intervalo: 6,  label: 'Semestral',   cuotas: 2  },
+    anual:       { intervalo: 12, label: 'Anual',       cuotas: 1  },
+  };
+
+  // Build pagos from tipo_pago + fecha_alta (payments start at month+intervalo − 10 days)
+  const buildPagos = (tipoPago, valorCuota, fechaAlta) => {
+    const cfg = TIPO_PAGO_CONFIG[tipoPago];
+    if (!cfg || !fechaAlta) return [];
+    const base = new Date(fechaAlta);
+    return Array.from({ length: cfg.cuotas }, (_, i) => {
+      // Advance (i+1) intervals from alta, then subtract 10 days
+      const d = new Date(base);
+      d.setMonth(d.getMonth() + cfg.intervalo * (i + 1));
+      d.setDate(d.getDate() - 10);
+      const vencimiento = d.toISOString().split('T')[0];
+      return { cuota_num: i + 1, total: cfg.cuotas, vencimiento, fecha_pago: '', status: 'pendiente' };
     });
+  };
+
+  // Compute suggested fecha_liberacion = fecha_alta + 90 days
+  const computeMatLiberacion = (fechaAlta) => {
+    if (!fechaAlta) return '';
+    const d = new Date(fechaAlta);
+    d.setDate(d.getDate() + 90);
+    return d.toISOString().split('T')[0];
+  };
+
+  // Compute total estimate label for the modal
+  const computeMatTotal = (tipoPago, valorCuota) => {
+    const cfg = TIPO_PAGO_CONFIG[tipoPago];
+    if (!cfg || !valorCuota) return null;
+    const total = cfg.cuotas * parseFloat(valorCuota);
+    return { cuotas: cfg.cuotas, total };
   };
 
   // ─────────────────────────────────────────────────────────────
@@ -402,61 +447,159 @@ const SortGes = () => {
   const fetchCandidate = async () => {
     try {
       setLoading(true);
-      // TODO: Replace with actual API endpoint
-      // const res = await api.get(`/api/sort-ges/${id}`, { withCredentials: true });
-      const mockData = {
-        id: parseInt(id), nombre: 'Maria', apellido: 'de Las Flores Vasquez',
-        foto: 'https://randomuser.me/api/portraits/women/1.jpg',
-        direccion: 'Calle de la Gloria Altiva 36 Lote 5',
-        ciudad: 'Miguel Hidalgo', estado: 'Mexico', cp: '25001',
-        telefono: '+52 5514789658', status: 'iniciales',
-        ip_responsable: 'Ronaldo Fenomeno',
-        nombre_completo: 'Maria de Las Flores Vasquez',
-        curp: 'FLVM900515HDFRRS09', rfc: 'FLVM900515AB1',
-        esquema_ofrecido: '$400,000.00',
-        tel_1: '+52 5514789658', tel_2: '+52 5512345678',
-        email: 'maria.flores@email.com', estado_civil: 'casada',
-        rni: 'RNI-2024-001234', fecha_nacimiento: '1990-05-15',
-        banco: 'BBVA', clabe_interbancaria: '012345678901234567',
-        numero: '36', postal: '25001', alcaldia_municipio: 'Miguel Hidalgo',
-        ocupacion: 'Profesionista', tipo_sangre: 'O+', peso: '65',
-        fumador: false, metodo_aco: 'diu_cobre', embarazos: '2',
-        cesareas: '0', partos: '2', abortos: '0', altura: '1.65',
-        fumador_desde: '', tiempo_metodo_aco: '2022-01-15',
-        fecha_ultima_menstruacion: '2024-01-10', hijos: '2', ultima_cesarea: '',
-      };
-      setCandidate(mockData);
+
+      // Load candidate + all tabs in parallel
+      const [candidateRes, altaRes, checklistRes, vidaRes, matRes, psicoRes, segRes] =
+        await Promise.all([
+          api.get(`/api/sort-ges/${id}`,               { withCredentials: true }),
+          api.get(`/api/sort-ges/${id}/alta-gesca`,    { withCredentials: true }),
+          api.get(`/api/sort-ges/${id}/checklist`,     { withCredentials: true }),
+          api.get(`/api/sort-ges/${id}/seguro-vida`,   { withCredentials: true }),
+          api.get(`/api/sort-ges/${id}/seguro-mat`,    { withCredentials: true }),
+          api.get(`/api/sort-ges/${id}/psico-inicial`, { withCredentials: true }),
+          api.get(`/api/sort-ges/${id}/seguimiento`,   { withCredentials: true }),
+        ]);
+
+      // ── Candidate master ─────────────────────────────────────
+      setCandidate(candidateRes.data);
+
+      // ── Alta GESCA ───────────────────────────────────────────
+      const a = altaRes.data || {};
       setRegistroInicial({
-        nombre_completo: mockData.nombre_completo || '',
-        curp: mockData.curp || '', rfc: mockData.rfc || '',
-        esquema_ofrecido: mockData.esquema_ofrecido || '$400,000.00',
-        tel_1: mockData.tel_1 || '', tel_2: mockData.tel_2 || '',
-        email: mockData.email || '', estado_civil: mockData.estado_civil || '',
-        rni: mockData.rni || '', fecha_nacimiento: mockData.fecha_nacimiento || '',
-        edad: '', banco: mockData.banco || '',
-        clabe_interbancaria: mockData.clabe_interbancaria || '',
-        direccion: mockData.direccion || '', numero: mockData.numero || '',
-        postal: mockData.postal || '', alcaldia_municipio: mockData.alcaldia_municipio || '',
-        estado: mockData.estado || '', ocupacion: mockData.ocupacion || '',
+        nombre_completo:     a.nombre_completo     || '',
+        curp:                a.curp                || '',
+        rfc:                 a.rfc                 || '',
+        esquema_ofrecido:    a.esquema_ofrecido    || '$400,000.00',
+        tel_1:               a.tel_1               || '',
+        tel_2:               a.tel_2               || '',
+        email:               a.email               || '',
+        estado_civil:        a.estado_civil        || '',
+        rni:                 a.rni                 || '',
+        fecha_nacimiento:    a.fecha_nacimiento    || '',
+        edad:                '',
+        banco:               a.banco               || '',
+        clabe_interbancaria: a.clabe_interbancaria || '',
+        direccion:           a.direccion           || '',
+        numero:              a.numero              || '',
+        postal:              a.postal              || '',
+        alcaldia_municipio:  a.alcaldia_municipio  || '',
+        estado:              a.estado              || '',
+        ocupacion:           a.ocupacion           || '',
       });
       setDatosSalud({
-        tipo_sangre: mockData.tipo_sangre || '', peso: mockData.peso || '',
-        fumador: mockData.fumador || false, metodo_aco: mockData.metodo_aco || '',
-        embarazos: mockData.embarazos || '', cesareas: mockData.cesareas || '',
-        partos: mockData.partos || '', abortos: mockData.abortos || '',
-        altura: mockData.altura || '', imc: '', imc_clasificacion: '',
-        fumador_desde: mockData.fumador_desde || '',
-        tiempo_metodo_aco: mockData.tiempo_metodo_aco || '',
-        fecha_ultima_menstruacion: mockData.fecha_ultima_menstruacion || '',
-        hijos: mockData.hijos || '', ultima_cesarea: mockData.ultima_cesarea || '',
+        tipo_sangre:               a.tipo_sangre               || '',
+        peso:                      a.peso                      || '',
+        fumador:                   !!a.fumador,
+        metodo_aco:                a.metodo_aco                || '',
+        embarazos:                 a.embarazos                 || '',
+        cesareas:                  a.cesareas                  || '',
+        partos:                    a.partos                    || '',
+        abortos:                   a.abortos                   || '',
+        altura:                    a.altura                    || '',
+        imc:                       '',
+        imc_clasificacion:         '',
+        fumador_desde:             a.fumador_desde             || '',
+        tiempo_metodo_aco:         a.tiempo_metodo_aco         || '',
+        fecha_ultima_menstruacion: a.fecha_ultima_menstruacion || '',
+        hijos:                     a.hijos                     || '',
+        ultima_cesarea:            a.ultima_cesarea            || '',
+      });
+      // Restore field lock state persisted in DB
+      if (a.locked_fields) {
+        try {
+          const parsed = typeof a.locked_fields === 'string'
+            ? JSON.parse(a.locked_fields) : a.locked_fields;
+          setLockedFields(parsed || {});
+        } catch (_) {}
+      }
+
+      // ── Checklist ────────────────────────────────────────────
+      const cl = checklistRes.data || {};
+      setDocumentos({
+        certificado_nacimiento: cl.certificado_nacimiento_url ? { name: cl.certificado_nacimiento_url } : null,
+        curp:                   cl.curp_url                   ? { name: cl.curp_url }                   : null,
+        comprobante_domicilio:  cl.comprobante_domicilio_url  ? { name: cl.comprobante_domicilio_url }  : null,
+        poliza_seguro:          cl.poliza_seguro_url          ? { name: cl.poliza_seguro_url }          : null,
+        cita_entrega:           cl.cita_entrega               || '',
+      });
+      setConsentimientos({
+        cita_firma:                   cl.cita_firma                      || '',
+        consentimiento_informado:     !!cl.consentimiento_informado,
+        consentimiento_transferencia: !!cl.consentimiento_transferencia,
+        aviso_privacidad:             !!cl.aviso_privacidad,
+        informacion_personal:         !!cl.informacion_personal,
+        regular:                      !!cl.regular,
+        hiv:                          !!cl.hiv,
+        gemelar:                      !!cl.gemelar,
+        full:                         !!cl.full_consent,
       });
 
-      // TODO: also load seguro data
-      // const segRes = await api.get(`/api/sort-ges/${id}/seguro-med`, { withCredentials: true });
-      // if (segRes.data?.data) { populate seguroVida / seguroMaternidad }
+      // ── Seguro de Vida ───────────────────────────────────────
+      setSegurosVida((vidaRes.data || []).map(v => ({
+        id:          v.id,
+        fecha_alta:  v.fecha_alta  || '',
+        aseguradora: v.aseguradora || '',
+        gestor:      v.gestor      || '',
+        cuotas:      '1',
+        valor:       v.valor       || '',
+        vencimiento: v.vencimiento || '',
+        pago_monto:  v.pago_monto  || '',
+        pago_fecha:  v.fecha_pago  || '',
+      })));
+
+      // ── Seguro de Maternidad ─────────────────────────────────
+      setSegurosMat((matRes.data || []).map(p => ({
+        id:               p.id,
+        gestor:           p.gestor            || '',
+        tipo_pago:        p.tipo_pago         || '',
+        valor_cuota:      p.valor_cuota       || '',
+        total_estimado:   p.total_estimado    || '',
+        fecha_solicitud:  p.fecha_solicitud   || '',
+        fecha_alta:       p.fecha_alta        || '',
+        fecha_liberacion: p.fecha_liberacion  || '',
+        fecha_vencimiento:p.fecha_vencimiento || '',
+        aseguradora:      p.aseguradora       || '',
+        numero_poliza:    p.numero_poliza     || '',
+        pagos: (p.pagos || []).map(c => ({
+          cuota_num:  c.cuota_num,
+          total:      c.total_cuotas,
+          vencimiento:c.vencimiento || '',
+          fecha_pago: c.fecha_pago  || '',
+          monto_pago: c.monto_pago  || '',
+          status:     c.status      || 'pendiente',
+        })),
+      })));
+
+      // ── Psico Inicial ────────────────────────────────────────
+      const psicoRows = psicoRes.data || [];
+      if (psicoRows.length > 0) {
+        setPsicoInicial(psicoRows.map(r => ({
+          id:           r.etapa_orden,
+          etapa:        r.etapa,
+          fecha:        r.fecha         || '',
+          estado:       r.estado        || '',
+          recomendacion:r.recomendacion || '',
+        })));
+      }
+
+      // ── Seguimientos ─────────────────────────────────────────
+      setSeguimientos((segRes.data || []).map(s => ({
+        id:          s.id,
+        etapa:       s.etapa        || '',
+        motivo:      s.motivo       || '',
+        complemento: s.complemento  || '',
+        complemento2:s.complemento2 || '',
+        programar:   s.programar    || '',
+        status:      'sin_dts',      // always re-derived client-side from date
+        asistencia:  s.asistencia   || '',
+        informe:     s.informe      || '',
+        incidencia:  s.incidencia   || '',
+        historial:   s.historial    || '',
+      })));
 
       setError(null);
     } catch (err) {
+      console.error('Error fetching candidate:', err);
       setError('Error al cargar los datos del candidato');
     } finally {
       setLoading(false);
@@ -487,68 +630,323 @@ const SortGes = () => {
   };
 
   // ── Seguro de Vida CRUD ──────────────────────────────────────
+
+  // Auto-compute vencimiento = fecha_alta + 1 year
+  const computeVidaVencimiento = (fechaAlta) => {
+    if (!fechaAlta) return '';
+    const d = new Date(fechaAlta);
+    d.setFullYear(d.getFullYear() + 1);
+    return d.toISOString().split('T')[0];
+  };
+
   const openNuevoVida = () => {
     setFormVida(VIDA_EMPTY);
     setEditingVidaId(null);
     setModalVida('new');
   };
-  const openEditVida = (seg) => {
-    setFormVida({ fecha_alta: seg.fecha_alta, aseguradora: seg.aseguradora, gestor: seg.gestor, cuotas: seg.cuotas, valor: seg.valor, vencimiento: seg.vencimiento });
-    setEditingVidaId(seg.id);
-    setModalVida('new');
+
+  // Password gate — user clicks "Editar" → password modal → then openEditVida
+  const requestEditVida = (seg) => {
+    setVidaEditTarget(seg);
+    setVidaEditPassword('');
+    setVidaEditPasswordError('');
+    setShowVidaEditModal(true);
   };
-  const saveVida = () => {
-    if (editingVidaId !== null) {
-      setSegurosVida(prev => prev.map(s => s.id === editingVidaId ? { ...s, ...formVida } : s));
+  const confirmVidaEdit = () => {
+    if (vidaEditPassword === UNLOCK_PASSWORD) {
+      setFormVida({
+        fecha_alta: vidaEditTarget.fecha_alta,
+        aseguradora: vidaEditTarget.aseguradora,
+        gestor: vidaEditTarget.gestor,
+        cuotas: '1',
+        valor: vidaEditTarget.valor,
+        vencimiento: vidaEditTarget.vencimiento,
+        pago_monto: vidaEditTarget.pago_monto || '',
+        pago_fecha: vidaEditTarget.pago_fecha || '',
+      });
+      setEditingVidaId(vidaEditTarget.id);
+      setShowVidaEditModal(false);
+      setVidaEditTarget(null);
+      setVidaEditPassword('');
+      setVidaEditPasswordError('');
+      setModalVida('new');
     } else {
-      const newId = Date.now();
-      setSegurosVida(prev => [...prev, { id: newId, ...formVida }]);
+      setVidaEditPasswordError('Contraseña incorrecta');
+    }
+  };
+  const cancelVidaEdit = () => {
+    setShowVidaEditModal(false);
+    setVidaEditTarget(null);
+    setVidaEditPassword('');
+    setVidaEditPasswordError('');
+  };
+
+  // Payment-only edit gate
+  const requestEditPagoVida = (seg) => {
+    setVidaPagoEditTarget(seg);
+    setVidaPagoEditPassword('');
+    setVidaPagoEditPasswordError('');
+    setShowVidaPagoEditModal(true);
+  };
+  const confirmVidaPagoEdit = () => {
+    if (vidaPagoEditPassword === UNLOCK_PASSWORD) {
+      // Pre-fill pending with current saved values so inputs are not empty
+      setPendingPagoVida(prev => ({
+        ...prev,
+        [vidaPagoEditTarget.id]: {
+          monto: vidaPagoEditTarget.pago_monto || '',
+          fecha: vidaPagoEditTarget.pago_fecha || new Date().toISOString().split('T')[0],
+        },
+      }));
+      setEditingPagoVidaId(vidaPagoEditTarget.id);
+      setShowVidaPagoEditModal(false);
+      setVidaPagoEditTarget(null);
+      setVidaPagoEditPassword('');
+      setVidaPagoEditPasswordError('');
+    } else {
+      setVidaPagoEditPasswordError('Contraseña incorrecta');
+    }
+  };
+  const cancelVidaPagoEdit = () => {
+    setShowVidaPagoEditModal(false);
+    setVidaPagoEditTarget(null);
+    setVidaPagoEditPassword('');
+    setVidaPagoEditPasswordError('');
+  };
+
+  // Commit staged payment to the record
+  const saveVidaPago = async (segId) => {
+    const p = pendingPagoVida[segId];
+    if (!p) return;
+    try {
+      await api.put(
+        `/api/sort-ges/${id}/seguro-vida/${segId}/pago`,
+        { monto: p.monto, fecha_pago: p.fecha },
+        { withCredentials: true }
+      );
+      setSegurosVida(prev => prev.map(s =>
+        s.id === segId ? { ...s, pago_monto: p.monto, pago_fecha: p.fecha } : s
+      ));
+      setPendingPagoVida(prev => { const n = { ...prev }; delete n[segId]; return n; });
+      setEditingPagoVidaId(null);
+      showNotification('success', 'Pago guardado correctamente');
+    } catch (err) {
+      showNotification('danger', 'Error al guardar el pago');
+    }
+  };
+
+  const saveVida = async () => {
+    try {
+      const payload = { ...formVida, cuotas: 1 };
+      if (editingVidaId !== null) {
+        await api.put(`/api/sort-ges/${id}/seguro-vida/${editingVidaId}`, payload, { withCredentials: true });
+        setSegurosVida(prev => prev.map(s => s.id === editingVidaId ? { ...s, ...payload } : s));
+        showNotification('success', 'Seguro actualizado');
+      } else {
+        const res = await api.post(`/api/sort-ges/${id}/seguro-vida`, payload, { withCredentials: true });
+        setSegurosVida(prev => [...prev, {
+          id:          res.data.id,
+          fecha_alta:  res.data.fecha_alta  || '',
+          aseguradora: res.data.aseguradora || '',
+          gestor:      res.data.gestor      || '',
+          cuotas:      '1',
+          valor:       res.data.valor       || '',
+          vencimiento: res.data.vencimiento || '',
+          pago_monto:  '',
+          pago_fecha:  '',
+        }]);
+        showNotification('success', 'Seguro de vida registrado');
+      }
+    } catch (err) {
+      console.error(err);
+      showNotification('danger', 'Error al guardar el seguro de vida');
     }
     setModalVida(null);
-    showNotification('success', editingVidaId ? 'Seguro actualizado' : 'Seguro de vida registrado');
   };
-  const deleteVida = (segId) => {
-    setSegurosVida(prev => prev.filter(s => s.id !== segId));
-    showNotification('info', 'Seguro eliminado');
+
+  const deleteVida = async (segId) => {
+    try {
+      await api.delete(`/api/sort-ges/${id}/seguro-vida/${segId}`, { withCredentials: true });
+      setSegurosVida(prev => prev.filter(s => s.id !== segId));
+      if (detailVida === segId) setDetailVida(null);
+      showNotification('info', 'Seguro eliminado');
+    } catch (err) {
+      showNotification('danger', 'Error al eliminar el seguro');
+    }
   };
 
   // ── Seguro de Maternidad CRUD ────────────────────────────────
   const openNuevoMat = () => {
     setFormMat(MAT_EMPTY);
+    setEditingMatId(null);
     setModalMat('new');
   };
-  const saveMat = () => {
-    const newId = Date.now();
-    const pagos = buildPagos(formMat.cantidad_cuotas, formMat.valor_cuota, formMat.fecha_liberacion);
-    setSegurosMat(prev => [...prev, { id: newId, ...formMat, pagos }]);
-    setModalMat(null);
-    showNotification('success', 'Seguro de maternidad registrado');
+  const openEditMat = (poliza) => {
+    setFormMat({
+      gestor:           poliza.gestor || '',
+      tipo_pago:        poliza.tipo_pago || '',
+      valor_cuota:      poliza.valor_cuota || '',
+      total_estimado:   poliza.total_estimado || '',
+      fecha_solicitud:  poliza.fecha_solicitud || '',
+      fecha_alta:       poliza.fecha_alta || '',
+      fecha_liberacion: poliza.fecha_liberacion || '',
+      fecha_vencimiento:poliza.fecha_vencimiento || '',
+      aseguradora:      poliza.aseguradora || '',
+      numero_poliza:    poliza.numero_poliza || '',
+    });
+    setEditingMatId(poliza.id);
+    setModalMat('new');
   };
-  const deleteMat = (polizaId) => {
-    setSegurosMat(prev => prev.filter(p => p.id !== polizaId));
-    showNotification('info', 'Póliza eliminada');
+  const saveMat = async () => {
+    try {
+      const pagos = buildPagos(formMat.tipo_pago, formMat.valor_cuota, formMat.fecha_alta);
+      if (editingMatId !== null) {
+        const oldPoliza = segurosMat.find(p => p.id === editingMatId);
+        const rebuildPagos = formMat.tipo_pago !== oldPoliza?.tipo_pago
+          || formMat.fecha_alta !== oldPoliza?.fecha_alta;
+        await api.put(
+          `/api/sort-ges/${id}/seguro-mat/${editingMatId}`,
+          { ...formMat, rebuildPagos, pagos: rebuildPagos ? pagos : [] },
+          { withCredentials: true }
+        );
+        setSegurosMat(prev => prev.map(p =>
+          p.id === editingMatId
+            ? { ...p, ...formMat, pagos: rebuildPagos ? pagos : p.pagos }
+            : p
+        ));
+        showNotification('success', 'Póliza actualizada');
+      } else {
+        const res = await api.post(
+          `/api/sort-ges/${id}/seguro-mat`,
+          { ...formMat, pagos },
+          { withCredentials: true }
+        );
+        const data = res.data;
+        setSegurosMat(prev => [...prev, {
+          id:               data.id,
+          gestor:           data.gestor            || '',
+          tipo_pago:        data.tipo_pago         || '',
+          valor_cuota:      data.valor_cuota       || '',
+          total_estimado:   data.total_estimado    || '',
+          fecha_solicitud:  data.fecha_solicitud   || '',
+          fecha_alta:       data.fecha_alta        || '',
+          fecha_liberacion: data.fecha_liberacion  || '',
+          fecha_vencimiento:data.fecha_vencimiento || '',
+          aseguradora:      data.aseguradora       || '',
+          numero_poliza:    data.numero_poliza     || '',
+          pagos: (data.pagos || []).map(c => ({
+            cuota_num:  c.cuota_num,
+            total:      c.total_cuotas,
+            vencimiento:c.vencimiento || '',
+            fecha_pago: c.fecha_pago  || '',
+            monto_pago: c.monto_pago  || '',
+            status:     c.status      || 'pendiente',
+          })),
+        }]);
+        showNotification('success', 'Seguro de maternidad registrado');
+      }
+    } catch (err) {
+      console.error(err);
+      showNotification('danger', 'Error al guardar el seguro de maternidad');
+    }
+    setEditingMatId(null);
+    setModalMat(null);
   };
 
-  // Open "Guardar pago" modal for a specific cuota
-  const openPagoModal = (polizaId, cuotaNum) => {
-    setPagoTarget({ polizaId, cuotaNum });
+  const deleteMat = async (polizaId) => {
+    try {
+      await api.delete(`/api/sort-ges/${id}/seguro-mat/${polizaId}`, { withCredentials: true });
+      setSegurosMat(prev => prev.filter(p => p.id !== polizaId));
+      showNotification('info', 'Póliza eliminada');
+    } catch (err) {
+      showNotification('danger', 'Error al eliminar la póliza');
+    }
+  };
+
+  // Password gate for editing/removing a cuota payment
+  const [showMatPagoEditModal, setShowMatPagoEditModal] = useState(false);
+  const [matPagoEditAction, setMatPagoEditAction] = useState(null); // { type: 'edit'|'remove', polizaId, cuotaNum, valorSugerido }
+  const [matPagoEditPassword, setMatPagoEditPassword] = useState('');
+  const [matPagoEditPasswordError, setMatPagoEditPasswordError] = useState('');
+
+  const requestMatPagoAction = (type, polizaId, cuotaNum, valorSugerido) => {
+    setMatPagoEditAction({ type, polizaId, cuotaNum, valorSugerido });
+    setMatPagoEditPassword('');
+    setMatPagoEditPasswordError('');
+    setShowMatPagoEditModal(true);
+  };
+  const confirmMatPagoAction = async () => {
+    if (matPagoEditPassword !== UNLOCK_PASSWORD) {
+      setMatPagoEditPasswordError('Contraseña incorrecta');
+      return;
+    }
+    const { type, polizaId, cuotaNum, valorSugerido } = matPagoEditAction;
+    if (type === 'edit') {
+      openPagoModal(polizaId, cuotaNum, valorSugerido);
+    } else if (type === 'remove') {
+      try {
+        await api.delete(
+          `/api/sort-ges/${id}/seguro-mat/${polizaId}/cuotas/${cuotaNum}/pago`,
+          { withCredentials: true }
+        );
+        setSegurosMat(prev => prev.map(p => {
+          if (p.id !== polizaId) return p;
+          return {
+            ...p,
+            pagos: p.pagos.map(c =>
+              c.cuota_num === cuotaNum
+                ? { ...c, fecha_pago: '', monto_pago: '', status: 'pendiente' }
+                : c
+            ),
+          };
+        }));
+        showNotification('info', 'Pago eliminado');
+      } catch (err) {
+        showNotification('danger', 'Error al eliminar el pago');
+      }
+    }
+    setShowMatPagoEditModal(false);
+    setMatPagoEditAction(null);
+    setMatPagoEditPassword('');
+    setMatPagoEditPasswordError('');
+  };
+  const cancelMatPagoAction = () => {
+    setShowMatPagoEditModal(false);
+    setMatPagoEditAction(null);
+    setMatPagoEditPassword('');
+    setMatPagoEditPasswordError('');
+  };
+
+  // Open "Pagar" modal for a specific cuota — pre-fill amount and today's date
+  const openPagoModal = (polizaId, cuotaNum, valorSugerido) => {
+    setPagoTarget({ polizaId, cuotaNum, valorSugerido });
     setFechaPagoInput(new Date().toISOString().split('T')[0]);
+    setMontoPagoInput(valorSugerido ? String(valorSugerido) : '');
     setModalMat('pago');
   };
-  const savePago = () => {
-    setSegurosMat(prev => prev.map(p => {
-      if (p.id !== pagoTarget.polizaId) return p;
-      return {
-        ...p,
-        pagos: p.pagos.map(c =>
-          c.cuota_num === pagoTarget.cuotaNum
-            ? { ...c, fecha_pago: fechaPagoInput, status: 'abonado' }
-            : c
-        ),
-      };
-    }));
-    setModalMat(null);
-    showNotification('success', 'Pago registrado');
+  const savePago = async () => {
+    try {
+      await api.put(
+        `/api/sort-ges/${id}/seguro-mat/${pagoTarget.polizaId}/cuotas/${pagoTarget.cuotaNum}`,
+        { monto_pago: montoPagoInput, fecha_pago: fechaPagoInput, status: 'abonado' },
+        { withCredentials: true }
+      );
+      setSegurosMat(prev => prev.map(p => {
+        if (p.id !== pagoTarget.polizaId) return p;
+        return {
+          ...p,
+          pagos: p.pagos.map(c =>
+            c.cuota_num === pagoTarget.cuotaNum
+              ? { ...c, fecha_pago: fechaPagoInput, monto_pago: montoPagoInput, status: 'abonado' }
+              : c
+          ),
+        };
+      }));
+      setModalMat(null);
+      showNotification('success', 'Pago registrado');
+    } catch (err) {
+      showNotification('danger', 'Error al registrar el pago');
+    }
   };
   const anularCuota = (polizaId, cuotaNum) => {
     setSegurosMat(prev => prev.map(p => {
@@ -563,24 +961,58 @@ const SortGes = () => {
   };
 
   // ── Psico Inicial handlers ───────────────────────────────────
-  const handlePsicoInicialChange = (rowId, field, value) => {
+  const handlePsicoInicialChange = async (rowId, field, value) => {
     setPsicoInicial(prev => prev.map(r => r.id === rowId ? { ...r, [field]: value } : r));
+    try {
+      const row = psicoInicial.find(r => r.id === rowId);
+      await api.put(
+        `/api/sort-ges/${id}/psico-inicial/${rowId}`,
+        { fecha: row.fecha, estado: row.estado, recomendacion: row.recomendacion, [field]: value },
+        { withCredentials: true }
+      );
+    } catch (err) {
+      console.error('Error saving psico inicial:', err);
+    }
   };
 
   // ── Seguimiento Psicológico handlers ────────────────────────
-  const addSeguimiento = () => {
-    const newId = Date.now();
-    setSeguimientos(prev => [...prev, { id: newId, ...SEG_EMPTY }]);
-    setSeguimientoOpen(prev => [...prev, newId]); // auto-expand new item
+  const addSeguimiento = async () => {
+    try {
+      const res = await api.post(
+        `/api/sort-ges/${id}/seguimiento`,
+        { ...SEG_EMPTY },
+        { withCredentials: true }
+      );
+      const newId = res.data.id;
+      setSeguimientos(prev => [...prev, { id: newId, ...SEG_EMPTY }]);
+      setSeguimientoOpen(prev => [...prev, newId]);
+    } catch (err) {
+      showNotification('danger', 'Error al crear el seguimiento');
+    }
   };
 
-  const updateSeguimiento = (segId, field, value) => {
+  const updateSeguimiento = async (segId, field, value) => {
     setSeguimientos(prev => prev.map(s => s.id === segId ? { ...s, [field]: value } : s));
+    try {
+      const seg = seguimientos.find(s => s.id === segId);
+      await api.put(
+        `/api/sort-ges/${id}/seguimiento/${segId}`,
+        { ...seg, [field]: value },
+        { withCredentials: true }
+      );
+    } catch (err) {
+      console.error('Error saving seguimiento:', err);
+    }
   };
 
-  const deleteSeguimiento = (segId) => {
-    setSeguimientos(prev => prev.filter(s => s.id !== segId));
-    setSeguimientoOpen(prev => prev.filter(id => id !== segId));
+  const deleteSeguimiento = async (segId) => {
+    try {
+      await api.delete(`/api/sort-ges/${id}/seguimiento/${segId}`, { withCredentials: true });
+      setSeguimientos(prev => prev.filter(s => s.id !== segId));
+      setSeguimientoOpen(prev => prev.filter(openId => openId !== segId));
+    } catch (err) {
+      showNotification('danger', 'Error al eliminar el seguimiento');
+    }
   };
 
   const toggleSeguimientoOpen = (segId) => {
@@ -908,33 +1340,74 @@ const SortGes = () => {
     );
   };
 
-  // ─────────────────────────────────────────────────────────────
-  // Save handlers
-  // ─────────────────────────────────────────────────────────────
+  // ── Lockable checkbox ────────────────────────────────────────
+  // For checkboxes: lock fires immediately on check, not on blur
+  const renderLockableCheck = (section, field, checked, onChange, label) => {
+    const locked = isFieldLocked(section, field);
+    return (
+      <div className="d-flex align-items-center gap-2">
+        <CFormCheck
+          id={`${section}_${field}`}
+          label={label}
+          checked={!!checked}
+          disabled={locked}
+          onChange={(e) => {
+            if (locked) return;
+            onChange(e);
+            // Only lock when checking ON (not unchecking)
+            if (e.target.checked) {
+              setPendingFieldLock({ section, field, value: 'checked' });
+              setShowConfirmModal(true);
+            }
+          }}
+        />
+        {locked && (
+          <CButton
+            color="warning" variant="outline" size="sm"
+            onClick={() => requestUnlock(section, field)}
+            title="Editar campo"
+            style={{ padding: '1px 6px', fontSize: '0.75rem' }}
+          >
+            <CIcon icon={cilLockLocked} />
+          </CButton>
+        )}
+      </div>
+    );
+  };
+
+  // Tab 1 + Tab 2 — triggered by the global "Guardar cambios" button
   const handleSave = async () => {
     try {
       setSaving(true);
-      // TODO: await api.put(`/api/sort-ges/${id}`, { registroInicial, datosSalud }, { withCredentials: true });
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await Promise.all([
+        api.put(`/api/sort-ges/${id}/alta-gesca`, {
+          ...registroInicial,
+          ...datosSalud,
+          locked_fields: lockedFields,
+        }, { withCredentials: true }),
+        api.put(`/api/sort-ges/${id}/checklist`, {
+          certificado_nacimiento_url: documentos.certificado_nacimiento?.name || null,
+          curp_url:                   documentos.curp?.name                   || null,
+          comprobante_domicilio_url:  documentos.comprobante_domicilio?.name  || null,
+          poliza_seguro_url:          documentos.poliza_seguro?.name          || null,
+          cita_entrega:               documentos.cita_entrega                 || null,
+          cita_firma:                 consentimientos.cita_firma              || null,
+          consentimiento_informado:     consentimientos.consentimiento_informado,
+          consentimiento_transferencia: consentimientos.consentimiento_transferencia,
+          aviso_privacidad:             consentimientos.aviso_privacidad,
+          informacion_personal:         consentimientos.informacion_personal,
+          regular:                      consentimientos.regular,
+          hiv:                          consentimientos.hiv,
+          gemelar:                      consentimientos.gemelar,
+          full_consent:                 consentimientos.full,
+        }, { withCredentials: true }),
+      ]);
       showNotification('success', 'Datos guardados correctamente');
     } catch (err) {
+      console.error('Error saving:', err);
       showNotification('danger', 'Error al guardar los datos');
     } finally {
       setSaving(false);
-    }
-  };
-
-  // TODO: replace with real API call when backend is ready
-  const handleSaveSeguroMed = async () => {
-    try {
-      setSavingSeguro(true);
-      // TODO: await api.put(`/api/sort-ges/${id}/seguro-med`, { segurosVida, segurosMat }, { withCredentials: true });
-      await new Promise(resolve => setTimeout(resolve, 400));
-      showNotification('success', 'Seguros guardados correctamente');
-    } catch (err) {
-      showNotification('danger', 'Error al guardar los seguros');
-    } finally {
-      setSavingSeguro(false);
     }
   };
 
@@ -1095,9 +1568,15 @@ const SortGes = () => {
             <CCol md={8}>
               <div className="d-flex align-items-start">
                 <div>
-                  <h3 className="mb-1" style={{ color: '#5856d6' }}>{candidate.nombre} {candidate.apellido}</h3>
-                  <p className="text-muted mb-1">{candidate.direccion}</p>
-                  <p className="text-muted mb-1">{candidate.cp} - {candidate.ciudad} - {candidate.estado}</p>
+                  <h3 className="mb-1" style={{ color: '#5856d6' }}>
+                    {candidate.nombre_completo || `Candidato #${candidate.id}`}
+                  </h3>
+                  <p className="text-muted mb-1">
+                    {[candidate.direccion, candidate.numero].filter(Boolean).join(' ')}
+                  </p>
+                  <p className="text-muted mb-1">
+                    {[candidate.postal, candidate.ciudad, candidate.estado].filter(Boolean).join(' - ')}
+                  </p>
                   <p className="text-muted mb-1">{candidate.telefono}</p>
                   <p className="mb-1">Status: <CBadge color={statusInfo.color}>{statusInfo.label}</CBadge></p>
                   <p className="text-muted mb-0"><strong>IP:</strong> {candidate.ip_responsable}</p>
@@ -1294,14 +1773,25 @@ const SortGes = () => {
                               <div className="d-flex align-items-center gap-3 mt-1">
                                 <CFormCheck type="radio" name="fumador" id="fumadorSi" label="Sí"
                                   checked={datosSalud.fumador === true}
-                                  onChange={() => !isFieldLocked('datosSalud', 'fumador') && setDatosSalud(prev => ({ ...prev, fumador: true }))}
-                                  disabled={isFieldLocked('datosSalud', 'fumador')} />
+                                  disabled={isFieldLocked('datosSalud', 'fumador')}
+                                  onChange={() => {
+                                    if (isFieldLocked('datosSalud', 'fumador')) return;
+                                    setDatosSalud(prev => ({ ...prev, fumador: true }));
+                                    setPendingFieldLock({ section: 'datosSalud', field: 'fumador', value: 'Sí' });
+                                    setShowConfirmModal(true);
+                                  }} />
                                 <CFormCheck type="radio" name="fumador" id="fumadorNo" label="No"
                                   checked={datosSalud.fumador === false}
-                                  onChange={() => !isFieldLocked('datosSalud', 'fumador') && setDatosSalud(prev => ({ ...prev, fumador: false }))}
-                                  disabled={isFieldLocked('datosSalud', 'fumador')} />
+                                  disabled={isFieldLocked('datosSalud', 'fumador')}
+                                  onChange={() => {
+                                    if (isFieldLocked('datosSalud', 'fumador')) return;
+                                    setDatosSalud(prev => ({ ...prev, fumador: false }));
+                                    setPendingFieldLock({ section: 'datosSalud', field: 'fumador', value: 'No' });
+                                    setShowConfirmModal(true);
+                                  }} />
                                 {isFieldLocked('datosSalud', 'fumador') && (
-                                  <CButton color="warning" variant="outline" size="sm" onClick={() => requestUnlock('datosSalud', 'fumador')}>
+                                  <CButton color="warning" variant="outline" size="sm"
+                                    onClick={() => requestUnlock('datosSalud', 'fumador')}>
                                     <CIcon icon={cilLockLocked} />
                                   </CButton>
                                 )}
@@ -1475,22 +1965,36 @@ const SortGes = () => {
                     </CRow>
                     <CRow>
                       <CCol md={6}>
-                        {['consentimiento_informado', 'consentimiento_transferencia', 'aviso_privacidad', 'informacion_personal'].map(field => (
+                        {[
+                          ['consentimiento_informado',    'Consentimiento informado'],
+                          ['consentimiento_transferencia','Consentimiento de transferencia embrionaria'],
+                          ['aviso_privacidad',            'Aviso de privacidad'],
+                          ['informacion_personal',        'Información personal'],
+                        ].map(([field, label]) => (
                           <div className="mb-3" key={field}>
-                            <CFormCheck id={field}
-                              label={{ consentimiento_informado: 'Consentimiento informado', consentimiento_transferencia: 'Consentimiento de transferencia embrionaria', aviso_privacidad: 'Aviso de privacidad', informacion_personal: 'Información personal' }[field]}
-                              checked={consentimientos[field]}
-                              onChange={() => handleConsentimientoChange(field)} />
+                            {renderLockableCheck(
+                              'consentimientos', field,
+                              consentimientos[field],
+                              () => handleConsentimientoChange(field),
+                              label
+                            )}
                           </div>
                         ))}
                       </CCol>
                       <CCol md={6}>
-                        {['regular', 'hiv', 'gemelar', 'full'].map(field => (
+                        {[
+                          ['regular', 'Regular'],
+                          ['hiv',     'HIV'],
+                          ['gemelar', 'Gemelar'],
+                          ['full',    'Full'],
+                        ].map(([field, label]) => (
                           <div className="mb-3" key={field}>
-                            <CFormCheck id={field}
-                              label={{ regular: 'Regular', hiv: 'HIV', gemelar: 'Gemelar', full: 'Full' }[field]}
-                              checked={consentimientos[field]}
-                              onChange={() => handleConsentimientoChange(field)} />
+                            {renderLockableCheck(
+                              'consentimientos', field,
+                              consentimientos[field],
+                              () => handleConsentimientoChange(field),
+                              label
+                            )}
                           </div>
                         ))}
                       </CCol>
@@ -1513,88 +2017,298 @@ const SortGes = () => {
                   <CAccordionHeader><strong>Seguro de Vida</strong></CAccordionHeader>
                   <CAccordionBody>
 
-                    {/* ── Summary cards (shown after ≥1 record) ── */}
+                    {/* ── Cards — each with its own inline detail panel ── */}
                     {segurosVida.length > 0 && (
                       <div className="mb-4">
                         {segurosVida.map((seg) => {
                           const st = getVidaStatus(seg.vencimiento);
+                          const isOpen = detailVida === seg.id;
+                          const isEditingPago = editingPagoVidaId === seg.id;
+                          const pending = pendingPagoVida[seg.id] || {};
+
+                          // Suggested values
+                          const sugMonto = seg.valor || '';
+                          const sugFecha = new Date().toISOString().split('T')[0];
+
+                          // Difference calculation — use pending monto if staging, else saved
+                          const valorNum  = parseFloat(seg.valor) || 0;
+                          const liveMonto = pendingPagoVida[seg.id]?.monto ?? seg.pago_monto ?? '';
+                          const pagoNum   = parseFloat(liveMonto) || 0;
+                          const diff      = valorNum - pagoNum;
+                          const hasPago   = !!seg.pago_fecha;
+
                           return (
-                            <div
-                              key={seg.id}
-                              className="d-flex align-items-center justify-content-between p-3 mb-2 rounded border"
-                              style={{ backgroundColor: '#f8f9fa' }}
-                            >
-                              {/* Left: three summary fields */}
-                              <div className="d-flex gap-4 align-items-center flex-wrap">
-                                <div>
-                                  <div className="text-muted small">Estatus</div>
-                                  <CBadge color={st.color} style={{ fontSize: '0.8rem' }}>{st.label}</CBadge>
+                            <div key={seg.id} className="mb-2">
+                              {/* ── Header card ── */}
+                              <div
+                                className="d-flex align-items-center justify-content-between p-3 rounded border"
+                                style={{ backgroundColor: '#f8f9fa', borderRadius: isOpen ? '6px 6px 0 0' : '6px' }}
+                              >
+                                {/* Left: summary fields */}
+                                <div className="d-flex gap-4 align-items-center flex-wrap">
+                                  <div>
+                                    <div className="text-muted small">Estatus</div>
+                                    <CBadge color={st.color} style={{ fontSize: '0.8rem' }}>{st.label}</CBadge>
+                                  </div>
+                                  <div>
+                                    <div className="text-muted small">Fecha de alta</div>
+                                    <strong>{seg.fecha_alta || '—'}</strong>
+                                  </div>
+                                  <div>
+                                    <div className="text-muted small">Vencimiento cobertura</div>
+                                    <strong>{seg.vencimiento || '—'}</strong>
+                                  </div>
+                                  <div>
+                                    <div className="text-muted small">Aseguradora</div>
+                                    <span>{seg.aseguradora || '—'}</span>
+                                  </div>
+                                  {/* Payment indicator */}
+                                  {hasPago ? (
+                                    <div>
+                                      <div className="text-muted small">Pago registrado</div>
+                                      <CBadge color="success" style={{ fontSize: '0.78rem' }}>
+                                        {seg.pago_fecha}
+                                        {seg.pago_monto ? ` · $${Number(seg.pago_monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : ''}
+                                      </CBadge>
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      <div className="text-muted small">Pago</div>
+                                      <CBadge color="secondary" style={{ fontSize: '0.78rem' }}>Sin pago</CBadge>
+                                    </div>
+                                  )}
+                                  {/* Missing amount — shown in header when diff > 0 */}
+                                  {valorNum > 0 && diff > 0 && (
+                                    <div>
+                                      <div className="text-muted small">Falta</div>
+                                      <CBadge color="danger" style={{ fontSize: '0.78rem' }}>
+                                        ${diff.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                      </CBadge>
+                                    </div>
+                                  )}
                                 </div>
-                                <div>
-                                  <div className="text-muted small">Fecha de alta</div>
-                                  <strong>{seg.fecha_alta || '—'}</strong>
-                                </div>
-                                <div>
-                                  <div className="text-muted small">Vencimiento cobertura</div>
-                                  <strong>{seg.vencimiento || '—'}</strong>
-                                </div>
-                                <div>
-                                  <div className="text-muted small">Aseguradora</div>
-                                  <span>{seg.aseguradora || '—'}</span>
+
+                                {/* Right: actions */}
+                                <div className="d-flex gap-2 ms-3 flex-shrink-0">
+                                  <CButton
+                                    size="sm" color="info" variant="outline"
+                                    onClick={() => setDetailVida(isOpen ? null : seg.id)}
+                                  >
+                                    {isOpen ? 'Ocultar' : 'Ver más'}
+                                  </CButton>
+                                  <CButton
+                                    size="sm" color="warning" variant="outline"
+                                    onClick={() => requestEditVida(seg)}
+                                    title="Editar info general (requiere contraseña)"
+                                  >
+                                    <CIcon icon={cilLockLocked} className="me-1" />Editar
+                                  </CButton>
+                                  <CButton
+                                    size="sm" color="danger" variant="outline"
+                                    onClick={() => deleteVida(seg.id)}
+                                  >
+                                    <CIcon icon={cilTrash} />
+                                  </CButton>
                                 </div>
                               </div>
-                              {/* Right: actions */}
-                              <div className="d-flex gap-2 ms-3 flex-shrink-0">
-                                <CButton
-                                  size="sm" color="info" variant="outline"
-                                  onClick={() => setDetailVida(detailVida === seg.id ? null : seg.id)}
-                                  title="Ver detalle"
+
+                              {/* ── Inline detail panel — directly below its own card ── */}
+                              {isOpen && (
+                                <div
+                                  className="border border-top-0 rounded-bottom p-3"
+                                  style={{ backgroundColor: '#fff' }}
                                 >
-                                  {detailVida === seg.id ? 'Ocultar' : 'Ver más'}
-                                </CButton>
-                                <CButton
-                                  size="sm" color="warning" variant="outline"
-                                  onClick={() => openEditVida(seg)}
-                                  title="Editar"
-                                >
-                                  Editar
-                                </CButton>
-                                <CButton
-                                  size="sm" color="danger" variant="outline"
-                                  onClick={() => deleteVida(seg.id)}
-                                  title="Eliminar"
-                                >
-                                  <CIcon icon={cilTrash} />
-                                </CButton>
-                              </div>
+                                  {/* Policy info */}
+                                  <CRow className="mb-2">
+                                    {[
+                                      ['Aseguradora', seg.aseguradora],
+                                      ['Gestor', seg.gestor],
+                                      ['N° de cuotas', '1 (única)'],
+                                      ['Valor', seg.valor ? `$${Number(seg.valor).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—'],
+                                      ['Fecha de alta', seg.fecha_alta],
+                                      ['Vencimiento', seg.vencimiento],
+                                    ].map(([label, val]) => (
+                                      <CCol md={4} className="mb-2" key={label}>
+                                        <div className="text-muted small">{label}</div>
+                                        <strong>{val || '—'}</strong>
+                                      </CCol>
+                                    ))}
+                                  </CRow>
+
+                                  {/* Payment section */}
+                                  <hr className="my-2" />
+                                  <p className="fw-semibold small mb-2 text-uppercase"
+                                    style={{ letterSpacing: '0.05em', color: '#899973' }}>
+                                    Registro de pago
+                                  </p>
+
+                                  {hasPago && !isEditingPago ? (
+                                    /* ── Read-only paid state ── */
+                                    <div>
+                                      <CRow className="mb-2">
+                                        <CCol md={3}>
+                                          <div className="text-muted small">Monto pagado</div>
+                                          <strong>
+                                            {seg.pago_monto
+                                              ? `$${Number(seg.pago_monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                                              : '—'}
+                                          </strong>
+                                        </CCol>
+                                        <CCol md={3}>
+                                          <div className="text-muted small">Fecha de pago</div>
+                                          <strong>{seg.pago_fecha}</strong>
+                                        </CCol>
+                                        <CCol md={3}>
+                                          <div className="text-muted small">Estado</div>
+                                          <CBadge color={diff > 0 ? 'warning' : 'success'}>
+                                            {diff > 0 ? 'Pago parcial' : 'Pagado'}
+                                          </CBadge>
+                                        </CCol>
+                                        <CCol md={3}>
+                                          <div className="text-muted small">Diferencia</div>
+                                          {valorNum > 0 && (
+                                            <span style={{ color: diff > 0 ? '#dc3545' : '#198754', fontWeight: 600 }}>
+                                              {diff > 0
+                                                ? `Falta $${diff.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                                                : 'Completo'}
+                                            </span>
+                                          )}
+                                        </CCol>
+                                      </CRow>
+                                      <CButton
+                                        size="sm" color="warning" variant="outline"
+                                        onClick={() => requestEditPagoVida(seg)}
+                                        title="Editar pago (requiere contraseña)"
+                                      >
+                                        <CIcon icon={cilLockLocked} className="me-1" />Editar pago
+                                      </CButton>
+                                    </div>
+
+                                  ) : (
+                                    /* ── Payment form (new or editing) ── */
+                                    <div>
+                                      <p className="text-muted small mb-2">
+                                        {isEditingPago
+                                          ? 'Modifique la información del pago.'
+                                          : 'Registre el pago una vez realizado.'}
+                                      </p>
+                                    <CRow className="align-items-center g-2">
+                                        <CCol md={4}>
+                                          <CFormLabel className="fw-semibold small text-muted mb-1">
+                                            Monto: <span className="text-danger">*</span>
+                                          </CFormLabel>
+                                          <CInputGroup>
+                                            <CInputGroupText>$</CInputGroupText>
+                                            <CFormInput
+                                              type="number" min="0" step="0.01"
+                                              placeholder={sugMonto ? Number(sugMonto).toFixed(2) : '0.00'}
+                                              value={pendingPagoVida[seg.id]?.monto ?? ''}
+                                              onChange={e => {
+                                                setPendingPagoVida(prev => ({
+                                                  ...prev,
+                                                  [seg.id]: {
+                                                    fecha: prev[seg.id]?.fecha || sugFecha,
+                                                    monto: e.target.value,
+                                                  },
+                                                }));
+                                              }}
+                                            />
+                                          </CInputGroup>
+                                          {sugMonto && (
+                                            <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '2px' }}>
+                                              Sugerido: ${Number(sugMonto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                            </div>
+                                          )}
+                                        </CCol>
+
+                                        <CCol md={4}>
+                                          <CFormLabel className="fw-semibold small text-muted mb-1">
+                                            Fecha: <span className="text-danger">*</span>
+                                          </CFormLabel>
+                                          <CFormInput
+                                            type="date"
+                                            value={pendingPagoVida[seg.id]?.fecha || sugFecha}
+                                            onChange={e => {
+                                              setPendingPagoVida(prev => ({
+                                                ...prev,
+                                                [seg.id]: {
+                                                  monto: prev[seg.id]?.monto ?? '',
+                                                  fecha: e.target.value,
+                                                },
+                                              }));
+                                            }}
+                                          />
+                                          <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '2px' }}>
+                                            Sugerida: {sugFecha}
+                                          </div>
+                                        </CCol>
+
+                                        <CCol md={4} className="d-flex flex-column align-items-start" style={{ paddingTop: '22px' }}>
+                                          <div className="d-flex align-items-center gap-2">
+                                            <div className="d-flex gap-1">
+                                              <CButton
+                                                size="sm"
+                                                color="success"
+                                                disabled={!pendingPagoVida[seg.id]?.monto || !pendingPagoVida[seg.id]?.fecha}
+                                                onClick={() => {
+                                              if (!isEditingPago) {
+                                                // First save — commit pending directly via API
+                                                const p = pendingPagoVida[seg.id] || {};
+                                                api.put(
+                                                  `/api/sort-ges/${id}/seguro-vida/${seg.id}/pago`,
+                                                  { monto: p.monto, fecha_pago: p.fecha },
+                                                  { withCredentials: true }
+                                                ).then(() => {
+                                                  setSegurosVida(prev => prev.map(s =>
+                                                    s.id === seg.id
+                                                      ? { ...s, pago_monto: p.monto, pago_fecha: p.fecha }
+                                                      : s
+                                                  ));
+                                                  setPendingPagoVida(prev => { const n = { ...prev }; delete n[seg.id]; return n; });
+                                                  setEditingPagoVidaId(null);
+                                                  showNotification('success', isEditingPago ? 'Pago actualizado' : 'Pago registrado correctamente');
+                                                }).catch(() => showNotification('danger', 'Error al guardar el pago'));
+                                              } else {
+                                                saveVidaPago(seg.id);
+                                              }
+                                            }}
+                                              >
+                                                <CIcon icon={cilSave} className="me-1" />Guardar
+                                              </CButton>
+                                              {isEditingPago && (
+                                                <CButton
+                                                  size="sm" color="secondary" variant="ghost"
+                                                  onClick={() => {
+                                                    setEditingPagoVidaId(null);
+                                                    setPendingPagoVida(prev => { const n = { ...prev }; delete n[seg.id]; return n; });
+                                                  }}
+                                                >
+                                                  Cancelar
+                                                </CButton>
+                                              )}
+                                            </div>
+                                            {/* Difference — inline next to button so it never shifts the button */}
+                                            {valorNum > 0 && pendingPagoVida[seg.id]?.monto && (
+                                              <span style={{ fontSize: '0.80rem', whiteSpace: 'nowrap' }}>
+                                                {diff > 0 ? (
+                                                  <span className="text-danger fw-semibold">Falta ${diff.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                                                ) : diff < 0 ? (
+                                                  <span className="text-warning fw-semibold">+${Math.abs(diff).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                                                ) : (
+                                                  <span className="text-success fw-semibold">✓ Completo</span>
+                                                )}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </CCol>
+                                      </CRow>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                         })}
-
-                        {/* Expanded detail panel */}
-                        {detailVida !== null && (() => {
-                          const seg = segurosVida.find(s => s.id === detailVida);
-                          if (!seg) return null;
-                          return (
-                            <div className="border rounded p-3 mb-3" style={{ backgroundColor: '#fff' }}>
-                              <CRow>
-                                {[
-                                  ['Aseguradora', seg.aseguradora],
-                                  ['Gestor', seg.gestor],
-                                  ['Cuotas', seg.cuotas],
-                                  ['Valor', seg.valor ? `$${seg.valor}` : '—'],
-                                  ['Fecha de alta', seg.fecha_alta],
-                                  ['Vencimiento', seg.vencimiento],
-                                ].map(([label, val]) => (
-                                  <CCol md={4} className="mb-2" key={label}>
-                                    <div className="text-muted small">{label}</div>
-                                    <strong>{val || '—'}</strong>
-                                  </CCol>
-                                ))}
-                              </CRow>
-                            </div>
-                          );
-                        })()}
                       </div>
                     )}
 
@@ -1625,33 +2339,112 @@ const SortGes = () => {
 
                     {/* Polizas list */}
                     {segurosMat.map((poliza) => (
-                      <div key={poliza.id} className="mb-4 border rounded p-3">
-                        {/* Poliza header */}
-                        <div className="d-flex justify-content-between align-items-center mb-3">
-                          <div>
-                            <strong>{poliza.aseguradora || 'Sin aseguradora'}</strong>
-                            <span className="text-muted ms-2 small">Póliza {poliza.numero_poliza || '—'}</span>
-                            <span className="text-muted ms-2 small">· Gestor: {poliza.gestor || '—'}</span>
-                          </div>
-                          <CButton
-                            size="sm" color="danger" variant="ghost"
-                            onClick={() => deleteMat(poliza.id)}
-                            title="Eliminar póliza"
-                          >
-                            <CIcon icon={cilTrash} />
-                          </CButton>
-                        </div>
+                      <div key={poliza.id} className="mb-4">
+                        {/* ── Poliza header ── */}
+                        {(() => {
+                          const totalCuotas  = poliza.pagos.length;
+                          const pagadas      = poliza.pagos.filter(c => c.fecha_pago && c.status !== 'cancelado');
+                          const montoPagado  = pagadas.reduce((s, c) => s + (parseFloat(c.monto_pago) || 0), 0);
+                          const valorCuota   = parseFloat(poliza.valor_cuota) || 0;
+                          const totalEstimado = valorCuota * totalCuotas;
+                          const porPagar      = totalEstimado - montoPagado;
+                          return (
+                            <div
+                              className="d-flex align-items-center justify-content-between px-3 py-2"
+                              style={{
+                                backgroundColor: '#f8f9fa',
+                                borderRadius: '6px 6px 0 0',
+                                border: '1px solid #dee2e6',
+                              }}
+                            >
+                              <div className="d-flex align-items-center gap-3 flex-wrap">
+                                <strong>
+                                  {poliza.aseguradora || 'Sin aseguradora'}
+                                </strong>
+                                {poliza.numero_poliza && (
+                                  <span className="text-muted small">Póliza {poliza.numero_poliza}</span>
+                                )}
+                                {poliza.gestor && (
+                                  <span className="text-muted small">· Gestor: {poliza.gestor}</span>
+                                )}
+                                {poliza.tipo_pago && (
+                                  <CBadge color="light" textColor="dark" className="border">
+                                    {TIPO_PAGO_CONFIG[poliza.tipo_pago]?.label}
+                                  </CBadge>
+                                )}
+                                {/* Computed totals */}
+                                <span className="text-muted small" style={{ borderLeft: '1px solid #dee2e6', paddingLeft: '0.75rem' }}>
+                                  Pagado:{' '}
+                                  <strong style={{ color: '#198754' }}>
+                                    ${montoPagado.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                  </strong>
+                                </span>
+                                {porPagar > 0 && (
+                                  <span className="text-muted small">
+                                    Por pagar:{' '}
+                                    <strong style={{ color: '#dc3545' }}>
+                                      ${porPagar.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                    </strong>
+                                  </span>
+                                )}
+                                {porPagar <= 0 && totalEstimado > 0 && (
+                                  <CBadge color="success" style={{ fontSize: '0.75rem' }}>✓ Completado</CBadge>
+                                )}
+                              </div>
+                              <div className="d-flex gap-2 flex-shrink-0">
+                                <CButton
+                                  size="sm" color="warning" variant="outline"
+                                  onClick={() => openEditMat(poliza)}
+                                  style={{ fontSize: '0.78rem' }}
+                                >
+                                  <CIcon icon={cilLockLocked} className="me-1" />Editar
+                                </CButton>
+                                <CButton
+                                  size="sm" color="danger" variant="ghost"
+                                  onClick={() => deleteMat(poliza.id)}
+                                >
+                                  <CIcon icon={cilTrash} />
+                                </CButton>
+                              </div>
+                            </div>
+                          );
+                        })()}
 
-                        {/* Cuotas table */}
-                        <CTable bordered responsive size="sm">
-                          <CTableHead color="light">
-                            <CTableRow>
-                              <CTableHeaderCell>Cuota</CTableHeaderCell>
-                              <CTableHeaderCell>Valor de pago</CTableHeaderCell>
-                              <CTableHeaderCell>Vencimiento</CTableHeaderCell>
-                              <CTableHeaderCell>Status</CTableHeaderCell>
-                              <CTableHeaderCell>Fecha de pago</CTableHeaderCell>
-                              <CTableHeaderCell style={{ width: '200px' }}>Acciones</CTableHeaderCell>
+                        {/* ── Cuotas table ── */}
+                        <CTable
+                          responsive
+                          size="sm"
+                          style={{
+                            border: '1px solid #dee2e6',
+                            borderTop: 'none',
+                            borderRadius: '0 0 6px 6px',
+                            overflow: 'hidden',
+                            marginBottom: 0,
+                          }}
+                        >
+                          <CTableHead>
+                            <CTableRow style={{ backgroundColor: '#f8f9fa' }}>
+                              <CTableHeaderCell
+                                className="text-center"
+                                style={{ width: '70px', fontWeight: 700, fontSize: '0.82rem' }}
+                              >
+                                Cuota
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Valor de Pago
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Vencimiento
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Status
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Fecha de Pago
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Acciones
+                              </CTableHeaderCell>
                             </CTableRow>
                           </CTableHead>
                           <CTableBody>
@@ -1659,53 +2452,92 @@ const SortGes = () => {
                               const st = getCuotaStatus(cuota);
                               const esCancelado = cuota.status === 'cancelado';
                               const esPagado = !!cuota.fecha_pago && cuota.status !== 'cancelado';
+
+                              const statusColor = {
+                                success:   '#198754',
+                                info:      '#0dcaf0',
+                                danger:    '#dc3545',
+                                warning:   '#fd7e14',
+                                dark:      '#6c757d',
+                                secondary: '#6c757d',
+                              }[st.color] || '#333';
+
                               return (
-                                <CTableRow key={cuota.cuota_num}>
+                                <CTableRow
+                                  key={cuota.cuota_num}
+                                  style={{ borderBottom: '1px solid #f0f0f0' }}
+                                >
                                   {/* Cuota N/Total */}
-                                  <CTableDataCell>
-                                    <strong>{cuota.cuota_num}/{cuota.total}</strong>
+                                  <CTableDataCell
+                                    className="text-center"
+                                    style={{ fontWeight: 600, fontSize: '0.85rem' }}
+                                  >
+                                    {cuota.cuota_num}/{cuota.total}
                                   </CTableDataCell>
+
                                   {/* Valor */}
-                                  <CTableDataCell>
-                                    {poliza.valor_cuota ? `$${Number(poliza.valor_cuota).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—'}
+                                  <CTableDataCell style={{ fontSize: '0.85rem' }}>
+                                    {poliza.valor_cuota
+                                      ? `$${Number(poliza.valor_cuota).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                                      : '—'}
                                   </CTableDataCell>
+
                                   {/* Vencimiento */}
-                                  <CTableDataCell>{cuota.vencimiento || '—'}</CTableDataCell>
-                                  {/* Status badge */}
-                                  <CTableDataCell>
-                                    <CBadge color={st.color}>{st.label}</CBadge>
+                                  <CTableDataCell style={{ fontSize: '0.85rem' }}>
+                                    {cuota.vencimiento || '—'}
                                   </CTableDataCell>
+
+                                  {/* Status */}
+                                  <CTableDataCell
+                                    style={{ fontWeight: 600, color: statusColor, fontSize: '0.85rem' }}
+                                  >
+                                    {st.label}
+                                  </CTableDataCell>
+
                                   {/* Fecha de pago */}
-                                  <CTableDataCell>
-                                    {cuota.fecha_pago || '—'}
+                                  <CTableDataCell style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                                    {cuota.fecha_pago ? (
+                                      <>
+                                        {cuota.fecha_pago}
+                                        {cuota.monto_pago && (
+                                          <span className="text-muted ms-1">
+                                            (${Number(cuota.monto_pago).toLocaleString('es-MX', { minimumFractionDigits: 2 })})
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : '—'}
                                   </CTableDataCell>
+
                                   {/* Acciones */}
                                   <CTableDataCell>
-                                    <div className="d-flex gap-1">
-                                      {!esCancelado && !esPagado && (
-                                        <CButton
-                                          size="sm"
-                                          color="success"
-                                          variant="outline"
-                                          onClick={() => openPagoModal(poliza.id, cuota.cuota_num)}
-                                          title="Registrar pago"
-                                        >
-                                          Guardar
-                                        </CButton>
-                                      )}
-                                      {!esCancelado && (
-                                        <CButton
-                                          size="sm"
-                                          color="danger"
-                                          variant="outline"
-                                          onClick={() => anularCuota(poliza.id, cuota.cuota_num)}
-                                          title="Anular cuota"
-                                        >
-                                          Anular
-                                        </CButton>
-                                      )}
-                                      {esCancelado && (
+                                    <div className="d-flex gap-2 align-items-center">
+                                      {esCancelado ? (
                                         <span className="text-muted small">—</span>
+                                      ) : esPagado ? (
+                                        <>
+                                          <CButton
+                                            size="sm" color="link" className="p-0"
+                                            style={{ color: '#0071b8', fontSize: '0.82rem', textDecoration: 'none' }}
+                                            onClick={() => requestMatPagoAction('edit', poliza.id, cuota.cuota_num, cuota.monto_pago || poliza.valor_cuota)}
+                                          >
+                                            Editar
+                                          </CButton>
+                                          <CButton
+                                            size="sm" color="link" className="p-0"
+                                            style={{ color: '#dc3545', fontSize: '0.82rem', textDecoration: 'none' }}
+                                            onClick={() => requestMatPagoAction('remove', poliza.id, cuota.cuota_num, null)}
+                                          >
+                                            Eliminar pago
+                                          </CButton>
+                                        </>
+                                      ) : (
+                                        <CButton
+                                          size="sm" color="link" className="p-0"
+                                          style={{ color: '#198754', fontSize: '0.82rem', textDecoration: 'none' }}
+                                          onClick={() => openPagoModal(poliza.id, cuota.cuota_num, poliza.valor_cuota)}
+                                        >
+                                          Pagar
+                                        </CButton>
                                       )}
                                     </div>
                                   </CTableDataCell>
@@ -1747,57 +2579,57 @@ const SortGes = () => {
                 ════════════════════════════════════════════ */}
                 <CAccordionItem itemKey={1}>
                   <CAccordionHeader><strong>Psico Inicial</strong></CAccordionHeader>
-                  <CAccordionBody>
-                    <CTable bordered responsive>
-                      <CTableHead color="light">
-                        <CTableRow>
-                          <CTableHeaderCell style={{ minWidth: '210px' }}>Etapa</CTableHeaderCell>
-                          <CTableHeaderCell style={{ minWidth: '155px' }}>Fecha</CTableHeaderCell>
-                          <CTableHeaderCell style={{ minWidth: '160px' }}>Estado</CTableHeaderCell>
-                          <CTableHeaderCell style={{ minWidth: '175px' }}>Recomendación</CTableHeaderCell>
-                        </CTableRow>
-                      </CTableHead>
-                      <CTableBody>
-                        {psicoInicial.map((row) => {
-                          const sec = `psico_row_${row.id}`;
-                          return (
-                          <CTableRow key={row.id}>
-                            {/* Etapa — fixed label */}
-                            <CTableDataCell>
-                              <span className="fw-semibold" style={{ color: '#0098b3' }}>{row.etapa}</span>
-                            </CTableDataCell>
+                  <CAccordionBody style={{ padding: '4px 0' }}>
+                    <div style={{ display: 'inline-block', minWidth: '580px' }}>
+                      {psicoInicial.map((row, idx) => {
+                        const sec = `psico_row_${row.id}`;
+                        return (
+                          <div
+                            key={row.id}
+                            className="d-flex align-items-center psico-row"
+                            style={{
+                              gap: '0',
+                              padding: '4px 8px',
+                              borderBottom: idx < psicoInicial.length - 1 ? '1px solid #f0f0f0' : 'none',
+                            }}
+                          >
+                            {/* Etapa — plain teal label */}
+                            <div style={{ width: '200px', flexShrink: 0, paddingRight: '16px' }}>
+                              <span style={{ color: '#0098b3', fontSize: '0.9rem' }}>
+                                {row.etapa}
+                              </span>
+                            </div>
 
-                            {/* Fecha */}
-                            <CTableDataCell>
+                            {/* Fecha — stripped input */}
+                            <div className="psico-field" style={{ width: '145px', flexShrink: 0, paddingRight: '16px' }}>
                               {renderTableInput(
                                 sec, 'fecha', row.fecha,
                                 e => handlePsicoInicialChange(row.id, 'fecha', e.target.value),
                                 'date'
                               )}
-                            </CTableDataCell>
+                            </div>
 
-                            {/* Estado */}
-                            <CTableDataCell>
+                            {/* Estado — stripped select */}
+                            <div className="psico-field" style={{ width: '160px', flexShrink: 0, paddingRight: '16px' }}>
                               {renderTableSelect(
                                 sec, 'estado', row.estado,
                                 e => handlePsicoInicialChange(row.id, 'estado', e.target.value),
                                 estadoPsicoOpts
                               )}
-                            </CTableDataCell>
+                            </div>
 
-                            {/* Recomendación */}
-                            <CTableDataCell>
+                            {/* Recomendación — stripped select */}
+                            <div className="psico-field" style={{ width: '175px', flexShrink: 0 }}>
                               {renderTableSelect(
                                 sec, 'recomendacion', row.recomendacion,
                                 e => handlePsicoInicialChange(row.id, 'recomendacion', e.target.value),
                                 recomendacionOpts
                               )}
-                            </CTableDataCell>
-                          </CTableRow>
-                          );
-                        })}
-                      </CTableBody>
-                    </CTable>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </CAccordionBody>
                 </CAccordionItem>
 
@@ -2032,16 +2864,25 @@ const SortGes = () => {
 
       {/* ── Confirm lock modal ─────────────────────────────── */}
       <CModal visible={showConfirmModal} onClose={cancelFieldLock}>
-        <CModalHeader><CModalTitle>Confirmar guardado</CModalTitle></CModalHeader>
+        <CModalHeader><CModalTitle>Confirmar y bloquear campo</CModalTitle></CModalHeader>
         <CModalBody>
           <p>¿Desea guardar y bloquear este campo?</p>
-          {pendingFieldLock.field && <p><strong>Campo:</strong> {pendingFieldLock.field.replace(/_/g, ' ')}</p>}
-          {pendingFieldLock.value && <p><strong>Valor:</strong> {pendingFieldLock.value}</p>}
-          <p className="text-muted small">Una vez bloqueado, necesitará una contraseña de administrador para poder editarlo.</p>
+          {pendingFieldLock.field && (
+            <p><strong>Campo:</strong> {pendingFieldLock.field.replace(/_/g, ' ')}</p>
+          )}
+          {pendingFieldLock.value && (
+            <p><strong>Valor:</strong> {String(pendingFieldLock.value)}</p>
+          )}
+          <p className="text-muted small">
+            Una vez bloqueado, necesitará la contraseña de administrador para editarlo.
+          </p>
         </CModalBody>
         <CModalFooter>
           <CButton color="secondary" onClick={cancelFieldLock}>Cancelar</CButton>
-          <CButton color="primary" onClick={confirmFieldLock}>Guardar y bloquear</CButton>
+          <CButton color="primary" onClick={confirmFieldLock}
+            style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1' }}>
+            Guardar y bloquear
+          </CButton>
         </CModalFooter>
       </CModal>
 
@@ -2072,32 +2913,96 @@ const SortGes = () => {
         </CModalHeader>
         <CModalBody>
           <CRow>
+            {/* Fecha de alta */}
             <CCol md={6} className="mb-3">
-              <CFormLabel>Fecha de alta:</CFormLabel>
-              <CFormInput type="date" value={formVida.fecha_alta} onChange={e => setFormVida(p => ({ ...p, fecha_alta: e.target.value }))} />
+              <CFormLabel>Fecha de alta: <span className="text-danger">*</span></CFormLabel>
+              <CFormInput
+                type="date"
+                value={formVida.fecha_alta}
+                onChange={e => {
+                  const fa = e.target.value;
+                  const autoVenc = computeVidaVencimiento(fa);
+                  setFormVida(p => ({
+                    ...p,
+                    fecha_alta: fa,
+                    // Only auto-fill vencimiento if user hasn't overridden it yet
+                    vencimiento: p.vencimiento === computeVidaVencimiento(p.fecha_alta) || !p.vencimiento
+                      ? autoVenc
+                      : p.vencimiento,
+                  }));
+                }}
+              />
             </CCol>
+
+            {/* Aseguradora */}
             <CCol md={6} className="mb-3">
               <CFormLabel>Aseguradora:</CFormLabel>
-              <CFormInput placeholder="Ej. GNP, Metlife…" value={formVida.aseguradora} onChange={e => setFormVida(p => ({ ...p, aseguradora: e.target.value }))} />
+              <CFormInput
+                placeholder="Ej. GNP, Metlife…"
+                value={formVida.aseguradora}
+                onChange={e => setFormVida(p => ({ ...p, aseguradora: e.target.value }))}
+              />
             </CCol>
+
+            {/* Gestor */}
             <CCol md={6} className="mb-3">
               <CFormLabel>Gestor:</CFormLabel>
-              <CFormInput placeholder="Nombre del gestor" value={formVida.gestor} onChange={e => setFormVida(p => ({ ...p, gestor: e.target.value }))} />
+              <CFormInput
+                placeholder="Nombre del gestor"
+                value={formVida.gestor}
+                onChange={e => setFormVida(p => ({ ...p, gestor: e.target.value }))}
+              />
             </CCol>
+
+            {/* N° de cuotas — always 1, fixed */}
             <CCol md={3} className="mb-3">
-              <CFormLabel>Cuotas:</CFormLabel>
-              <CFormInput type="number" min="1" placeholder="Nº de cuotas" value={formVida.cuotas} onChange={e => setFormVida(p => ({ ...p, cuotas: e.target.value }))} />
+              <CFormLabel>N° de cuotas:</CFormLabel>
+              <CInputGroup>
+                <CFormInput
+                  type="number"
+                  value="1"
+                  disabled
+                  style={{ backgroundColor: '#e9ecef', fontWeight: 600, textAlign: 'center' }}
+                />
+                <CInputGroupText
+                  style={{ backgroundColor: '#e9ecef', fontSize: '0.75rem', color: '#6c757d' }}
+                >
+                  Fijo
+                </CInputGroupText>
+              </CInputGroup>
+              <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '3px' }}>
+                El seguro de vida siempre es una cuota única
+              </div>
             </CCol>
+
+            {/* Valor */}
             <CCol md={3} className="mb-3">
               <CFormLabel>Valor:</CFormLabel>
               <CInputGroup>
                 <CInputGroupText>$</CInputGroupText>
-                <CFormInput type="number" min="0" step="0.01" placeholder="0.00" value={formVida.valor} onChange={e => setFormVida(p => ({ ...p, valor: e.target.value }))} />
+                <CFormInput
+                  type="number" min="0" step="0.01" placeholder="0.00"
+                  value={formVida.valor}
+                  onChange={e => setFormVida(p => ({ ...p, valor: e.target.value }))}
+                />
               </CInputGroup>
             </CCol>
+
+            {/* Vencimiento — auto-suggested from fecha_alta + 1 year */}
             <CCol md={6} className="mb-3">
-              <CFormLabel>Vencimiento cobertura:</CFormLabel>
-              <CFormInput type="date" value={formVida.vencimiento} onChange={e => setFormVida(p => ({ ...p, vencimiento: e.target.value }))} />
+              <CFormLabel>
+                Vencimiento cobertura:
+                {formVida.fecha_alta && (
+                  <span className="text-muted ms-2" style={{ fontSize: '0.75rem' }}>
+                    (sugerido: {computeVidaVencimiento(formVida.fecha_alta)})
+                  </span>
+                )}
+              </CFormLabel>
+              <CFormInput
+                type="date"
+                value={formVida.vencimiento}
+                onChange={e => setFormVida(p => ({ ...p, vencimiento: e.target.value }))}
+              />
             </CCol>
           </CRow>
         </CModalBody>
@@ -2106,6 +3011,7 @@ const SortGes = () => {
           <CButton
             color="primary"
             onClick={saveVida}
+            disabled={!formVida.fecha_alta}
             style={{ backgroundColor: '#899973', borderColor: '#899973' }}
           >
             <CIcon icon={cilSave} className="me-1" />
@@ -2114,71 +3020,290 @@ const SortGes = () => {
         </CModalFooter>
       </CModal>
 
-      {/* ── Modal: Nuevo Seguro de Maternidad ─────────────── */}
-      <CModal visible={modalMat === 'new'} onClose={() => setModalMat(null)} size="lg">
+      {/* ── Modal: Contraseña para editar Seguro de Vida ──── */}
+      <CModal visible={showVidaEditModal} onClose={cancelVidaEdit}>
         <CModalHeader>
-          <CModalTitle>Nuevo seguro de maternidad</CModalTitle>
+          <CModalTitle>
+            <CIcon icon={cilLockLocked} className="me-2 text-warning" />
+            Editar seguro de vida
+          </CModalTitle>
         </CModalHeader>
         <CModalBody>
-          <CRow>
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Gestor:</CFormLabel>
-              <CFormInput placeholder="Nombre del gestor" value={formMat.gestor} onChange={e => setFormMat(p => ({ ...p, gestor: e.target.value }))} />
-            </CCol>
-            <CCol md={3} className="mb-3">
-              <CFormLabel>Cantidad de cuotas:</CFormLabel>
-              <CFormInput type="number" min="1" placeholder="Ej. 4" value={formMat.cantidad_cuotas} onChange={e => setFormMat(p => ({ ...p, cantidad_cuotas: e.target.value }))} />
-            </CCol>
-            <CCol md={3} className="mb-3">
-              <CFormLabel>Valor por cuota:</CFormLabel>
-              <CInputGroup>
-                <CInputGroupText>$</CInputGroupText>
-                <CFormInput type="number" min="0" step="0.01" placeholder="0.00" value={formMat.valor_cuota} onChange={e => setFormMat(p => ({ ...p, valor_cuota: e.target.value }))} />
-              </CInputGroup>
-            </CCol>
-            <CCol md={4} className="mb-3">
-              <CFormLabel>Fecha de liberación:</CFormLabel>
-              <CFormInput type="date" value={formMat.fecha_liberacion} onChange={e => setFormMat(p => ({ ...p, fecha_liberacion: e.target.value }))} />
-            </CCol>
-            <CCol md={4} className="mb-3">
-              <CFormLabel>Fecha de alta:</CFormLabel>
-              <CFormInput type="date" value={formMat.fecha_alta} onChange={e => setFormMat(p => ({ ...p, fecha_alta: e.target.value }))} />
-            </CCol>
-            <CCol md={4} className="mb-3">
-              <CFormLabel>Fecha de vencimiento:</CFormLabel>
-              <CFormInput type="date" value={formMat.fecha_vencimiento} onChange={e => setFormMat(p => ({ ...p, fecha_vencimiento: e.target.value }))} />
-            </CCol>
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Aseguradora:</CFormLabel>
-              <CFormInput placeholder="Ej. GNP, Metlife…" value={formMat.aseguradora} onChange={e => setFormMat(p => ({ ...p, aseguradora: e.target.value }))} />
-            </CCol>
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Número de póliza:</CFormLabel>
-              <CFormInput placeholder="Ej. POL-000456" value={formMat.numero_poliza} onChange={e => setFormMat(p => ({ ...p, numero_poliza: e.target.value }))} />
-            </CCol>
-          </CRow>
-          {/* Preview of generated cuotas */}
-          {formMat.cantidad_cuotas && formMat.fecha_liberacion && (
-            <div className="mt-2">
-              <p className="text-muted small mb-2">Vista previa de cuotas generadas:</p>
-              <div className="d-flex flex-wrap gap-2">
-                {buildPagos(formMat.cantidad_cuotas, formMat.valor_cuota, formMat.fecha_liberacion).map(c => (
-                  <CBadge key={c.cuota_num} color="secondary">
-                    {c.cuota_num}/{c.total} — {c.vencimiento}
-                  </CBadge>
-                ))}
-              </div>
-            </div>
+          <p className="text-muted small mb-3">
+            Ingrese la contraseña para habilitar la edición de este seguro.
+          </p>
+          <CFormLabel>Contraseña:</CFormLabel>
+          <CFormInput
+            type="password"
+            value={vidaEditPassword}
+            onChange={e => setVidaEditPassword(e.target.value)}
+            placeholder="Contraseña"
+            onKeyDown={e => { if (e.key === 'Enter') confirmVidaEdit(); }}
+            invalid={!!vidaEditPasswordError}
+            autoFocus
+          />
+          {vidaEditPasswordError && (
+            <div className="text-danger small mt-1">{vidaEditPasswordError}</div>
           )}
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => setModalMat(null)}>Cancelar</CButton>
+          <CButton color="secondary" onClick={cancelVidaEdit}>Cancelar</CButton>
+          <CButton color="warning" onClick={confirmVidaEdit} disabled={!vidaEditPassword}>
+            <CIcon icon={cilLockUnlocked} className="me-1" />Desbloquear
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: Nuevo Seguro de Maternidad ─────────────── */}
+      <CModal visible={modalMat === 'new'} onClose={() => { setModalMat(null); setEditingMatId(null); }} size="lg">
+        <CModalHeader>
+          <CModalTitle>{editingMatId !== null ? 'Editar seguro de maternidad' : 'Nuevo seguro de maternidad'}</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <CRow>
+            {/* Gestor — required */}
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Gestor: <span className="text-danger">*</span></CFormLabel>
+              <CFormInput
+                placeholder="Nombre del gestor"
+                value={formMat.gestor}
+                onChange={e => setFormMat(p => ({ ...p, gestor: e.target.value }))}
+              />
+            </CCol>
+
+            {/* Tipo de pago */}
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Tipo de pago:</CFormLabel>
+              <CFormSelect
+                value={formMat.tipo_pago}
+                onChange={e => setFormMat(p => ({
+                  ...p,
+                  tipo_pago: e.target.value,
+                  total_estimado: p.valor_cuota && e.target.value
+                    ? (parseFloat(p.valor_cuota) * (TIPO_PAGO_CONFIG[e.target.value]?.cuotas || 0)).toFixed(2)
+                    : '',
+                }))}
+              >
+                <option value="">— Seleccionar —</option>
+                {Object.entries(TIPO_PAGO_CONFIG).map(([k, v]) => (
+                  <option key={k} value={k}>{v.label}</option>
+                ))}
+              </CFormSelect>
+            </CCol>
+
+            {/* Valor por cuota */}
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Valor por cuota:</CFormLabel>
+              <CInputGroup>
+                <CInputGroupText>$</CInputGroupText>
+                <CFormInput
+                  type="number" min="0" step="0.01" placeholder="0.00"
+                  value={formMat.valor_cuota}
+                  onChange={e => {
+                    const v = e.target.value;
+                    const cfg = TIPO_PAGO_CONFIG[formMat.tipo_pago];
+                    const newTotal = cfg && v ? (parseFloat(v) * cfg.cuotas).toFixed(2) : '';
+                    setFormMat(p => ({ ...p, valor_cuota: v, total_estimado: newTotal }));
+                  }}
+                />
+              </CInputGroup>
+            </CCol>
+
+            {/* Total estimado — editable, linked to valor_cuota */}
+            <CCol md={6} className="mb-3">
+              <CFormLabel>
+                Total estimado:
+                {formMat.tipo_pago && TIPO_PAGO_CONFIG[formMat.tipo_pago] && (
+                  <span className="text-muted ms-1" style={{ fontSize: '0.72rem' }}>
+                    ({TIPO_PAGO_CONFIG[formMat.tipo_pago].cuotas} cuota{TIPO_PAGO_CONFIG[formMat.tipo_pago].cuotas > 1 ? 's' : ''})
+                  </span>
+                )}
+              </CFormLabel>
+              <CInputGroup>
+                <CInputGroupText>$</CInputGroupText>
+                <CFormInput
+                  type="number" min="0" step="0.01" placeholder="0.00"
+                  value={formMat.total_estimado || ''}
+                  disabled={!formMat.tipo_pago}
+                  style={!formMat.tipo_pago ? { backgroundColor: '#e9ecef' } : {}}
+                  onChange={e => {
+                    const t = e.target.value;
+                    const cfg = TIPO_PAGO_CONFIG[formMat.tipo_pago];
+                    const newCuota = cfg && t && cfg.cuotas > 0
+                      ? (parseFloat(t) / cfg.cuotas).toFixed(2)
+                      : '';
+                    setFormMat(p => ({ ...p, total_estimado: t, valor_cuota: newCuota }));
+                  }}
+                />
+              </CInputGroup>
+              {!formMat.tipo_pago && (
+                <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '3px' }}>
+                  Seleccione tipo de pago primero
+                </div>
+              )}
+            </CCol>
+
+            {/* ── Fechas row 1: solicitud + alta ── */}
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Fecha de solicitud: <span className="text-danger">*</span></CFormLabel>
+              <CFormInput
+                type="date"
+                value={formMat.fecha_solicitud || ''}
+                onChange={e => setFormMat(p => ({ ...p, fecha_solicitud: e.target.value }))}
+              />
+            </CCol>
+
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Fecha de alta:</CFormLabel>
+              <CFormInput
+                type="date"
+                value={formMat.fecha_alta}
+                onChange={e => {
+                  const fa = e.target.value;
+                  const sugLib = computeMatLiberacion(fa);
+                  const sugVenc = computeVidaVencimiento(fa);
+                  setFormMat(p => ({
+                    ...p,
+                    fecha_alta: fa,
+                    fecha_liberacion: p.fecha_liberacion === computeMatLiberacion(p.fecha_alta) || !p.fecha_liberacion
+                      ? sugLib : p.fecha_liberacion,
+                    fecha_vencimiento: p.fecha_vencimiento === computeVidaVencimiento(p.fecha_alta) || !p.fecha_vencimiento
+                      ? sugVenc : p.fecha_vencimiento,
+                  }));
+                }}
+              />
+            </CCol>
+
+            {/* ── Fechas row 2: liberación + vencimiento ── */}
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Fecha de liberación:</CFormLabel>
+              <CFormInput
+                type="date"
+                value={formMat.fecha_liberacion}
+                onChange={e => setFormMat(p => ({ ...p, fecha_liberacion: e.target.value }))}
+              />
+            </CCol>
+
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Fecha de vencimiento:</CFormLabel>
+              <CFormInput
+                type="date"
+                value={formMat.fecha_vencimiento}
+                onChange={e => setFormMat(p => ({ ...p, fecha_vencimiento: e.target.value }))}
+              />
+            </CCol>
+
+            {/* Aseguradora — dropdown AXXA / BUPA */}
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Aseguradora:</CFormLabel>
+              <CFormSelect
+                value={formMat.aseguradora}
+                onChange={e => setFormMat(p => ({ ...p, aseguradora: e.target.value }))}
+              >
+                <option value="">— Seleccionar —</option>
+                <option value="AXXA">AXXA</option>
+                <option value="BUPA">BUPA</option>
+              </CFormSelect>
+            </CCol>
+
+            {/* Número de póliza */}
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Número de póliza:</CFormLabel>
+              <CFormInput
+                placeholder="Ej. POL-000456"
+                value={formMat.numero_poliza}
+                onChange={e => setFormMat(p => ({ ...p, numero_poliza: e.target.value }))}
+              />
+            </CCol>
+          </CRow>
+
+          {/* ── Payment calendar preview ── */}
+          {formMat.tipo_pago && formMat.fecha_alta && (() => {
+            const pagos = buildPagos(formMat.tipo_pago, formMat.valor_cuota, formMat.fecha_alta);
+            const cfg = TIPO_PAGO_CONFIG[formMat.tipo_pago];
+            const valorNum = parseFloat(formMat.valor_cuota) || 0;
+            const totalNum = valorNum * cfg.cuotas;
+            return (
+              <div className="mt-3">
+                {/* Header bar */}
+                <div
+                  className="d-flex align-items-center px-3 py-2"
+                  style={{
+                    backgroundColor: '#f8f9fa',
+                    borderRadius: '6px 6px 0 0',
+                    border: '1px solid #dee2e6',
+                  }}
+                >
+                  <span style={{ width: '70px', fontWeight: 700, fontSize: '0.80rem', color: '#899973' }}>
+                    Cuota
+                  </span>
+                  <span style={{ flex: 1, fontWeight: 700, fontSize: '0.80rem' }}>
+                    Fecha de pago — {cfg.label} ({cfg.cuotas} cuota{cfg.cuotas > 1 ? 's' : ''})
+                  </span>
+                  <span style={{ width: '110px', fontWeight: 700, fontSize: '0.80rem', textAlign: 'right' }}>
+                    Monto
+                  </span>
+                </div>
+
+                {/* Rows */}
+                <div
+                  style={{
+                    border: '1px solid #dee2e6',
+                    borderTop: 'none',
+                    borderRadius: '0 0 6px 6px',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {pagos.map((c, idx) => (
+                    <div
+                      key={c.cuota_num}
+                      className="d-flex align-items-center px-3 py-1"
+                      style={{
+                        borderBottom: idx < pagos.length - 1 ? '1px solid #f0f0f0' : 'none',
+                        backgroundColor: '#fff',
+                        fontSize: '0.83rem',
+                      }}
+                    >
+                      <span style={{ width: '70px', fontWeight: 600, color: '#899973' }}>
+                        {c.cuota_num}/{c.total}
+                      </span>
+                      <span style={{ flex: 1 }}>{c.vencimiento}</span>
+                      <span style={{ width: '110px', textAlign: 'right' }}>
+                        {valorNum > 0
+                          ? `$${valorNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                          : <span className="text-muted">—</span>}
+                      </span>
+                    </div>
+                  ))}
+
+                  {/* Total row */}
+                  {valorNum > 0 && (
+                    <div
+                      className="d-flex align-items-center px-3 py-1"
+                      style={{ backgroundColor: '#f8f9fa', borderTop: '1px solid #dee2e6', fontSize: '0.83rem' }}
+                    >
+                      <span style={{ flex: 1, fontWeight: 700, textAlign: 'right', paddingRight: '8px' }}>
+                        Total estimado:
+                      </span>
+                      <span style={{ width: '110px', fontWeight: 700, textAlign: 'right', color: '#899973' }}>
+                        ${totalNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={() => { setModalMat(null); setEditingMatId(null); }}>Cancelar</CButton>
           <CButton
             color="primary"
             onClick={saveMat}
+            disabled={!formMat.gestor || !formMat.fecha_solicitud}
             style={{ backgroundColor: '#899973', borderColor: '#899973' }}
           >
-            <CIcon icon={cilSave} className="me-1" />Registrar
+            <CIcon icon={cilSave} className="me-1" />{editingMatId !== null ? 'Actualizar' : 'Registrar'}
           </CButton>
         </CModalFooter>
       </CModal>
@@ -2194,24 +3319,119 @@ const SortGes = () => {
               Cuota <strong>{pagoTarget.cuotaNum}</strong> de la póliza seleccionada.
             </p>
           )}
-          <CFormLabel>Fecha de pago:</CFormLabel>
-          <CFormInput
-            type="date"
-            value={fechaPagoInput}
-            onChange={e => setFechaPagoInput(e.target.value)}
-          />
+          <CRow>
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Monto: <span className="text-danger">*</span></CFormLabel>
+              <CInputGroup>
+                <CInputGroupText>$</CInputGroupText>
+                <CFormInput
+                  type="number" min="0" step="0.01" placeholder="0.00"
+                  value={montoPagoInput}
+                  onChange={e => setMontoPagoInput(e.target.value)}
+                />
+              </CInputGroup>
+              {pagoTarget.valorSugerido && (
+                <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '3px' }}>
+                  Sugerido: ${Number(pagoTarget.valorSugerido).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                </div>
+              )}
+            </CCol>
+            <CCol md={6} className="mb-3">
+              <CFormLabel>Fecha de pago: <span className="text-danger">*</span></CFormLabel>
+              <CFormInput
+                type="date"
+                value={fechaPagoInput}
+                onChange={e => setFechaPagoInput(e.target.value)}
+              />
+            </CCol>
+          </CRow>
         </CModalBody>
         <CModalFooter>
           <CButton color="secondary" onClick={() => setModalMat(null)}>Cancelar</CButton>
           <CButton
             color="success"
             onClick={savePago}
-            disabled={!fechaPagoInput}
+            disabled={!fechaPagoInput || !montoPagoInput}
           >
             <CIcon icon={cilSave} className="me-1" />Confirmar pago
           </CButton>
         </CModalFooter>
       </CModal>
+      {/* ── Modal: Contraseña para editar PAGO de Seguro de Vida ── */}
+      <CModal visible={showVidaPagoEditModal} onClose={cancelVidaPagoEdit}>
+        <CModalHeader>
+          <CModalTitle>
+            <CIcon icon={cilLockLocked} className="me-2 text-warning" />
+            Editar pago del seguro de vida
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="text-muted small mb-3">
+            Ingrese la contraseña para modificar únicamente la información de pago.
+          </p>
+          <CFormLabel>Contraseña:</CFormLabel>
+          <CFormInput
+            type="password"
+            value={vidaPagoEditPassword}
+            onChange={e => setVidaPagoEditPassword(e.target.value)}
+            placeholder="Contraseña"
+            onKeyDown={e => { if (e.key === 'Enter') confirmVidaPagoEdit(); }}
+            invalid={!!vidaPagoEditPasswordError}
+            autoFocus
+          />
+          {vidaPagoEditPasswordError && (
+            <div className="text-danger small mt-1">{vidaPagoEditPasswordError}</div>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={cancelVidaPagoEdit}>Cancelar</CButton>
+          <CButton color="warning" onClick={confirmVidaPagoEdit} disabled={!vidaPagoEditPassword}>
+            <CIcon icon={cilLockUnlocked} className="me-1" />Desbloquear
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: Contraseña para editar/eliminar pago de Maternidad ── */}
+      <CModal visible={showMatPagoEditModal} onClose={cancelMatPagoAction}>
+        <CModalHeader>
+          <CModalTitle>
+            <CIcon icon={cilLockLocked} className="me-2 text-warning" />
+            {matPagoEditAction?.type === 'remove' ? 'Eliminar pago' : 'Editar pago'}
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p className="text-muted small mb-3">
+            {matPagoEditAction?.type === 'remove'
+              ? 'Ingrese la contraseña para eliminar la información de este pago.'
+              : 'Ingrese la contraseña para modificar la información de este pago.'}
+          </p>
+          <CFormLabel>Contraseña:</CFormLabel>
+          <CFormInput
+            type="password"
+            value={matPagoEditPassword}
+            onChange={e => setMatPagoEditPassword(e.target.value)}
+            placeholder="Contraseña"
+            onKeyDown={e => { if (e.key === 'Enter') confirmMatPagoAction(); }}
+            invalid={!!matPagoEditPasswordError}
+            autoFocus
+          />
+          {matPagoEditPasswordError && (
+            <div className="text-danger small mt-1">{matPagoEditPasswordError}</div>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={cancelMatPagoAction}>Cancelar</CButton>
+          <CButton
+            color={matPagoEditAction?.type === 'remove' ? 'danger' : 'warning'}
+            onClick={confirmMatPagoAction}
+            disabled={!matPagoEditPassword}
+          >
+            <CIcon icon={cilLockUnlocked} className="me-1" />
+            {matPagoEditAction?.type === 'remove' ? 'Eliminar' : 'Desbloquear'}
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
       {/* ── Historial unlock modal ────────────────────────── */}
       <CModal visible={showHistorialModal} onClose={cancelHistorialUnlock}>
         <CModalHeader>
@@ -2255,6 +3475,50 @@ const SortGes = () => {
         .form-check-input:checked { background-color: #0071b8 !important; border-color: #0071b8 !important; }
         .form-check-input:focus { border-color: #0071b8 !important; box-shadow: 0 0 0 0.25rem rgba(0, 113, 184, 0.25) !important; }
         .pdf-upload-btn:hover { background-color: #0071b8 !important; border-color: #0071b8 !important; color: #fff !important; }
+
+        /* ── Psico Inicial — plain-text input style ── */
+        .psico-field .input-group,
+        .psico-field .form-control,
+        .psico-field .form-select {
+          background: transparent !important;
+          border: none !important;
+          border-bottom: 1px solid #dee2e6 !important;
+          border-radius: 0 !important;
+          box-shadow: none !important;
+          padding-left: 0 !important;
+          font-size: 0.88rem !important;
+        }
+        .psico-field .form-select {
+          background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%23adb5bd' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M2 5l6 6 6-6'/%3e%3c/svg%3e") !important;
+          background-repeat: no-repeat !important;
+          background-position: right 4px center !important;
+          background-size: 10px !important;
+          padding-right: 20px !important;
+        }
+        .psico-field .form-control:focus,
+        .psico-field .form-select:focus {
+          border-bottom-color: #0098b3 !important;
+          box-shadow: none !important;
+        }
+        .psico-field .form-control:disabled,
+        .psico-field .form-select:disabled {
+          background: transparent !important;
+          color: #495057 !important;
+        }
+        .psico-field .input-group .btn {
+          background: transparent !important;
+          border: none !important;
+          border-bottom: 1px solid #dee2e6 !important;
+          border-radius: 0 !important;
+          padding: 0 4px !important;
+          color: #fd7e14 !important;
+        }
+        .psico-field .input-group-text {
+          display: none !important;
+        }
+        .psico-row:hover {
+          background-color: #fafafa;
+        }
       `}</style>
     </CContainer>
   );
