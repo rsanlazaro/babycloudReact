@@ -39,6 +39,7 @@ import {
   CTableHeaderCell,
   CTableBody,
   CTableDataCell,
+  CProgress,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
 import {
@@ -56,6 +57,7 @@ import {
   cilLockUnlocked,
   cilPlus,
   cilTrash,
+  cilCamera,
 } from '@coreui/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
@@ -79,6 +81,13 @@ const SortGes = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
+
+  // ── Candidate photo upload ────────────────────────────────────
+  const [fotoFile, setFotoFile]             = useState(null);
+  const [fotoPreview, setFotoPreview]       = useState(null);
+  const [uploadingFoto, setUploadingFoto]   = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const fotoInputRef                        = useRef(null);
 
   // Field locking
   const [lockedFields, setLockedFields] = useState({});
@@ -621,6 +630,56 @@ const SortGes = () => {
   const showNotification = (type, message) => {
     setAlert({ show: true, type, message });
     setTimeout(() => setAlert({ show: false, type: '', message: '' }), 5000);
+  };
+
+  // ── Candidate photo upload (mirrors Profile.js uploadToCloudinary) ──
+  const uploadCandidateFoto = async () => {
+    if (!fotoFile) return;
+    try {
+      setUploadingFoto(true);
+      setUploadProgress(0);
+
+      const sigRes = await api.get('/api/upload/candidate-cloudinary-signature',
+        { params: { candidateId: id }, withCredentials: true });
+      const { timestamp, signature, publicId, assetFolder, cloudName, apiKey } = sigRes.data;
+
+      const fd = new FormData();
+      fd.append('file',         fotoFile);
+      fd.append('api_key',      apiKey);
+      fd.append('timestamp',    timestamp);
+      fd.append('signature',    signature);
+      fd.append('public_id',    publicId);
+      fd.append('asset_folder', assetFolder);
+      fd.append('overwrite',    'true');
+      fd.append('transformation', 'c_fill,w_300,h_300,g_face');
+
+      await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/image/upload`);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setUploadProgress(Math.round(e.loaded * 100 / e.total));
+        };
+        xhr.onload = async () => {
+          if (xhr.status !== 200) { reject(new Error('Upload failed')); return; }
+          const { secure_url } = JSON.parse(xhr.responseText);
+          // Persist URL to DB
+          await api.put(`/api/sort-ges/${id}/foto`, { fotoUrl: secure_url }, { withCredentials: true });
+          setCandidate(prev => ({ ...prev, foto_url: secure_url }));
+          setFotoPreview(null);
+          setFotoFile(null);
+          setUploadingFoto(false);
+          setUploadProgress(0);
+          showNotification('success', 'Foto actualizada correctamente');
+          resolve();
+        };
+        xhr.onerror = () => { setUploadingFoto(false); reject(new Error('Upload failed')); };
+        xhr.send(fd);
+      });
+    } catch (err) {
+      console.error('Error uploading foto:', err);
+      setUploadingFoto(false);
+      showNotification('danger', 'Error al subir la foto');
+    }
   };
 
   // ─────────────────────────────────────────────────────────────
@@ -1648,7 +1707,88 @@ const SortGes = () => {
               </div>
             </CCol>
             <CCol md={4} className="text-end">
-              <CAvatar src={candidate.foto} size="xl" style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover' }} />
+              {/* ── Candidate photo upload ── */}
+              <div className="d-flex flex-column align-items-end gap-2">
+                {/* Avatar — click to change photo */}
+                <div style={{ position: 'relative', display: 'inline-block' }}>
+                  <CAvatar
+                    src={fotoPreview || candidate.foto_url || 'https://www.gravatar.com/avatar/00000000000000000000000000000000?d=mp&s=150'}
+                    style={{
+                      width: '120px', height: '120px',
+                      borderRadius: '50%', objectFit: 'cover',
+                      cursor: 'pointer',
+                      border: '3px solid #d97ea1',
+                      boxShadow: '0 2px 8px rgba(217,126,161,0.3)',
+                    }}
+                    onClick={() => fotoInputRef.current?.click()}
+                    title="Cambiar foto"
+                  />
+                  {/* Camera overlay */}
+                  <div
+                    onClick={() => fotoInputRef.current?.click()}
+                    style={{
+                      position: 'absolute', bottom: 4, right: 4,
+                      width: 28, height: 28, borderRadius: '50%',
+                      backgroundColor: '#d97ea1', border: '2px solid #fff',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      cursor: 'pointer', boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                    }}
+                  >
+                    <CIcon icon={cilCamera} style={{ color: '#fff', width: 14, height: 14 }} />
+                  </div>
+                  {/* Hidden file input */}
+                  <input
+                    ref={fotoInputRef}
+                    type="file"
+                    accept="image/*"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      const file = e.target.files[0];
+                      if (!file) return;
+                      if (!file.type.startsWith('image/')) {
+                        showNotification('danger', 'Por favor seleccione una imagen');
+                        return;
+                      }
+                      if (file.size > 5 * 1024 * 1024) {
+                        showNotification('danger', 'La imagen no debe superar 5MB');
+                        return;
+                      }
+                      setFotoFile(file);
+                      setFotoPreview(URL.createObjectURL(file));
+                    }}
+                  />
+                </div>
+
+                {/* Save / progress — only when a new file is selected */}
+                {fotoFile && !uploadingFoto && (
+                  <div className="d-flex gap-2">
+                    <CButton
+                      size="sm"
+                      style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1', color: '#fff' }}
+                      onClick={uploadCandidateFoto}
+                    >
+                      <CIcon icon={cilSave} className="me-1" />Guardar foto
+                    </CButton>
+                    <CButton size="sm" color="secondary" variant="outline"
+                      onClick={() => { setFotoFile(null); setFotoPreview(null); }}>
+                      Cancelar
+                    </CButton>
+                  </div>
+                )}
+                {uploadingFoto && (
+                  <div style={{ width: '120px' }}>
+                    <CProgress value={uploadProgress} style={{ height: '6px' }} color="pink" />
+                    <div className="text-muted" style={{ fontSize: '0.72rem', textAlign: 'center', marginTop: 2 }}>
+                      {uploadProgress}%
+                    </div>
+                  </div>
+                )}
+                {!fotoFile && !uploadingFoto && (
+                  <div className="text-muted" style={{ fontSize: '0.72rem' }}>
+                    Click en la foto para cambiar
+                  </div>
+                )}
+              </div>
             </CCol>
           </CRow>
 

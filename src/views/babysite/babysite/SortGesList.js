@@ -654,8 +654,6 @@ const SortGesList = () => {
                   onClick={() => setActiveTab(tab.id)}
                   style={{
                     cursor: 'pointer',
-                    borderBottom: activeTab === tab.id
-                      ? `3px solid ${tab.color}` : '3px solid transparent',
                     color:  activeTab === tab.id ? tab.color : '#6c757d',
                     fontWeight: activeTab === tab.id ? 700 : 400,
                     background: 'none',
