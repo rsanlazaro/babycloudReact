@@ -104,8 +104,7 @@ const LockedFormInput = ({ name, label, value, type = 'text', locked, disabled, 
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 const FIXED_ROWS = [
-  { id: 'beta_positiva', concepto: 'Beta positiva', importe: 2000,  bonoTransporte: null, section: 2 },
-  { id: 'sdg6',          concepto: '6 SDG',         importe: null,  bonoTransporte: 1000, section: 2 },
+  { id: 'sco_gesta',     concepto: 'SCO Gesta',      importe: 2000,  bonoTransporte: 1000, section: 2 },
   { id: 'sdg8',          concepto: '8 SDG',         importe: 5000,  bonoTransporte: 500,  section: 2 },
   { id: 'sdg10',         concepto: '10 SDG',        importe: 5000,  bonoTransporte: 500,  section: 2 },
   { id: 'sdg12', concepto: '12 SDG', importe: 10000, bonoTransporte: 500, section: 3 },
@@ -136,9 +135,9 @@ const BG_CONDITIONS = [
 ];
 
 const PUERPERIO_ROWS = [
-  { id: 'puerperio1', concepto: 'Puerperio 1 - Nacimiento'        },
-  { id: 'puerperio2', concepto: 'Puerperio 2 - Firma de registro' },
-  { id: 'puerperio3', concepto: 'Puerperio 3 - Salida de IPs'     },
+  { id: 'puerperio1', concepto: 'Nacimiento'        },
+  { id: 'puerperio2', concepto: 'Registro civil' },
+  { id: 'puerperio3', concepto: 'Parto y registro'     },
 ];
 
 const EXTRATO_MOTIVOS = ['Reembolso', 'Bonificación', 'Pago extraordinario', 'Adelanto', 'Otro'];
@@ -347,6 +346,29 @@ const PaymentsGestForm = () => {
       .reduce((sum, t) => sum + rVal(t.realImporte, 1000) - (parseFloat(t.penalizacion) || 0), 0);
   }, [visibleTransferencias]);
 
+  // Transferencias 4, 5 y 6 — importe (Prueba Beta) + bono transporte pagados,
+  // se descuentan directamente de Puerperio 2 (y por lo tanto del total del esquema).
+  const trans456Deduction = useMemo(() => {
+    let t = 0;
+    visibleTransferencias.forEach(trans => {
+      if (![4, 5, 6].includes(trans.id)) return;
+      if (trans.completed)      t += rVal(trans.realImporte, 1000) - (parseFloat(trans.penalizacion) || 0);
+      if (trans.transCompleted) t += rVal(trans.transRealBono, 500);
+    });
+    return t;
+  }, [visibleTransferencias]);
+
+  // Transferencias 2 y 3 — solo el bono de transporte sigue descontándose de Puerperio 3, como antes.
+  const trans23BonoDeduction = useMemo(() => {
+    let t = 0;
+    visibleTransferencias.forEach(trans => {
+      if ([2, 3].includes(trans.id) && trans.transCompleted) {
+        t += rVal(trans.transRealBono, 500);
+      }
+    });
+    return t;
+  }, [visibleTransferencias]);
+
   const t1NoSDG36Penalty = useMemo(
     () => (t1Exitosa && semanaParto && !sdg36BonusApplied) ? 5000 : 0,
     [t1Exitosa, semanaParto, sdg36BonusApplied]
@@ -356,7 +378,12 @@ const PaymentsGestForm = () => {
     () => Math.max(0, 50000 - transferenciasPaid + (sdg36BonusApplied ? 5000 : 0) - t1NoSDG36Penalty),
     [transferenciasPaid, sdg36BonusApplied, t1NoSDG36Penalty, sv]
   );
-  const p2Base   = useMemo(() => sv === '375000' ? 50000 : 55000, [sv]);
+  // Base "planned" amount for Puerperio 2 (unaffected by the Transferencias 4/5/6 deduction —
+  // used only for the Puerperio 3 residual formula, which must stay orthogonal to this deduction).
+  const p2BasePlanned = useMemo(() => sv === '375000' ? 50000 : 55000, [sv]);
+  // Actual amount owed for Puerperio 2 — reduced dollar-for-dollar by what was already paid
+  // in Transferencias 4, 5 y 6 (importe + bono transporte).
+  const p2Base = useMemo(() => Math.max(0, p2BasePlanned - trans456Deduction), [p2BasePlanned, trans456Deduction]);
 
   const bgDeduction = useMemo(() => {
     let t = 0;
@@ -404,22 +431,13 @@ const PaymentsGestForm = () => {
   }, [blockedBirthRowIds, sv]);
 
   const p3BaseRaw = useMemo(
-    () => Math.max(0, schemeValue - fase2Total - fasesPagosTotal - 50000 - p2Base - ULTIMAS_FIRMAS),
-    [schemeValue, fase2Total, fasesPagosTotal, p2Base]
+    () => Math.max(0, schemeValue - fase2Total - fasesPagosTotal - 50000 - p2BasePlanned - ULTIMAS_FIRMAS),
+    [schemeValue, fase2Total, fasesPagosTotal, p2BasePlanned]
   );
   const ayudaAmountNum = useMemo(
     () => parseFloat(ayudaState.realImporte) || parseFloat(ayudaAmount) || 0,
     [ayudaState.realImporte, ayudaAmount]
   );
-  const trans45Deduction = useMemo(() => {
-    let t = 0;
-    visibleTransferencias.forEach(trans => {
-      if ([2,3,4,5,6].includes(trans.id) && trans.transCompleted) {
-        t += rVal(trans.transRealBono, 500);
-      }
-    });
-    return t;
-  }, [visibleTransferencias]);
 
   const realFase2Total = useMemo(() => {
     let t = 0;
@@ -445,13 +463,13 @@ const PaymentsGestForm = () => {
     () => Math.max(0,
       schemeValue
       - realFase2Total - realFasesPagosTotal
-      - (50000 - t1NoSDG36Penalty) - p2Base
-      - trans45Deduction
+      - (50000 - t1NoSDG36Penalty) - p2BasePlanned
+      - trans23BonoDeduction
       - (ayudaState.completed ? ayudaAmountNum : 0)
       - blockedScheduleImporte
       - ULTIMAS_FIRMAS
     ),
-    [schemeValue, realFase2Total, realFasesPagosTotal, t1NoSDG36Penalty, p2Base, trans45Deduction, ayudaState, ayudaAmountNum, blockedScheduleImporte]
+    [schemeValue, realFase2Total, realFasesPagosTotal, t1NoSDG36Penalty, p2BasePlanned, trans23BonoDeduction, ayudaState, ayudaAmountNum, blockedScheduleImporte]
   );
 
   const realP3Amount = useMemo(
@@ -460,8 +478,8 @@ const PaymentsGestForm = () => {
   );
 
   const p2Adjustment = useMemo(
-    () => (schemeValue - bgDeduction) - (realFase2Total + realFasesPagosTotal + 50000 + p2Base + p3BaseRaw + ULTIMAS_FIRMAS),
-    [schemeValue, bgDeduction, realFase2Total, realFasesPagosTotal, p2Base, p3BaseRaw]
+    () => (schemeValue - bgDeduction) - (realFase2Total + realFasesPagosTotal + 50000 + p2BasePlanned + p3BaseRaw + ULTIMAS_FIRMAS),
+    [schemeValue, bgDeduction, realFase2Total, realFasesPagosTotal, p2BasePlanned, p3BaseRaw]
   );
   const vihBonus     = useMemo(() => bonoVIH     ? 50000 : 0, [bonoVIH]);
   const gemelarBonus = useMemo(() => bonoGemelar ? 20000 : 0, [bonoGemelar]);
@@ -567,8 +585,8 @@ const PaymentsGestForm = () => {
   );
 
   const effectiveSchemeValue = useMemo(
-    () => schemeValue - bgDeduction - totalPenalizaciones,
-    [schemeValue, bgDeduction, totalPenalizaciones]
+    () => schemeValue - bgDeduction - totalPenalizaciones - trans456Deduction,
+    [schemeValue, bgDeduction, totalPenalizaciones, trans456Deduction]
   );
   const grandTotal = useMemo(
     () => effectiveSchemeValue + bonoTransporteTotal + totalBonos - extraBonus,
@@ -674,12 +692,13 @@ const PaymentsGestForm = () => {
     'Transferencia 4', 'Prueba Beta 4',
     'Transferencia 5', 'Prueba Beta 5',
     'Transferencia 6', 'Prueba Beta 6',
-    'Beta positiva', 'Beta Positiva',
-    '6 SDG', '8 SDG', '10 SDG', '12 SDG', '16 SDG', '20 SDG',
+    'SCO Gesta',
+    '8 SDG', '10 SDG', '12 SDG', '16 SDG', '20 SDG',
     '22 SDG', '26 SDG', '32 SDG', '34 SDG', '35 SDG',
     '36 SDG', '37 SDG', '38 SDG', '39 SDG', '40 SDG',
     'Bono pos-SDG40', 'Bono Post SDG40',
-    'Puerperio 1', 'Puerperio 2', 'Ayuda maternidad', 'Ayuda Maternidad', 'Puerperio 3',
+    'Nacimiento', 'Puerperio 1', 'Registro civil', 'Puerperio 2',
+    'Ayuda maternidad', 'Ayuda Maternidad', 'Parto y registro', 'Puerperio 3',
     'Parcialidad 1', 'Parcialidad 2', 'Parcialidad 3',
   ];
   const getMovimientoOrder = (mov) => {
@@ -1301,7 +1320,7 @@ const PaymentsGestForm = () => {
   const buildExportRows = () => {
     const cols = [{ key: 'fecha', label: 'Fecha' }, { key: 'motivo', label: 'Motivo' }, { key: 'movimiento', label: 'Movimiento' }];
     if (exportCols.esquema) cols.push({ key: 'esquema', label: 'Imp. de esquema' });
-    if (exportCols.bonos)   cols.push({ key: 'bonos',   label: 'Bonos' });
+    if (exportCols.bonos)   cols.push({ key: 'bonos',   label: 'Importe Bono T1' });
     if (exportCols.bono)    cols.push({ key: 'bono',    label: 'Bono transporte' });
     if (exportCols.pen)     cols.push({ key: 'pen',     label: 'Penalización' });
     if (exportCols.reim)    cols.push({ key: 'reim',    label: 'Reembolso' });
@@ -1332,20 +1351,78 @@ const PaymentsGestForm = () => {
       if (['fecha','motivo','movimiento'].includes(col.key)) return '';
       return rows.reduce((s, r) => s + (typeof r[i] === 'number' ? r[i] : 0), 0);
     });
-    return { cols, rows, totals };
+    return { cols, rows, totals, entries: ordered };
+  };
+
+  // "Observaciones Adicionales" — pulls the comment attached to each exported Extrato entry
+  // (the note icon on each Extrato Gastos row), so the report can surface it the way the
+  // reference design does.
+  const buildObservaciones = (entries) => {
+    return entries
+      .map(e => ({ entry: e, texto: rowComments[`extrato_${e.autoKey || e.id}`] }))
+      .filter(x => x.texto && String(x.texto).trim() !== '')
+      .map(x => ({
+        movimiento: x.entry.movimiento || x.entry.motivo || 'Entrada',
+        fecha: x.entry.fecha ? new Date(x.entry.fecha + 'T12:00:00').toLocaleDateString('es-MX') : '',
+        texto: x.texto,
+      }));
   };
   const exportExcel = () => {
-    const { cols, rows, totals } = buildExportRows();
+    const { cols, rows, totals, entries } = buildExportRows();
+    const observaciones = buildObservaciones(entries);
     const numKeys = new Set(['esquema', 'bonos', 'bono', 'pen', 'reim', 'total']);
+    const n = cols.length;
+    const lastCol = n - 1;
 
     const aoa = [];
-    aoa.push(['Extrato Gastos']);
-    aoa.push([`GESCA: ${formData.gesca || '—'}`, '', `IP: ${formData.ip || '—'}`, '', `Esquema: ${fmt(schemeValue)}`]);
+
+    // Row 0 — title + logo text (top-right)
+    const titleRow = new Array(n).fill('');
+    titleRow[0] = 'Extrato Gastos';
+    titleRow[lastCol] = 'Babyboom Surrogacy';
+    aoa.push(titleRow);
+
+    // Row 1 — "Observaciones Adicionales" subtitle
+    const subtitleRow = new Array(n).fill('');
+    subtitleRow[0] = 'Observaciones Adicionales';
+    aoa.push(subtitleRow);
+
+    // Row 2 — GESCA / IP / Esquema
+    const metaRow = new Array(n).fill('');
+    metaRow[0] = `GESCA: ${formData.gesca || '—'}`;
+    metaRow[Math.min(2, lastCol)] = `IP: ${formData.ip || '—'}`;
+    metaRow[Math.min(4, lastCol)] = `Esquema: ${fmt(schemeValue)}`;
+    aoa.push(metaRow);
+
+    // Row 3 — Generado
     aoa.push([`Generado: ${new Date().toLocaleString('es-MX')}`]);
-    aoa.push([]);
+
+    aoa.push([]); // blank separator
     const headerRowIdx = aoa.length;
     aoa.push(cols.map(c => c.label));
     rows.forEach(r => aoa.push(r));
+
+    // Observaciones section — one entry per exported row that has a comment attached
+    let obsStartIdx = null;
+    if (observaciones.length > 0) {
+      aoa.push([]);
+      const obsHeaderRow = new Array(n).fill('');
+      obsHeaderRow[0] = 'Observaciones';
+      aoa.push(obsHeaderRow);
+      obsStartIdx = aoa.length;
+      observaciones.forEach(o => {
+        const r = new Array(n).fill('');
+        const prefix = observaciones.length > 1 ? `[${o.movimiento}${o.fecha ? ' — ' + o.fecha : ''}]  ` : '';
+        r[0] = prefix + o.texto;
+        aoa.push(r);
+      });
+    }
+
+    aoa.push([]); // blank separator
+    const totalsBarRow = new Array(n).fill('');
+    totalsBarRow[0] = 'Totales';
+    aoa.push(totalsBarRow);
+    const totalsBarIdx = aoa.length - 1;
     aoa.push(totals);
     const totalRowIdx = aoa.length - 1;
 
@@ -1358,13 +1435,28 @@ const PaymentsGestForm = () => {
       return 18;
     };
     ws['!cols'] = cols.map(c => ({ wch: widthFor(c.key) }));
-    ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: cols.length - 1 } }];
 
-    const navy   = '2D3748';
-    const headBg = '6B89BE';
-    const footBg = 'D6E0F2';
-    const footTx = '375596';
-    const stripe = 'F4F4F6';
+    const merges = [
+      { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, lastCol - 1) } },
+      { s: { r: 1, c: 0 }, e: { r: 1, c: lastCol } },
+      { s: { r: totalsBarIdx, c: 0 }, e: { r: totalsBarIdx, c: lastCol } },
+    ];
+    if (obsStartIdx !== null) {
+      merges.push({ s: { r: obsStartIdx - 1, c: 0 }, e: { r: obsStartIdx - 1, c: lastCol } });
+      observaciones.forEach((_, i) => {
+        merges.push({ s: { r: obsStartIdx + i, c: 0 }, e: { r: obsStartIdx + i, c: lastCol } });
+      });
+    }
+    ws['!merges'] = merges;
+
+    const navy       = '2D3748';
+    const headBg     = '6B89BE';
+    const footBg     = 'D6E0F2';
+    const footTx     = '375596';
+    const stripe     = 'F4F4F6';
+    const accentBlue = '2F6FB0';
+    const pinkHex    = 'EC609A';
+    const obsBg      = 'EAF1FA';
 
     const setCell = (r, c, style) => {
       const ref = XLSXStyle.utils.encode_cell({ r, c });
@@ -1373,10 +1465,12 @@ const PaymentsGestForm = () => {
     };
 
     setCell(0, 0, { font: { bold: true, sz: 18, color: { rgb: navy } } });
-    setCell(1, 0, { font: { bold: true, sz: 10, color: { rgb: navy } } });
-    setCell(1, 2, { font: { bold: true, sz: 10, color: { rgb: navy } } });
-    setCell(1, 4, { font: { bold: true, sz: 10, color: { rgb: navy } } });
-    setCell(2, 0, { font: { sz: 9, color: { rgb: '666666' } } });
+    setCell(0, lastCol, { font: { bold: true, sz: 11, color: { rgb: pinkHex } }, alignment: { horizontal: 'right' } });
+    setCell(1, 0, { font: { bold: true, sz: 12, color: { rgb: accentBlue } } });
+    setCell(2, 0, { font: { bold: true, sz: 10, color: { rgb: navy } } });
+    setCell(2, Math.min(2, lastCol), { font: { bold: true, sz: 10, color: { rgb: navy } } });
+    setCell(2, Math.min(4, lastCol), { font: { bold: true, sz: 10, color: { rgb: navy } } });
+    setCell(3, 0, { font: { sz: 9, color: { rgb: '666666' } } });
 
     cols.forEach((col, ci) => {
       setCell(headerRowIdx, ci, {
@@ -1404,6 +1498,24 @@ const PaymentsGestForm = () => {
       });
     });
 
+    if (obsStartIdx !== null) {
+      setCell(obsStartIdx - 1, 0, {
+        fill: { fgColor: { rgb: obsBg } },
+        font: { bold: true, color: { rgb: accentBlue }, sz: 10 },
+      });
+      observaciones.forEach((_, i) => {
+        setCell(obsStartIdx + i, 0, {
+          font: { sz: 9, italic: true, color: { rgb: '3C3C46' } },
+          alignment: { wrapText: true, vertical: 'top' },
+        });
+      });
+    }
+
+    setCell(totalsBarIdx, 0, {
+      fill: { fgColor: { rgb: footBg } },
+      font: { bold: true, color: { rgb: footTx }, sz: 11 },
+    });
+
     cols.forEach((col, ci) => {
       const ref = XLSXStyle.utils.encode_cell({ r: totalRowIdx, c: ci });
       const isNum = numKeys.has(col.key);
@@ -1423,9 +1535,11 @@ const PaymentsGestForm = () => {
     setShowExportModal(false);
   };
   const exportPDF = () => {
-    const { cols, rows, totals } = buildExportRows();
+    const { cols, rows, totals, entries } = buildExportRows();
+    const observaciones = buildObservaciones(entries);
     const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
     const pageW = doc.internal.pageSize.getWidth();
+    const pageH = doc.internal.pageSize.getHeight();
     const marginX = 32;
 
     const navy     = [45, 55, 72];
@@ -1435,6 +1549,7 @@ const PaymentsGestForm = () => {
     const stripe   = [240, 240, 242];
     const pink     = [236, 96, 154];
     const brandNavy = [45, 58, 140];
+    const accentBlue = [47, 111, 176];
 
     const drawBabyboomLogo = (x, y) => {
       doc.setFillColor(...pink);
@@ -1458,6 +1573,11 @@ const PaymentsGestForm = () => {
     doc.setFontSize(26);
     doc.setTextColor(...navy);
     doc.text('Extrato Gastos', marginX, 44);
+    const titleW = doc.getTextWidth('Extrato Gastos');
+
+    doc.setFontSize(14);
+    doc.setTextColor(...accentBlue);
+    doc.text('Observaciones Adicionales', marginX + titleW + 18, 44);
 
     doc.setFontSize(10);
     const metaY = 64;
@@ -1492,13 +1612,58 @@ const PaymentsGestForm = () => {
       margin: { left: marginX, right: marginX },
       head: [cols.map(c => c.label)],
       body: rows.map(r => r.map(fmtCell)),
-      foot: [totals.map(fmtCell)],
       theme: 'plain',
       styles: { fontSize: 8.5, cellPadding: 6, textColor: [60, 60, 70], lineWidth: 0 },
       headStyles: { fillColor: headBlue, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 9 },
       bodyStyles: { fillColor: [255, 255, 255] },
       alternateRowStyles: { fillColor: stripe },
-      footStyles: { fillColor: footBlue, textColor: footText, fontStyle: 'bold', fontSize: 9 },
+      columnStyles: numCols,
+      didParseCell: (data) => {
+        if (numCols[data.column.index]) data.cell.styles.halign = 'right';
+      },
+    });
+
+    let cursorY = (doc.lastAutoTable?.finalY || 92) + 22;
+
+    // ── Observaciones — comment attached to each exported row, if any ──
+    if (observaciones.length > 0) {
+      observaciones.forEach(o => {
+        if (cursorY > pageH - 60) { doc.addPage(); cursorY = 40; }
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10);
+        doc.setTextColor(...accentBlue);
+        doc.text('Observaciones:', marginX, cursorY);
+        const labelW = doc.getTextWidth('Observaciones:');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(70, 70, 80);
+        const prefix = observaciones.length > 1 ? `[${o.movimiento}${o.fecha ? ' — ' + o.fecha : ''}]  ` : '';
+        const lines = doc.splitTextToSize(prefix + o.texto, pageW - marginX * 2 - labelW - 10);
+        doc.text(lines, marginX + labelW + 8, cursorY);
+        cursorY += lines.length * 11 + 14;
+      });
+      cursorY += 6;
+    }
+
+    // ── Totales — section header bar followed by the totals row ──
+    if (cursorY > pageH - 80) { doc.addPage(); cursorY = 40; }
+    doc.setFillColor(...footBlue);
+    doc.rect(marginX, cursorY, pageW - marginX * 2, 20, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(10);
+    doc.setTextColor(...footText);
+    doc.text('Totales', marginX + 8, cursorY + 14);
+    cursorY += 26;
+
+    autoTable(doc, {
+      startY: cursorY,
+      margin: { left: marginX, right: marginX },
+      head: [cols.map(c => c.label)],
+      body: [totals.map(fmtCell)],
+      theme: 'plain',
+      styles: { fontSize: 8.5, cellPadding: 6, textColor: [60, 60, 70], lineWidth: 0 },
+      headStyles: { fillColor: headBlue, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 9 },
+      bodyStyles: { fillColor: footBlue, textColor: footText, fontStyle: 'bold' },
       columnStyles: numCols,
       didParseCell: (data) => {
         if (numCols[data.column.index]) data.cell.styles.halign = 'right';
@@ -2288,7 +2453,8 @@ const PaymentsGestForm = () => {
                             )}
                             {row.id === 'puerperio2' && (
                               <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
-                                <span>Base esquema: {fmt(p2Base)}</span>
+                                <span>Base esquema: {fmt(p2BasePlanned)}</span>
+                                {trans456Deduction > 0 && <span className="text-danger"> − {fmt(trans456Deduction)} <small>(Transferencias 4, 5 y 6)</small></span>}
                                 {vihBonus > 0 && <span className="text-success"> + {fmt(vihBonus)} <small>(bono VIH)</small></span>}
                                 {gemelarBonus > 0 && <span className="text-success"> + {fmt(gemelarBonus)} <small>(bono gemelar)</small></span>}
                                 {p2Adjustment > 0 && <span className="text-warning d-block">+ {fmt(p2Adjustment)} <small>(ajuste: pagos reales &lt; planeado)</small></span>}
@@ -2511,6 +2677,15 @@ const PaymentsGestForm = () => {
                     <td>{totalBonos > 0 ? fmt(totalBonos) : <span className="text-muted">—</span>}</td>
                     <td>{fmt(grandTotalWithExtras)}</td>
                   </tr>
+                  {trans456Deduction > 0 && (
+                    <tr className="row-actual">
+                      <td className="text-danger">Transferencias 4/5/6 descontadas</td>
+                      <td className="text-danger">− {fmt(trans456Deduction)} <small>(aplicado a Puerperio 2)</small></td>
+                      <td className="text-muted">—</td>
+                      <td className="text-muted">—</td>
+                      <td className="text-muted">—</td>
+                    </tr>
+                  )}
                   {extraBonus > 0 && (
                     <tr className="row-actual">
                       <td className="text-danger">Bono extra descontado</td>
@@ -2810,7 +2985,7 @@ const PaymentsGestForm = () => {
               <p className="mb-2">Selecciona las columnas a incluir:</p>
               <div className="mb-3">
                 <CFormCheck label="Importe esquema"  checked={exportCols.esquema} onChange={e => setExportCols(p => ({ ...p, esquema: e.target.checked }))} />
-                <CFormCheck label="Bonos"            checked={exportCols.bonos}   onChange={e => setExportCols(p => ({ ...p, bonos:   e.target.checked }))} />
+                <CFormCheck label="Importe Bono T1"  checked={exportCols.bonos}   onChange={e => setExportCols(p => ({ ...p, bonos:   e.target.checked }))} />
                 <CFormCheck label="Bono transporte"  checked={exportCols.bono}    onChange={e => setExportCols(p => ({ ...p, bono:    e.target.checked }))} />
                 <CFormCheck label="Penalización"     checked={exportCols.pen}     onChange={e => setExportCols(p => ({ ...p, pen:     e.target.checked }))} />
                 <CFormCheck label="Reembolso"        checked={exportCols.reim}    onChange={e => setExportCols(p => ({ ...p, reim:    e.target.checked }))} />

@@ -89,6 +89,7 @@ const SortGes = () => {
   const [unlockPassword, setUnlockPassword] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const activeEditingFieldRef = useRef({ section: null, field: null, initialValue: null });
+  const pendingBlurRef        = useRef({ section: null, field: null, initialValue: null });
   const UNLOCK_PASSWORD = '26213256';
 
   // Historial gate — password-protected visibility per seguimiento
@@ -509,8 +510,16 @@ const SortGes = () => {
         try {
           const parsed = typeof a.locked_fields === 'string'
             ? JSON.parse(a.locked_fields) : a.locked_fields;
-          setLockedFields(parsed || {});
+          const locks = parsed || {};
+          // nombre_completo is always locked — it was set during candidate creation
+          if (a.nombre_completo) locks['registroInicial.nombre_completo'] = true;
+          setLockedFields(locks);
         } catch (_) {}
+      } else {
+        // No locked_fields in DB yet — still lock nombre_completo if it exists
+        if (a.nombre_completo) {
+          setLockedFields({ 'registroInicial.nombre_completo': true });
+        }
       }
 
       // ── Checklist ────────────────────────────────────────────
@@ -1068,34 +1077,82 @@ const SortGes = () => {
     setLockedFields(prev => ({ ...prev, [`${section}.${field}`]: true }));
   };
 
+  // Two refs to solve the click-to-next-field race:
+  // activeEditingFieldRef  — set on focus, tracks which field is "live"
+  // pendingBlurRef         — snapshot of the field that WILL blur, captured on focus of the NEXT field
+  //                          so blur can always read the right context even after activeEditingFieldRef changed
+
   const handleFieldFocus = (section, field, currentValue) => {
+    // Don't touch refs if the confirm modal is already showing — user is mid-decision
+    if (showConfirmModal) return;
+
+    // Before switching focus to this new field, snapshot the currently active field into pendingBlurRef
+    // so its onBlur handler (which fires after this onFocus) can still read the right context.
+    if (
+      activeEditingFieldRef.current.section &&
+      (activeEditingFieldRef.current.section !== section || activeEditingFieldRef.current.field !== field)
+    ) {
+      pendingBlurRef.current = { ...activeEditingFieldRef.current };
+    }
     activeEditingFieldRef.current = { section, field, initialValue: currentValue || '' };
   };
 
   const handleFieldBlur = (section, field, currentValue) => {
-    const activeField = activeEditingFieldRef.current;
-    if (activeField.section !== section || activeField.field !== field) return;
-    if (!currentValue || currentValue === '' || isFieldLocked(section, field)) {
-      activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
-      return;
-    }
-    if (field === 'edad' || field === 'imc' || field === 'imc_clasificacion') {
-      activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
-      return;
-    }
-    if (currentValue !== activeField.initialValue) {
-      setPendingFieldLock({ section, field, value: currentValue });
-      setShowConfirmModal(true);
-    }
-    activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+    // Don't fire if the confirm modal is already showing
+    if (showConfirmModal) return;
+
+    const fromActive  = activeEditingFieldRef.current.section === section &&
+                        activeEditingFieldRef.current.field   === field;
+    const fromPending = pendingBlurRef.current.section === section &&
+                        pendingBlurRef.current.field   === field;
+
+    if (!fromActive && !fromPending) return;
+
+    if (fromActive)  activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+    if (fromPending) pendingBlurRef.current        = { section: null, field: null, initialValue: null };
+
+    if (!currentValue || currentValue === '' || isFieldLocked(section, field)) return;
+    if (field === 'edad' || field === 'imc' || field === 'imc_clasificacion') return;
+
+    setPendingFieldLock({ section, field, value: currentValue });
+    setShowConfirmModal(true);
   };
 
-  const confirmFieldLock = () => {
+  const confirmFieldLock = async () => {
     const { section, field } = pendingFieldLock;
     lockField(section, field);
     setShowConfirmModal(false);
     setPendingFieldLock({ section: null, field: null, value: null });
-    showNotification('success', 'Campo guardado y bloqueado');
+    // Auto-save immediately so date fields and all data persist to DB
+    try {
+      await Promise.all([
+        api.put(`/api/sort-ges/${id}/alta-gesca`, {
+          ...registroInicial,
+          ...datosSalud,
+          locked_fields: { ...lockedFields, [`${section}.${field}`]: true },
+        }, { withCredentials: true }),
+        api.put(`/api/sort-ges/${id}/checklist`, {
+          certificado_nacimiento_url: documentos.certificado_nacimiento?.name || null,
+          curp_url:                   documentos.curp?.name                   || null,
+          comprobante_domicilio_url:  documentos.comprobante_domicilio?.name  || null,
+          poliza_seguro_url:          documentos.poliza_seguro?.name          || null,
+          cita_entrega:               documentos.cita_entrega                 || null,
+          cita_firma:                 consentimientos.cita_firma              || null,
+          consentimiento_informado:     consentimientos.consentimiento_informado,
+          consentimiento_transferencia: consentimientos.consentimiento_transferencia,
+          aviso_privacidad:             consentimientos.aviso_privacidad,
+          informacion_personal:         consentimientos.informacion_personal,
+          regular:                      consentimientos.regular,
+          hiv:                          consentimientos.hiv,
+          gemelar:                      consentimientos.gemelar,
+          full_consent:                 consentimientos.full,
+        }, { withCredentials: true }),
+      ]);
+      showNotification('success', 'Campo guardado y bloqueado');
+    } catch (err) {
+      console.error('Error auto-saving on lock:', err);
+      showNotification('warning', 'Campo bloqueado pero error al guardar — usa "Guardar cambios"');
+    }
   };
 
   const cancelFieldLock = () => {
@@ -1159,13 +1216,14 @@ const SortGes = () => {
       <CInputGroup>
         <CFormInput
           type={type} name={field} value={value || ''}
-          onChange={onChange}
-          onFocus={(e) => handleFieldFocus(section, field, e.target.value)}
-          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+          onChange={locked ? undefined : onChange}
+          onFocus={locked ? undefined : (e) => handleFieldFocus(section, field, e.target.value)}
+          onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
+          onKeyDown={locked ? undefined : (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
           placeholder={placeholder}
           disabled={locked || propsDisabled}
-          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+          readOnly={locked}
+          style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
           {...restProps}
         />
         {locked
@@ -1183,7 +1241,7 @@ const SortGes = () => {
   // ── Standard select (Alta GESCA, Checklist) ──────────────────
   const renderLockableSelect = (section, field, value, onChange, options, props = {}) => {
     const locked = isFieldLocked(section, field);
-    const handleChange = (e) => {
+    const handleChange = locked ? undefined : (e) => {
       onChange(e);
       const currentValue = e.target.value;
       const initialValue = activeEditingFieldRef.current.initialValue;
@@ -1198,10 +1256,10 @@ const SortGes = () => {
         <CFormSelect
           name={field} value={value || ''}
           onChange={handleChange}
-          onFocus={(e) => handleFieldFocus(section, field, e.target.value)}
-          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
+          onFocus={locked ? undefined : (e) => handleFieldFocus(section, field, e.target.value)}
+          onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
           disabled={locked}
-          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+          style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
           {...props}
         >
           {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
@@ -1219,7 +1277,6 @@ const SortGes = () => {
   };
 
   // ── Table cell input (Psico Inicial) ─────────────────────────
-  // section = e.g. "psico_row_1"
   const renderTableInput = (section, field, value, onChange, type = 'text') => {
     const locked = isFieldLocked(section, field);
     return (
@@ -1228,12 +1285,13 @@ const SortGes = () => {
           type={type}
           size="sm"
           value={value || ''}
-          onChange={onChange}
-          onFocus={() => handleFieldFocus(section, field, value)}
-          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+          onChange={locked ? undefined : onChange}
+          onFocus={locked ? undefined : () => handleFieldFocus(section, field, value)}
+          onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
+          onKeyDown={locked ? undefined : (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
           disabled={locked}
-          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+          readOnly={locked}
+          style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
         />
         {locked && <LockBtn section={section} field={field} />}
       </CInputGroup>
@@ -1243,7 +1301,7 @@ const SortGes = () => {
   // ── Table cell select (Psico Inicial) ────────────────────────
   const renderTableSelect = (section, field, value, onChange, options) => {
     const locked = isFieldLocked(section, field);
-    const handleChange = (e) => {
+    const handleChange = locked ? undefined : (e) => {
       onChange(e);
       const cv = e.target.value;
       const init = activeEditingFieldRef.current.initialValue;
@@ -1259,10 +1317,10 @@ const SortGes = () => {
           size="sm"
           value={value || ''}
           onChange={handleChange}
-          onFocus={() => handleFieldFocus(section, field, value)}
-          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
+          onFocus={locked ? undefined : () => handleFieldFocus(section, field, value)}
+          onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
           disabled={locked}
-          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+          style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
         >
           {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </CFormSelect>
@@ -1282,12 +1340,13 @@ const SortGes = () => {
           size="sm"
           value={value || ''}
           placeholder={placeholder}
-          onChange={e => updateSeguimiento(segId, field, e.target.value)}
-          onFocus={() => handleFieldFocus(section, field, value)}
-          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+          onChange={locked ? undefined : e => updateSeguimiento(segId, field, e.target.value)}
+          onFocus={locked ? undefined : () => handleFieldFocus(section, field, value)}
+          onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
+          onKeyDown={locked ? undefined : (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
           disabled={locked}
-          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+          readOnly={locked}
+          style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
         />
         {locked
           ? <LockBtn section={section} field={field} />
@@ -1305,7 +1364,7 @@ const SortGes = () => {
   const renderSegSelect = (segId, field, value, options) => {
     const section = `seg_${segId}`;
     const locked = isFieldLocked(section, field);
-    const handleChange = (e) => {
+    const handleChange = locked ? undefined : (e) => {
       updateSeguimiento(segId, field, e.target.value);
       const cv = e.target.value;
       const init = activeEditingFieldRef.current.initialValue;
@@ -1321,10 +1380,10 @@ const SortGes = () => {
           size="sm"
           value={value || ''}
           onChange={handleChange}
-          onFocus={() => handleFieldFocus(section, field, value)}
-          onBlur={(e) => handleFieldBlur(section, field, e.target.value)}
+          onFocus={locked ? undefined : () => handleFieldFocus(section, field, value)}
+          onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
           disabled={locked}
-          style={locked ? { backgroundColor: '#e9ecef' } : {}}
+          style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
         >
           {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </CFormSelect>
@@ -2582,49 +2641,84 @@ const SortGes = () => {
                   <CAccordionBody style={{ padding: '4px 0' }}>
                     <div style={{ display: 'inline-block', minWidth: '580px' }}>
                       {psicoInicial.map((row, idx) => {
-                        const sec = `psico_row_${row.id}`;
+                        const sec      = `psico_row_${row.id}`;
+                        const hasFecha = !!row.fecha;
+                        const hasEstado = !!row.estado;
+                        const hasRec   = !!row.recomendacion;
+                        const anyFilled = hasFecha || hasEstado || hasRec;
                         return (
                           <div
                             key={row.id}
                             className="d-flex align-items-center psico-row"
                             style={{
                               gap: '0',
-                              padding: '4px 8px',
+                              padding: '5px 8px',
                               borderBottom: idx < psicoInicial.length - 1 ? '1px solid #f0f0f0' : 'none',
+                              backgroundColor: anyFilled ? '#f8f8f8' : 'transparent',
+                              borderRadius: '4px',
                             }}
                           >
-                            {/* Etapa — plain teal label */}
+                            {/* Etapa */}
                             <div style={{ width: '200px', flexShrink: 0, paddingRight: '16px' }}>
-                              <span style={{ color: '#0098b3', fontSize: '0.9rem' }}>
+                              <span style={{ color: '#0098b3', fontSize: '0.9rem', fontWeight: anyFilled ? 600 : 400 }}>
                                 {row.etapa}
                               </span>
                             </div>
 
-                            {/* Fecha — stripped input */}
-                            <div className="psico-field" style={{ width: '145px', flexShrink: 0, paddingRight: '16px' }}>
-                              {renderTableInput(
-                                sec, 'fecha', row.fecha,
-                                e => handlePsicoInicialChange(row.id, 'fecha', e.target.value),
-                                'date'
-                              )}
+                            {/* Fecha */}
+                            <div
+                              className="psico-field"
+                              style={{
+                                width: '145px', flexShrink: 0, paddingRight: '16px',
+                              }}
+                            >
+                              <div style={hasFecha ? {
+                                borderBottom: '2px solid #0098b3',
+                                backgroundColor: 'rgba(0,152,179,0.06)',
+                                borderRadius: '3px 3px 0 0',
+                              } : {}}>
+                                {renderTableInput(
+                                  sec, 'fecha', row.fecha,
+                                  e => handlePsicoInicialChange(row.id, 'fecha', e.target.value),
+                                  'date'
+                                )}
+                              </div>
                             </div>
 
-                            {/* Estado — stripped select */}
-                            <div className="psico-field" style={{ width: '160px', flexShrink: 0, paddingRight: '16px' }}>
-                              {renderTableSelect(
-                                sec, 'estado', row.estado,
-                                e => handlePsicoInicialChange(row.id, 'estado', e.target.value),
-                                estadoPsicoOpts
-                              )}
+                            {/* Estado */}
+                            <div
+                              className="psico-field"
+                              style={{ width: '160px', flexShrink: 0, paddingRight: '16px' }}
+                            >
+                              <div style={hasEstado ? {
+                                borderBottom: '2px solid #0098b3',
+                                backgroundColor: 'rgba(0,152,179,0.06)',
+                                borderRadius: '3px 3px 0 0',
+                              } : {}}>
+                                {renderTableSelect(
+                                  sec, 'estado', row.estado,
+                                  e => handlePsicoInicialChange(row.id, 'estado', e.target.value),
+                                  estadoPsicoOpts
+                                )}
+                              </div>
                             </div>
 
-                            {/* Recomendación — stripped select */}
-                            <div className="psico-field" style={{ width: '175px', flexShrink: 0 }}>
-                              {renderTableSelect(
-                                sec, 'recomendacion', row.recomendacion,
-                                e => handlePsicoInicialChange(row.id, 'recomendacion', e.target.value),
-                                recomendacionOpts
-                              )}
+                            {/* Recomendación */}
+                            <div
+                              className="psico-field"
+                              style={{ width: '175px', flexShrink: 0 }}
+                            >
+                              <div style={hasRec ? {
+                                borderBottom: '2px solid #0098b3',
+                                backgroundColor: 'rgba(0,152,179,0.06)',
+                                borderRadius: '3px 3px 0 0',
+                              } : {}}>
+                                {renderTableSelect(
+                                  sec, 'recomendacion', row.recomendacion,
+                                  e => handlePsicoInicialChange(row.id, 'recomendacion', e.target.value),
+                                  recomendacionOpts
+                                )}
+                              </div>
                             </div>
                           </div>
                         );
@@ -2863,7 +2957,12 @@ const SortGes = () => {
       </CCard>
 
       {/* ── Confirm lock modal ─────────────────────────────── */}
-      <CModal visible={showConfirmModal} onClose={cancelFieldLock}>
+      <CModal
+        visible={showConfirmModal}
+        onClose={cancelFieldLock}
+        backdrop="static"
+        keyboard={false}
+      >
         <CModalHeader><CModalTitle>Confirmar y bloquear campo</CModalTitle></CModalHeader>
         <CModalBody>
           <p>¿Desea guardar y bloquear este campo?</p>

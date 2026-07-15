@@ -49,6 +49,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../../../context/AuthContext';
 import usePermissions from '../../../hooks/usePermissions';
 import api from '../../../services/api';
+import PNoteButton from '../../../components/PNoteButton';
 
 /**
  * Permission Levels:
@@ -604,7 +605,10 @@ const Users = () => {
       <CCard className="mb-4 mx-5">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>Lista de usuarios</strong>
-          <div>
+          <div className="d-flex align-items-center gap-2">
+            {/* P-Note button — always visible, context = 'users' section */}
+            <PNoteButton contextType="users" contextId={null} />
+
             {/* Roles button - visible if permission level >= 1 */}
             {userPerms.permissions.visible && (
               <CButton 

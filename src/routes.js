@@ -9,7 +9,6 @@ const Profile = React.lazy(() => import('./views/pages/profile/Profile'))
 const ActivityHistory = React.lazy(() => import('./views/pages/activityHistory/ActivityHistory'))
 
 // Progestor 
-
 const Admin = React.lazy(() => import('./views/babysite/progestor/Admin'))
 const Reports = React.lazy(() => import('./views/babysite/progestor/Reports'))
 const MedicalReport = React.lazy(() => import('./views/babysite/progestor/MedicalReport'))
@@ -34,6 +33,9 @@ const CloudIPS_RegisterView = React.lazy(() => import('./views/babycloud/CloudIP
 // Babysite
 const sortGes = React.lazy(() => import('./views/babysite/babysite/SortGes'))
 const sortGesList = React.lazy(() => import('./views/babysite/babysite/SortGesList'))
+
+// Notas
+const ListadoNotas = React.lazy(() => import('./views/babysite/progestor/ListadoNotas'))
 
 const routes = [
   { path: '/', exact: true, name: 'Home' },
@@ -65,6 +67,7 @@ const routes = [
   { path: '/babycloud/cloud-ips/register/:id', name: 'CloudIPS_Register', element: CloudIPS_Register },
   { path: '/babycloud/cloud-ips/register/view/:id', name: 'CloudIPS_RegisterView', element: CloudIPS_RegisterView },
   { path: '/babycloud/cloud-ips/preview/:id', name: 'CloudIPS_RegisterView', element: CloudIPS_RegisterView },
+  { path: '/progestor/notes', name: 'ListadoNotas', element: ListadoNotas },
 ]
 
 export default routes

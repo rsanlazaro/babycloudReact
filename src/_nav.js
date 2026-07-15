@@ -59,7 +59,7 @@ const _nav = [
         name: 'Listado de notas',
         to: '/progestor/notes',
         className: 'sidebar-component',
-        state: 'disabled',
+        state: 'enabled',
         permission: PERMISSIONS.LIST_ATTENTION_NOTES, // access_1
       },
       {
