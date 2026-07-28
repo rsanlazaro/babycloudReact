@@ -11,7 +11,7 @@ import {
 import CIcon from '@coreui/icons-react';
 import {
   cilSearch, cilPlus, cilArrowTop, cilArrowBottom,
-  cilFolder, cilFile, cilPencil, cilTrash, cilWarning,
+  cilFile, cilPencil, cilTrash, cilWarning,
   cilUser, cilClipboard, cilCalendar, cilPeople,
 } from '@coreui/icons';
 import { Link, useNavigate } from 'react-router-dom';
@@ -99,11 +99,8 @@ const SortHeader = ({ label, sortKey, sortConfig, onSort, style = {} }) => (
 );
 
 // Action buttons — same for all tabs
-const ActionButtons = ({ candidate, onFolder, onEdit, onDelete }) => (
+const ActionButtons = ({ candidate, onEdit, onDelete }) => (
   <div className="d-flex gap-1">
-    <CButton color="info"    variant="ghost" size="sm" onClick={() => onFolder(candidate)} title="Abrir expediente">
-      <CIcon icon={cilFolder} />
-    </CButton>
     <CButton color="warning" variant="ghost" size="sm" onClick={() => onEdit(candidate)}   title="Editar (requiere contraseña)">
       <CIcon icon={cilPencil} />
     </CButton>
@@ -126,7 +123,7 @@ const EmptyRow = ({ colSpan, searchTerm }) => (
 // Tab table components
 // ─────────────────────────────────────────────────────────────
 
-const DataGescaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, searchTerm }) => (
+const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
   <CTable hover striped align="middle" responsive>
     <CTableHead color="light">
       <CTableRow>
@@ -142,7 +139,7 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, 
         <CTableHeaderCell>Esquema</CTableHeaderCell>
         <CTableHeaderCell>Programa</CTableHeaderCell>
         <SortHeader label="Status"       sortKey="status"           sortConfig={sortConfig} onSort={onSort} style={{ width: 110 }} />
-        <CTableHeaderCell style={{ width: 110 }}>Acciones</CTableHeaderCell>
+        <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
       </CTableRow>
     </CTableHead>
     <CTableBody>
@@ -185,7 +182,7 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, 
               <CBadge color={stInfo.color} style={{ fontSize: '0.75rem' }}>{stInfo.label}</CBadge>
             </CTableDataCell>
             <CTableDataCell>
-              <ActionButtons candidate={c} onFolder={onFolder} onEdit={onEdit} onDelete={onDelete} />
+              <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
             </CTableDataCell>
           </CTableRow>
         );
@@ -194,7 +191,7 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, 
   </CTable>
 );
 
-const AdmisionesTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, searchTerm }) => (
+const AdmisionesTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
   <CTable hover striped align="middle" responsive>
     <CTableHead color="light">
       <CTableRow>
@@ -213,7 +210,7 @@ const AdmisionesTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete,
         <CTableHeaderCell>Att. Previa</CTableHeaderCell>
         <CTableHeaderCell>ACO</CTableHeaderCell>
         <CTableHeaderCell>Asignar</CTableHeaderCell>
-        <CTableHeaderCell style={{ width: 110 }}>Acciones</CTableHeaderCell>
+        <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
       </CTableRow>
     </CTableHead>
     <CTableBody>
@@ -235,7 +232,7 @@ const AdmisionesTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete,
             {/* Operational columns — populated from sortGes detail once available */}
             {Array(11).fill(null).map((_, i) => <CTableDataCell key={i}>—</CTableDataCell>)}
             <CTableDataCell>
-              <ActionButtons candidate={c} onFolder={onFolder} onEdit={onEdit} onDelete={onDelete} />
+              <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
             </CTableDataCell>
           </CTableRow>
         );
@@ -244,7 +241,7 @@ const AdmisionesTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete,
   </CTable>
 );
 
-const AttPreviaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, searchTerm }) => (
+const AttPreviaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
   <CTable hover striped align="middle" responsive>
     <CTableHead color="light">
       <CTableRow>
@@ -263,7 +260,7 @@ const AttPreviaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, 
         <CTableHeaderCell>Att. Previa</CTableHeaderCell>
         <CTableHeaderCell>ACO</CTableHeaderCell>
         <CTableHeaderCell>Asignar</CTableHeaderCell>
-        <CTableHeaderCell style={{ width: 110 }}>Acciones</CTableHeaderCell>
+        <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
       </CTableRow>
     </CTableHead>
     <CTableBody>
@@ -284,7 +281,7 @@ const AttPreviaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, 
             <CTableDataCell>{apellido}</CTableDataCell>
             {Array(11).fill(null).map((_, i) => <CTableDataCell key={i}>—</CTableDataCell>)}
             <CTableDataCell>
-              <ActionButtons candidate={c} onFolder={onFolder} onEdit={onEdit} onDelete={onDelete} />
+              <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
             </CTableDataCell>
           </CTableRow>
         );
@@ -293,7 +290,7 @@ const AttPreviaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, 
   </CTable>
 );
 
-const PsicologiaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete, searchTerm }) => (
+const PsicologiaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
   <CTable hover striped align="middle" responsive>
     <CTableHead color="light">
       <CTableRow>
@@ -313,7 +310,7 @@ const PsicologiaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete,
         <CTableHeaderCell>SDG 34</CTableHeaderCell>
         <CTableHeaderCell>SDG 35</CTableHeaderCell>
         <CTableHeaderCell>SDG 36</CTableHeaderCell>
-        <CTableHeaderCell style={{ width: 110 }}>Acciones</CTableHeaderCell>
+        <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
       </CTableRow>
     </CTableHead>
     <CTableBody>
@@ -339,7 +336,7 @@ const PsicologiaTable = ({ rows, sortConfig, onSort, onFolder, onEdit, onDelete,
             {/* SDG columns — populated from psico_inicial data once wired */}
             {Array(11).fill(null).map((_, i) => <CTableDataCell key={i}>—</CTableDataCell>)}
             <CTableDataCell>
-              <ActionButtons candidate={c} onFolder={onFolder} onEdit={onEdit} onDelete={onDelete} />
+              <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
             </CTableDataCell>
           </CTableRow>
         );
@@ -506,10 +503,26 @@ const SortGesList = () => {
     setShowPwModal(true);
   };
 
+  const closePwModal = () => {
+    setShowPwModal(false);
+    setPwInput('');
+    setPwError('');
+    setPwAction(null);  // ← must reset or stale pwAction causes re-render issues
+  };
+
   const confirmPassword = () => {
-    if (pwInput !== ADMIN_PASSWORD) { setPwError('Contraseña incorrecta'); return; }
+    if (!pwAction) return;  // guard against stale state
+    if (pwInput !== ADMIN_PASSWORD) {
+      setPwError('Contraseña incorrecta');
+      setPwInput('');  // clear input so user retypes — prevents "frozen" appearance
+      return;
+    }
     const { type, candidate } = pwAction;
-    setShowPwModal(false); setPwInput(''); setPwError('');
+    // Close and reset pw modal before opening the next one
+    setShowPwModal(false);
+    setPwInput('');
+    setPwError('');
+    setPwAction(null);
     if (type === 'edit') {
       setEditingId(candidate.id);
       setEditForm({
@@ -567,8 +580,7 @@ const SortGesList = () => {
   // Shared table props
   const tableProps = {
     rows: filtered, sortConfig, onSort: handleSort,
-    onFolder: (c) => navigate(`/babysite/sortGes/${c.id}`),
-    onEdit: openEdit, onDelete: openDelete, searchTerm,
+        onEdit: openEdit, onDelete: openDelete, searchTerm,
   };
 
   // ── Shared form fields ────────────────────────────────────────
@@ -728,7 +740,7 @@ const SortGesList = () => {
       </CCard>
 
       {/* ── Password gate modal ── */}
-      <CModal visible={showPwModal} onClose={() => setShowPwModal(false)}>
+      <CModal visible={showPwModal} onClose={closePwModal}>
         <CModalHeader>
           <CModalTitle>
             {pwAction?.type === 'delete' ? '🗑 Eliminar candidato' : '✏️ Editar candidato'}
@@ -739,16 +751,28 @@ const SortGesList = () => {
             Ingrese la contraseña de administrador para continuar.
           </p>
           <CFormLabel>Contraseña:</CFormLabel>
-          <CFormInput type="password" value={pwInput} placeholder="Contraseña"
+          <CFormInput
+            type="password"
+            value={pwInput}
+            placeholder="Contraseña"
             onChange={e => { setPwInput(e.target.value); setPwError(''); }}
             onKeyDown={e => { if (e.key === 'Enter') confirmPassword(); }}
-            invalid={!!pwError} autoFocus />
-          {pwError && <div className="text-danger small mt-1">{pwError}</div>}
+            invalid={!!pwError}
+            autoFocus
+          />
+          {pwError && (
+            <div className="text-danger small mt-1">{pwError}</div>
+          )}
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => setShowPwModal(false)}>Cancelar</CButton>
-          <CButton color={pwAction?.type === 'delete' ? 'danger' : 'warning'}
-            onClick={confirmPassword} disabled={!pwInput}>Confirmar</CButton>
+          <CButton color="secondary" onClick={closePwModal}>Cancelar</CButton>
+          <CButton
+            color={pwAction?.type === 'delete' ? 'danger' : 'warning'}
+            onClick={confirmPassword}
+            disabled={!pwInput}
+          >
+            Confirmar
+          </CButton>
         </CModalFooter>
       </CModal>
 
