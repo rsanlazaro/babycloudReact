@@ -695,6 +695,7 @@ const SortGesList = () => {
                 placeholder="Buscar..."
                 value={searchTerm}
                 onChange={e => setSearchTerm(e.target.value)}
+                autoComplete="off"
                 style={{ borderLeft: 'none' }}
               />
             </CInputGroup>
@@ -758,6 +759,7 @@ const SortGesList = () => {
             onChange={e => { setPwInput(e.target.value); setPwError(''); }}
             onKeyDown={e => { if (e.key === 'Enter') confirmPassword(); }}
             invalid={!!pwError}
+            autoComplete="new-password"
             autoFocus
           />
           {pwError && (
