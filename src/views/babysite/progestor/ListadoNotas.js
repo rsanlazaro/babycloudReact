@@ -263,7 +263,7 @@ const ListadoNotas = () => {
           ) : error ? (
             <CAlert color="danger">{error}</CAlert>
           ) : (
-            <CTable hover striped responsive align="middle">
+            <CTable hover striped responsive align="middle" className="nowrap-table">
               <CTableHead color="light">
                 <CTableRow>
                   <CTableHeaderCell style={{ width: 32 }} />
@@ -420,6 +420,14 @@ const ListadoNotas = () => {
           </div>
         </div>
       )}
+
+      <style>{`
+        .nowrap-table th,
+        .nowrap-table td {
+          white-space: nowrap;
+          vertical-align: middle;
+        }
+      `}</style>
     </CContainer>
   );
 };

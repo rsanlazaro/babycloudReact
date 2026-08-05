@@ -32,7 +32,7 @@ const _nav = [
       },
       {
         component: CNavItem,
-        name: 'Listado de usuarios',
+        name: 'Users',
         to: '/progestor/users',
         className: 'sidebar-component',
         state: 'enabled',
@@ -40,7 +40,7 @@ const _nav = [
       },
       {
         component: CNavItem,
-        name: 'Listado de externos',
+        name: 'Guests',
         to: '/progestor/guests',
         className: 'sidebar-component',
         state: 'enabled',

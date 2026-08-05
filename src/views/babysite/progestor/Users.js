@@ -103,7 +103,7 @@ const Users = () => {
     username: '',
     email: '',
     password: '',
-    profile: 'recluta',
+    profile: 'operador',
   });
 
   // New user form errors
@@ -119,7 +119,6 @@ const Users = () => {
     { value: 'admin_junior', label: 'Admin Jr' },
     { value: 'coordinador', label: 'Coordinador' },
     { value: 'operador', label: 'Operador' },
-    { value: 'recluta', label: 'Recluta' },
   ];
 
   // Redirect if no view permission (level 0)
@@ -402,7 +401,7 @@ const Users = () => {
   };
 
   const resetNewUserForm = () => {
-    setNewUser({ username: '', email: '', password: '', profile: 'recluta' });
+    setNewUser({ username: '', email: '', password: '', profile: 'operador' });
     setNewUserErrors({});
     setNewUserTouched({});
   };
@@ -668,7 +667,7 @@ const Users = () => {
 
           {/* Users table */}
           <div className="table-responsive">
-            <CTable hover striped>
+            <CTable hover striped className="nowrap-table">
               <CTableHead>
                 <CTableRow>
                   {/* Checkbox column - only if delete permission level >= 1 */}
@@ -894,6 +893,11 @@ const Users = () => {
       <style>{`
         .editable-cell .edit-icon { opacity: 0; transition: opacity 0.2s; }
         .editable-cell:hover .edit-icon { opacity: 1; }
+        .nowrap-table th,
+        .nowrap-table td {
+          white-space: nowrap;
+          vertical-align: middle;
+        }
       `}</style>
     </CContainer>
   );

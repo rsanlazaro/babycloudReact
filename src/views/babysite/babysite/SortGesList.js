@@ -76,6 +76,18 @@ const getIMCInfo = (imc) => {
 const formatPHCA = (c) =>
   `${c.partos||0}-${c.hijos||0}-${c.cesareas||0}-${c.abortos||0}`;
 
+// Normalize a phone number for comparison (digits only)
+const normalizePhone = (phone) => (phone || '').replace(/\D/g, '');
+
+const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || '');
+
+// A valid phone: only digits/spaces/+/-/parentheses as typed, and at least
+// 10 actual digits once separators are stripped
+const isValidPhone = (phone) => {
+  if (!/^[0-9+\-\s()]+$/.test(phone || '')) return false;
+  return normalizePhone(phone).length >= 10;
+};
+
 // ─────────────────────────────────────────────────────────────
 // Reusable sub-components
 // ─────────────────────────────────────────────────────────────
@@ -124,7 +136,7 @@ const EmptyRow = ({ colSpan, searchTerm }) => (
 // ─────────────────────────────────────────────────────────────
 
 const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
-  <CTable hover striped align="middle" responsive>
+  <CTable hover striped align="middle" responsive className="nowrap-table">
     <CTableHead color="light">
       <CTableRow>
         <SortHeader label="Nombre"       sortKey="nombre_completo"  sortConfig={sortConfig} onSort={onSort} />
@@ -192,7 +204,7 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
 );
 
 const AdmisionesTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
-  <CTable hover striped align="middle" responsive>
+  <CTable hover striped align="middle" responsive className="nowrap-table">
     <CTableHead color="light">
       <CTableRow>
         <CTableHeaderCell style={{ width: 80 }}>RESP</CTableHeaderCell>
@@ -242,7 +254,7 @@ const AdmisionesTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTer
 );
 
 const AttPreviaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
-  <CTable hover striped align="middle" responsive>
+  <CTable hover striped align="middle" responsive className="nowrap-table">
     <CTableHead color="light">
       <CTableRow>
         <CTableHeaderCell style={{ width: 80 }}>RESP</CTableHeaderCell>
@@ -291,7 +303,7 @@ const AttPreviaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
 );
 
 const PsicologiaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
-  <CTable hover striped align="middle" responsive>
+  <CTable hover striped align="middle" responsive className="nowrap-table">
     <CTableHead color="light">
       <CTableRow>
         <CTableHeaderCell style={{ width: 80 }}>RESP</CTableHeaderCell>
@@ -345,6 +357,67 @@ const PsicologiaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTer
   </CTable>
 );
 
+// Allow only digits, spaces, +, -, ( and ) while typing a phone number
+const sanitizePhoneInput = (value) => value.replace(/[^0-9+\-\s()]/g, '');
+
+// Shared form fields — defined at module scope (NOT inside SortGesList) so it
+// keeps a stable identity across renders. Defining it inside the component
+// body would recreate the component (and its inputs) on every keystroke,
+// which is what caused focus to jump back to "Nombre completo" (its autoFocus
+// input) whenever another field was clicked/typed into.
+const CandidateFormFields = ({ form, setForm }) => (
+  <>
+    <div className="mb-3">
+      <CFormLabel>Nombre completo: <span className="text-danger">*</span></CFormLabel>
+      <CFormInput placeholder="Nombre y apellidos" value={form.nombre_completo}
+        onChange={e => setForm(p => ({ ...p, nombre_completo: e.target.value }))} autoFocus />
+    </div>
+    <div className="mb-3">
+      <CFormLabel>Fecha de nacimiento: <span className="text-danger">*</span></CFormLabel>
+      <CFormInput type="date" value={form.fecha_nacimiento}
+        onChange={e => setForm(p => ({ ...p, fecha_nacimiento: e.target.value }))} />
+    </div>
+    <CRow>
+      <CCol md={6} className="mb-3">
+        <CFormLabel>Teléfono: <span className="text-danger">*</span></CFormLabel>
+        <CFormInput placeholder="+52 55 0000 0000" value={form.tel_1}
+          inputMode="tel"
+          onChange={e => setForm(p => ({ ...p, tel_1: sanitizePhoneInput(e.target.value) }))} />
+        <small className="text-muted">Solo números, espacios, +, - y paréntesis</small>
+      </CCol>
+      <CCol md={6} className="mb-3">
+        <CFormLabel>Email: <span className="text-danger">*</span></CFormLabel>
+        <CFormInput type="email" placeholder="correo@ejemplo.com" value={form.email}
+          onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+      </CCol>
+    </CRow>
+    <CRow>
+      <CCol md={6} className="mb-3">
+        <CFormLabel>Esquema ofrecido:</CFormLabel>
+        <CFormSelect value={form.esquema_ofrecido}
+          onChange={e => setForm(p => ({ ...p, esquema_ofrecido: e.target.value }))}>
+          <option value="$400,000.00">$400,000.00</option>
+          <option value="$375,000.00">$375,000.00</option>
+        </CFormSelect>
+      </CCol>
+      <CCol md={6} className="mb-3">
+        <CFormLabel>Status:</CFormLabel>
+        <CFormSelect value={form.status}
+          onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
+          {Object.entries(STATUS_OPTIONS).map(([val, { label }]) => (
+            <option key={val} value={val}>{label}</option>
+          ))}
+        </CFormSelect>
+      </CCol>
+    </CRow>
+    <div className="mb-3">
+      <CFormLabel>IP Responsable:</CFormLabel>
+      <CFormInput placeholder="Nombre del responsable" value={form.ip_responsable}
+        onChange={e => setForm(p => ({ ...p, ip_responsable: e.target.value }))} />
+    </div>
+  </>
+);
+
 // ─────────────────────────────────────────────────────────────
 // Main component
 // ─────────────────────────────────────────────────────────────
@@ -359,6 +432,7 @@ const SortGesList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'nombre_completo', direction: 'asc' });
   const [alert, setAlert]           = useState({ show: false, type: '', message: '' });
+  const [formError, setFormError]   = useState('');
 
   // ── Create modal ─────────────────────────────────────────────
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -405,11 +479,33 @@ const SortGesList = () => {
     }
   };
 
+  // Validate required fields + duplicate phone number across candidates
+  const validateCandidateForm = (form, { excludeId = null } = {}) => {
+    if (!form.nombre_completo.trim()) return 'El nombre completo es obligatorio';
+    if (!form.fecha_nacimiento) return 'La fecha de nacimiento es obligatoria';
+    if (!form.tel_1.trim()) return 'El teléfono es obligatorio';
+    if (!isValidPhone(form.tel_1)) return 'El teléfono solo debe contener números (10 dígitos mínimo)';
+    if (!form.email.trim()) return 'El email es obligatorio';
+    if (!isValidEmail(form.email)) return 'Ingresa un email válido';
+
+    const normalizedPhone = normalizePhone(form.tel_1);
+    const duplicate = candidates.some(c =>
+      c.id !== excludeId &&
+      normalizedPhone &&
+      normalizePhone(c.telefono) === normalizedPhone
+    );
+    if (duplicate) return 'Ya existe un candidato registrado con este número de teléfono';
+
+    return null;
+  };
+
   const handleCreate = async () => {
-    if (!createForm.nombre_completo.trim()) {
-      showNotification('warning', 'El nombre completo es obligatorio');
+    const validationError = validateCandidateForm(createForm);
+    if (validationError) {
+      setFormError(validationError);
       return;
     }
+    setFormError('');
     try {
       setCreating(true);
       const res = await api.post('/api/sort-ges', {
@@ -428,17 +524,20 @@ const SortGesList = () => {
       navigate(`/babysite/sortGes/${newId}`);
     } catch (err) {
       console.error(err);
-      showNotification('danger', 'Error al crear el candidato');
+      const message = err.response?.data?.message || 'Error al crear el candidato';
+      setFormError(message);
     } finally {
       setCreating(false);
     }
   };
 
   const handleEdit = async () => {
-    if (!editForm.nombre_completo.trim()) {
-      showNotification('warning', 'El nombre completo es obligatorio');
+    const validationError = validateCandidateForm(editForm, { excludeId: editingId });
+    if (validationError) {
+      setFormError(validationError);
       return;
     }
+    setFormError('');
     try {
       setSaving(true);
       await api.put(`/api/sort-ges/${editingId}`, {
@@ -468,7 +567,8 @@ const SortGesList = () => {
       showNotification('success', 'Candidato actualizado');
     } catch (err) {
       console.error(err);
-      showNotification('danger', 'Error al actualizar el candidato');
+      const message = err.response?.data?.message || 'Error al actualizar el candidato';
+      setFormError(message);
     } finally {
       setSaving(false);
     }
@@ -535,6 +635,7 @@ const SortGesList = () => {
         ip_responsable:   candidate.ip_responsable   || '',
         status:           candidate.status           || 'iniciales',
       });
+      setFormError('');
       setShowEditModal(true);
     } else {
       setDeletingId(candidate.id);
@@ -584,56 +685,6 @@ const SortGesList = () => {
   };
 
   // ── Shared form fields ────────────────────────────────────────
-  const CandidateFormFields = ({ form, setForm }) => (
-    <>
-      <div className="mb-3">
-        <CFormLabel>Nombre completo: <span className="text-danger">*</span></CFormLabel>
-        <CFormInput placeholder="Nombre y apellidos" value={form.nombre_completo}
-          onChange={e => setForm(p => ({ ...p, nombre_completo: e.target.value }))} autoFocus />
-      </div>
-      <div className="mb-3">
-        <CFormLabel>Fecha de nacimiento:</CFormLabel>
-        <CFormInput type="date" value={form.fecha_nacimiento}
-          onChange={e => setForm(p => ({ ...p, fecha_nacimiento: e.target.value }))} />
-      </div>
-      <CRow>
-        <CCol md={6} className="mb-3">
-          <CFormLabel>Teléfono:</CFormLabel>
-          <CFormInput placeholder="+52 55 0000 0000" value={form.tel_1}
-            onChange={e => setForm(p => ({ ...p, tel_1: e.target.value }))} />
-        </CCol>
-        <CCol md={6} className="mb-3">
-          <CFormLabel>Email:</CFormLabel>
-          <CFormInput type="email" placeholder="correo@ejemplo.com" value={form.email}
-            onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
-        </CCol>
-      </CRow>
-      <CRow>
-        <CCol md={6} className="mb-3">
-          <CFormLabel>Esquema ofrecido:</CFormLabel>
-          <CFormSelect value={form.esquema_ofrecido}
-            onChange={e => setForm(p => ({ ...p, esquema_ofrecido: e.target.value }))}>
-            <option value="$400,000.00">$400,000.00</option>
-            <option value="$375,000.00">$375,000.00</option>
-          </CFormSelect>
-        </CCol>
-        <CCol md={6} className="mb-3">
-          <CFormLabel>Status:</CFormLabel>
-          <CFormSelect value={form.status}
-            onChange={e => setForm(p => ({ ...p, status: e.target.value }))}>
-            {Object.entries(STATUS_OPTIONS).map(([val, { label }]) => (
-              <option key={val} value={val}>{label}</option>
-            ))}
-          </CFormSelect>
-        </CCol>
-      </CRow>
-      <div className="mb-3">
-        <CFormLabel>IP Responsable:</CFormLabel>
-        <CFormInput placeholder="Nombre del responsable" value={form.ip_responsable}
-          onChange={e => setForm(p => ({ ...p, ip_responsable: e.target.value }))} />
-      </div>
-    </>
-  );
 
   // ─────────────────────────────────────────────────────────────
   if (loading) {
@@ -702,7 +753,7 @@ const SortGesList = () => {
             <CButton
               size="sm"
               color="primary"
-              onClick={() => { setCreateForm(EMPTY_FORM); setShowCreateModal(true); }}
+              onClick={() => { setCreateForm(EMPTY_FORM); setFormError(''); setShowCreateModal(true); }}
               style={{
                 backgroundColor: '#d97ea1', borderColor: '#d97ea1',
                 borderRadius: '50%', width: '32px', height: '32px', padding: 0,
@@ -779,18 +830,23 @@ const SortGesList = () => {
       </CModal>
 
       {/* ── Create modal ── */}
-      <CModal visible={showCreateModal} onClose={() => setShowCreateModal(false)} size="lg">
+      <CModal visible={showCreateModal} onClose={() => { setShowCreateModal(false); setFormError(''); }} size="lg">
         <CModalHeader><CModalTitle>Nuevo candidato</CModalTitle></CModalHeader>
         <CModalBody>
           <p className="text-muted small mb-3">
             Ingrese los datos básicos. Podrá completar el resto desde el expediente.
           </p>
+          {formError && (
+            <CAlert color="danger" dismissible onClose={() => setFormError('')}>
+              {formError}
+            </CAlert>
+          )}
           <CandidateFormFields form={createForm} setForm={setCreateForm} />
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => setShowCreateModal(false)}>Cancelar</CButton>
+          <CButton color="secondary" onClick={() => { setShowCreateModal(false); setFormError(''); }}>Cancelar</CButton>
           <CButton color="primary" onClick={handleCreate}
-            disabled={creating || !createForm.nombre_completo.trim()}
+            disabled={creating || !createForm.nombre_completo.trim() || !createForm.fecha_nacimiento || !createForm.tel_1.trim() || !createForm.email.trim()}
             style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1' }}>
             {creating ? <><CSpinner size="sm" className="me-1" />Creando...</> : 'Crear y abrir expediente'}
           </CButton>
@@ -798,15 +854,20 @@ const SortGesList = () => {
       </CModal>
 
       {/* ── Edit modal ── */}
-      <CModal visible={showEditModal} onClose={() => setShowEditModal(false)} size="lg">
+      <CModal visible={showEditModal} onClose={() => { setShowEditModal(false); setFormError(''); }} size="lg">
         <CModalHeader><CModalTitle>Editar candidato</CModalTitle></CModalHeader>
         <CModalBody>
+          {formError && (
+            <CAlert color="danger" dismissible onClose={() => setFormError('')}>
+              {formError}
+            </CAlert>
+          )}
           <CandidateFormFields form={editForm} setForm={setEditForm} />
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => setShowEditModal(false)}>Cancelar</CButton>
+          <CButton color="secondary" onClick={() => { setShowEditModal(false); setFormError(''); }}>Cancelar</CButton>
           <CButton color="primary" onClick={handleEdit}
-            disabled={saving || !editForm.nombre_completo.trim()}
+            disabled={saving || !editForm.nombre_completo.trim() || !editForm.fecha_nacimiento || !editForm.tel_1.trim() || !editForm.email.trim()}
             style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1' }}>
             {saving ? <><CSpinner size="sm" className="me-1" />Guardando...</> : 'Guardar cambios'}
           </CButton>
@@ -834,6 +895,14 @@ const SortGesList = () => {
           </CButton>
         </CModalFooter>
       </CModal>
+
+      <style>{`
+        .nowrap-table th,
+        .nowrap-table td {
+          white-space: nowrap;
+          vertical-align: middle;
+        }
+      `}</style>
     </CContainer>
   );
 };

@@ -322,7 +322,7 @@ const PaymentsGest = () => {
 
           {/* Table */}
           <div className="table-responsive">
-            <CTable hover striped>
+            <CTable hover striped className="nowrap-table">
               <CTableHead>
                 <CTableRow>
                   <SortableHeader label="GESCA"   sortKey="gesca"      />
@@ -435,6 +435,14 @@ const PaymentsGest = () => {
           </CButton>
         </CModalFooter>
       </CModal>
+
+      <style>{`
+        .nowrap-table th,
+        .nowrap-table td {
+          white-space: nowrap;
+          vertical-align: middle;
+        }
+      `}</style>
 
     </CContainer>
   );

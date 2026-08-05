@@ -367,7 +367,7 @@ const ActivityHistory = () => {
             </div>
           ) : (
             <>
-              <CTable hover responsive>
+              <CTable hover responsive className="nowrap-table">
                 <CTableHead>
                   <CTableRow>
                     <CTableHeaderCell>Fecha y hora</CTableHeaderCell>
@@ -460,6 +460,11 @@ const ActivityHistory = () => {
               .border-top-3 {
                 border-top-width: 3px !important;
                 border-top-style: solid !important;
+              }
+              .nowrap-table th,
+              .nowrap-table td {
+                white-space: nowrap;
+                vertical-align: middle;
               }
             `}</style>
     </CContainer>

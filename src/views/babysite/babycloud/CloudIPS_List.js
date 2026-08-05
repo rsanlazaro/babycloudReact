@@ -115,7 +115,7 @@ const CloudIPS_List = () => {
 
         <CCardBody>
           <div className="table-responsive">
-            <CTable hover striped>
+            <CTable hover striped className="nowrap-table">
               <CTableHead>
                 <CTableRow>
                   <CTableHeaderCell>#</CTableHeaderCell>
@@ -176,6 +176,14 @@ const CloudIPS_List = () => {
           </div>
         </CCardBody>
       </CCard>
+
+      <style>{`
+        .nowrap-table th,
+        .nowrap-table td {
+          white-space: nowrap;
+          vertical-align: middle;
+        }
+      `}</style>
     </CContainer>
   )
 }
