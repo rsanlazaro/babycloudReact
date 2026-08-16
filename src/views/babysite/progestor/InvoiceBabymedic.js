@@ -42,6 +42,7 @@ import TemplateDollar from '../../../assets/invoice/BabyMedic_dollar.jpg';
 import TemplateEuro from '../../../assets/invoice/BabyMedic_euro.jpg';
 
 import usePermissions from '../../../hooks/usePermissions';
+import { logActivity } from '../../../utils/activityLog';
 
 const InvoiceBabymedic = () => {
   const navigate = useNavigate();
@@ -372,10 +373,22 @@ const InvoiceBabymedic = () => {
         const blobUrl = URL.createObjectURL(pdfBlob);
         setPdfBlobUrl(blobUrl);
         setShowPreview(true);
+        logActivity({
+          activityType: 'preview',
+          entityType: 'progestor',
+          description: `Vista previa: Factura BabyMedic - ${invoiceNum}`,
+          metadata: { invoiceNumber: invoiceNum, currency: currencyLabel },
+        });
       } else if (action === 'download') {
         const fileName = `Factura_BabyMedic_${invoiceNum}_${currencyLabel}.pdf`;
         doc.save(fileName);
         showNotification('success', 'PDF generado exitosamente');
+        logActivity({
+          activityType: 'generate',
+          entityType: 'progestor',
+          description: `Generó PDF: Factura BabyMedic - ${invoiceNum}`,
+          metadata: { invoiceNumber: invoiceNum, currency: currencyLabel },
+        });
       }
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -394,6 +407,12 @@ const InvoiceBabymedic = () => {
       link.download = `Factura_BabyMedic_${invoiceNum}_${currencyLabel}.pdf`;
       link.click();
       showNotification('success', 'PDF descargado exitosamente');
+      logActivity({
+        activityType: 'generate',
+        entityType: 'progestor',
+        description: `Generó PDF (desde vista previa): Factura BabyMedic - ${invoiceNum}`,
+        metadata: { invoiceNumber: invoiceNum, currency: currencyLabel },
+      });
     }
   };
 
@@ -972,7 +991,7 @@ const InvoiceBabymedic = () => {
         <CModalBody className="p-0">
           {pdfBlobUrl && (
             <iframe
-              src={pdfBlobUrl}
+              src={`${pdfBlobUrl}#toolbar=0&navpanes=0`}
               style={{
                 width: '100%',
                 height: '70vh',

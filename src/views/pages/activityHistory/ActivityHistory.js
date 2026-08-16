@@ -136,14 +136,39 @@ const ActivityHistory = () => {
   };
 
   const getActivityBadge = (type) => {
+    // Custom hex colors that fall outside CoreUI's standard palette
+    const customColors = {
+      preview: '#8e44ad',  // purple
+      create: '#e67e22',   // orange
+      generate: '#27ae60', // green
+    };
     const colors = {
       login: 'info',
-      create: 'success',
       update: 'warning',
       delete: 'danger',
-      logout: 'secondary'
+      logout: 'secondary',
+      access: 'info',
     };
-    return <CBadge color={colors[type] || 'primary'}>{type}</CBadge>;
+    const labels = {
+      login: 'login',
+      logout: 'logout',
+      create: 'create',
+      update: 'update',
+      delete: 'delete',
+      preview: 'preview',
+      generate: 'generated',
+      access: 'acceso',
+    };
+    const label = labels[type] || type;
+
+    if (customColors[type]) {
+      return (
+        <CBadge style={{ backgroundColor: customColors[type], color: '#fff' }}>
+          {label}
+        </CBadge>
+      );
+    }
+    return <CBadge color={colors[type] || 'primary'}>{label}</CBadge>;
   };
 
   const formatDate = (dateString) => {
@@ -295,6 +320,9 @@ const ActivityHistory = () => {
                     <option value="create">Creación</option>
                     <option value="update">Modificación</option>
                     <option value="delete">Eliminación</option>
+                    <option value="preview">Vista previa</option>
+                    <option value="generate">Generación de PDF</option>
+                    <option value="access">Acceso a documento</option>
                   </CFormSelect>
                 </CCol>
 

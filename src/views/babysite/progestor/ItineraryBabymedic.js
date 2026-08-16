@@ -33,6 +33,7 @@ import {
 } from '@coreui/icons';
 import { jsPDF } from 'jspdf';
 import usePermissions from '../../../hooks/usePermissions';
+import { logActivity } from '../../../utils/activityLog';
 
 // Import template images for all pages
 import Page1Template from 'src/assets/itinerary/page1-template.jpg';
@@ -402,10 +403,22 @@ const ItineraryBabymedic = () => {
                 const blobUrl = URL.createObjectURL(pdfBlob);
                 setPdfBlobUrl(blobUrl);
                 setShowPreview(true);
+                logActivity({
+                    activityType: 'preview',
+                    entityType: 'progestor',
+                    description: `Vista previa: Itinerario Babymedic - ${formData.nombre}`,
+                    metadata: { paciente: formData.nombre, periodo: formData.periodo },
+                });
             } else if (action === 'download') {
                 const fileName = `Itinerario_Babyboom_${patientName}_${period}.pdf`;
                 doc.save(fileName);
                 showNotification('success', 'PDF generado exitosamente');
+                logActivity({
+                    activityType: 'generate',
+                    entityType: 'progestor',
+                    description: `Generó PDF: Itinerario Babymedic - ${formData.nombre}`,
+                    metadata: { paciente: formData.nombre, periodo: formData.periodo },
+                });
             }
         } catch (error) {
             console.error('Error generating PDF:', error);
@@ -424,6 +437,12 @@ const ItineraryBabymedic = () => {
             link.download = `Itinerario_Babyboom_${patientName}_${period}.pdf`;
             link.click();
             showNotification('success', 'PDF descargado exitosamente');
+            logActivity({
+                activityType: 'generate',
+                entityType: 'progestor',
+                description: `Generó PDF (desde vista previa): Itinerario Babymedic - ${formData.nombre}`,
+                metadata: { paciente: formData.nombre, periodo: formData.periodo },
+            });
         }
     };
 
@@ -680,7 +699,7 @@ const ItineraryBabymedic = () => {
                 <CModalBody className="p-0">
                     {pdfBlobUrl && (
                         <iframe
-                            src={pdfBlobUrl}
+                            src={`${pdfBlobUrl}#toolbar=0&navpanes=0`}
                             style={{
                                 width: '100%',
                                 height: '70vh',

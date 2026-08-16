@@ -15,6 +15,7 @@ import CIcon from '@coreui/icons-react';
 import { cilArrowLeft, cilCloudDownload, cilFile } from '@coreui/icons';
 import { jsPDF } from 'jspdf';
 import * as pdfjsLib from 'pdfjs-dist';
+import { logActivity } from '../../../utils/activityLog';
 
 // ---------------------------------------------------------------------------
 // PDF.js worker
@@ -238,6 +239,13 @@ const LegalDocs = () => {
 
         try {
             const blobUrl = await buildWatermarkedPdfUrl(doc.file);
+
+            logActivity({
+                activityType: 'access',
+                entityType: 'progestor',
+                description: `Accedió a documento legal: ${doc.title}`,
+                metadata: { documentId: doc.id, documentTitle: doc.title },
+            });
 
             // Open in new tab — browser PDF viewer lets the user print or save
             const tab = window.open(blobUrl, '_blank');

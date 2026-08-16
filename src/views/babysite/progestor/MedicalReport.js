@@ -38,6 +38,7 @@ import {
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import usePermissions from '../../../hooks/usePermissions';
+import { logActivity } from '../../../utils/activityLog';
 
 import FertihausLogo from '../../../assets/brand/fertihaus-logo.png';
 
@@ -527,10 +528,22 @@ const MedicalReport = () => {
         const blobUrl = URL.createObjectURL(pdfBlob);
         setPdfBlobUrl(blobUrl);
         setShowPreview(true);
+        logActivity({
+          activityType: 'preview',
+          entityType: 'progestor',
+          description: `Vista previa: Reporte Médico de Ultrasonido - ${formData.nombrePaciente}`,
+          metadata: { paciente: formData.nombrePaciente, fecha: formData.fecha },
+        });
       } else if (action === 'download') {
         const fileName = `Reporte_Ultrasonido_${formData.nombrePaciente.replace(/\s+/g, '_')}_${formData.fecha}.pdf`;
         doc.save(fileName);
         showNotification('success', 'PDF generado exitosamente');
+        logActivity({
+          activityType: 'generate',
+          entityType: 'progestor',
+          description: `Generó PDF: Reporte Médico de Ultrasonido - ${formData.nombrePaciente}`,
+          metadata: { paciente: formData.nombrePaciente, fecha: formData.fecha },
+        });
       }
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -547,6 +560,12 @@ const MedicalReport = () => {
       link.download = `Reporte_${formData.nombrePaciente.replace(/\s+/g, '_')}_${formData.fecha}.pdf`;
       link.click();
       showNotification('success', 'PDF descargado exitosamente');
+      logActivity({
+        activityType: 'generate',
+        entityType: 'progestor',
+        description: `Generó PDF (desde vista previa): Reporte Médico de Ultrasonido - ${formData.nombrePaciente}`,
+        metadata: { paciente: formData.nombrePaciente, fecha: formData.fecha },
+      });
     }
   };
 
@@ -1146,7 +1165,7 @@ const MedicalReport = () => {
         <CModalBody className="p-0">
           {pdfBlobUrl && (
             <iframe
-              src={pdfBlobUrl}
+              src={`${pdfBlobUrl}#toolbar=0&navpanes=0`}
               style={{
                 width: '100%',
                 height: '70vh',

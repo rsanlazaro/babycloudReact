@@ -42,6 +42,7 @@ import TemplateDollar from '../../../assets/invoice/NexaTravel_dollar.jpg';
 import TemplateEuro from '../../../assets/invoice/NexaTravel_euro.jpg';
 
 import usePermissions from '../../../hooks/usePermissions';
+import { logActivity } from '../../../utils/activityLog';
 
 const InvoiceNexatravel = () => {
   const navigate = useNavigate();
@@ -371,10 +372,22 @@ const InvoiceNexatravel = () => {
         const blobUrl = URL.createObjectURL(pdfBlob);
         setPdfBlobUrl(blobUrl);
         setShowPreview(true);
+        logActivity({
+          activityType: 'preview',
+          entityType: 'progestor',
+          description: `Vista previa: Factura Nexa Travel - ${invoiceNum}`,
+          metadata: { invoiceNumber: invoiceNum, currency: currencyLabel },
+        });
       } else if (action === 'download') {
         const fileName = `Factura_Nexatravel_${invoiceNum}_${currencyLabel}.pdf`;
         doc.save(fileName);
         showNotification('success', 'PDF generado exitosamente');
+        logActivity({
+          activityType: 'generate',
+          entityType: 'progestor',
+          description: `Generó PDF: Factura Nexa Travel - ${invoiceNum}`,
+          metadata: { invoiceNumber: invoiceNum, currency: currencyLabel },
+        });
       }
     } catch (error) {
       console.error('Error generating PDF:', error);
@@ -393,6 +406,12 @@ const InvoiceNexatravel = () => {
       link.download = `Factura_Nexatravel_${invoiceNum}_${currencyLabel}.pdf`;
       link.click();
       showNotification('success', 'PDF descargado exitosamente');
+      logActivity({
+        activityType: 'generate',
+        entityType: 'progestor',
+        description: `Generó PDF (desde vista previa): Factura Nexa Travel - ${invoiceNum}`,
+        metadata: { invoiceNumber: invoiceNum, currency: currencyLabel },
+      });
     }
   };
 
@@ -971,7 +990,7 @@ const InvoiceNexatravel = () => {
         <CModalBody className="p-0">
           {pdfBlobUrl && (
             <iframe
-              src={pdfBlobUrl}
+              src={`${pdfBlobUrl}#toolbar=0&navpanes=0`}
               style={{
                 width: '100%',
                 height: '70vh',
