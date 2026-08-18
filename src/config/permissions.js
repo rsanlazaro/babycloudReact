@@ -19,10 +19,11 @@ const PERMISSIONS = {
   EDIT_ATTENTION_NOTE: 'access_3',
   DELETE_ATTENTION_NOTE: 'access_4',
   
-  // Pagos (access_5 to access_7)
+  // Pagos (access_5 to access_7, access_95)
   LIST_PAYMENTS: 'access_5',
   REGISTER_PAYMENT: 'access_6',
   EDIT_PAYMENTS: 'access_7',
+  DELETE_PAYMENT: 'access_95',
   
   // Usuarios (access_8 to access_13)
   LIST_USERS: 'access_8',
@@ -50,6 +51,19 @@ const PERMISSIONS = {
   
   // Dashboard (access_26)
   VIEW_DASHBOARDS: 'access_26',
+
+  // Documentos legales (access_84 to access_94)
+  LEGAL_DOCS_SECTION: 'access_84',
+  LEGAL_DOC_AVISO_PRIVACIDAD: 'access_85',
+  LEGAL_DOC_OBLIGACIONES_EMBARAZO: 'access_86',
+  LEGAL_DOC_ESQUEMA_REMUNERACION: 'access_87',
+  LEGAL_DOC_CONSENTIMIENTO_TRANSFERENCIA: 'access_88',
+  LEGAL_DOC_CONSENTIMIENTO_INFORMADO: 'access_89',
+  LEGAL_DOC_AVISO_IMAGEN: 'access_90',
+  LEGAL_DOC_CONFIDENCIALIDAD: 'access_91',
+  LEGAL_DOC_TERMINOS_CONDICIONES: 'access_92',
+  LEGAL_DOC_INFORMACION_GESTANTE: 'access_93',
+  LEGAL_DOC_DECLARACION_INFO_PERSONAL: 'access_94',
   
   // ===== BABYSITE =====
   

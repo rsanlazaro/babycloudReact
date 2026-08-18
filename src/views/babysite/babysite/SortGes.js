@@ -71,6 +71,17 @@ const TAB_CONFIG = [
   { id: 'cita-previa', label: 'CITA PREVIA', color: '#a14567', icon: cilCalendar  },
 ];
 
+// Native <input type="date"> requires a strict "YYYY-MM-DD" value — but
+// MySQL DATE columns often come back through the API as full ISO datetime
+// strings (e.g. "1990-05-14T00:00:00.000Z"), which the date input silently
+// refuses to display (renders blank) even though the value itself is
+// non-empty and parses fine elsewhere (e.g. for the Edad calculation).
+const toDateInputValue = (v) => {
+  if (!v) return '';
+  const s = String(v);
+  return s.includes('T') ? s.split('T')[0] : s;
+};
+
 const SortGes = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -485,7 +496,7 @@ const SortGes = () => {
         email:               a.email               || '',
         estado_civil:        a.estado_civil        || '',
         rni:                 a.rni                 || '',
-        fecha_nacimiento:    a.fecha_nacimiento    || '',
+        fecha_nacimiento:    toDateInputValue(a.fecha_nacimiento),
         edad:                '',
         banco:               a.banco               || '',
         clabe_interbancaria: a.clabe_interbancaria || '',
@@ -508,27 +519,36 @@ const SortGes = () => {
         altura:                    a.altura                    || '',
         imc:                       '',
         imc_clasificacion:         '',
-        fumador_desde:             a.fumador_desde             || '',
-        tiempo_metodo_aco:         a.tiempo_metodo_aco         || '',
-        fecha_ultima_menstruacion: a.fecha_ultima_menstruacion || '',
+        fumador_desde:             toDateInputValue(a.fumador_desde),
+        tiempo_metodo_aco:         toDateInputValue(a.tiempo_metodo_aco),
+        fecha_ultima_menstruacion: toDateInputValue(a.fecha_ultima_menstruacion),
         hijos:                     a.hijos                     || '',
-        ultima_cesarea:            a.ultima_cesarea            || '',
+        ultima_cesarea:            toDateInputValue(a.ultima_cesarea),
       });
       // Restore field lock state persisted in DB
+      // These 4 fields are captured (and validated — required + duplicate
+      // phone check) in the "Nuevo candidato" popup at creation time. Once
+      // they have a value, they're auto-locked here so the extended register
+      // can't be used to accidentally overwrite them or put the wrong kind
+      // of data in the wrong field (e.g. a phone number typed into Email).
+      const ALWAYS_LOCK_IF_SET = ['nombre_completo', 'fecha_nacimiento', 'tel_1', 'email', 'esquema_ofrecido'];
       if (a.locked_fields) {
         try {
           const parsed = typeof a.locked_fields === 'string'
             ? JSON.parse(a.locked_fields) : a.locked_fields;
           const locks = parsed || {};
-          // nombre_completo is always locked — it was set during candidate creation
-          if (a.nombre_completo) locks['registroInicial.nombre_completo'] = true;
+          ALWAYS_LOCK_IF_SET.forEach(field => {
+            if (a[field]) locks[`registroInicial.${field}`] = true;
+          });
           setLockedFields(locks);
         } catch (_) {}
       } else {
-        // No locked_fields in DB yet — still lock nombre_completo if it exists
-        if (a.nombre_completo) {
-          setLockedFields({ 'registroInicial.nombre_completo': true });
-        }
+        // No locked_fields in DB yet — still lock these fields if they exist
+        const locks = {};
+        ALWAYS_LOCK_IF_SET.forEach(field => {
+          if (a[field]) locks[`registroInicial.${field}`] = true;
+        });
+        setLockedFields(locks);
       }
 
       // ── Checklist ────────────────────────────────────────────
@@ -685,10 +705,15 @@ const SortGes = () => {
   // ─────────────────────────────────────────────────────────────
   // Field change handlers
   // ─────────────────────────────────────────────────────────────
+  // Only digits, spaces, +, -, ( and ) while typing a phone number — keeps
+  // someone from typing letters or other text into Tel 1 / Tel 2.
+  const sanitizePhoneField = (value) => value.replace(/[^0-9+\-\s()]/g, '');
+
   const handleRegistroInicialChange = (e) => {
     const { name, value } = e.target;
-    if (!isFieldLocked('registroInicial', name))
-      setRegistroInicial(prev => ({ ...prev, [name]: value }));
+    if (isFieldLocked('registroInicial', name)) return;
+    const sanitized = (name === 'tel_1' || name === 'tel_2') ? sanitizePhoneField(value) : value;
+    setRegistroInicial(prev => ({ ...prev, [name]: sanitized }));
   };
 
   const handleDatosSaludChange = (e) => {

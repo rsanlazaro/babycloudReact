@@ -12,10 +12,11 @@ import {
     CAlert,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilArrowLeft, cilCloudDownload, cilFile } from '@coreui/icons';
+import { cilArrowLeft, cilCloudDownload, cilFile, cilBan, cilLockLocked } from '@coreui/icons';
 import { jsPDF } from 'jspdf';
 import * as pdfjsLib from 'pdfjs-dist';
 import { logActivity } from '../../../utils/activityLog';
+import usePermissions from '../../../hooks/usePermissions';
 
 // ---------------------------------------------------------------------------
 // PDF.js worker
@@ -49,60 +50,70 @@ const LEGAL_DOCS = [
     title: 'Aviso de privacidad simplificado',
     file: pdfAvisoPrivacidad,
     color: 'primary',
+    permissionKey: 'avisoPrivacidad',
   },
   {
     id: 'obligaciones-embarazo',
     title: 'Obligaciones, cuidados y limitaciones durante el embarazo',
     file: pdfObligaciones,
     color: 'info',
+    permissionKey: 'obligacionesEmbarazo',
   },
   {
     id: 'esquema-remuneracion',
     title: 'Esquema de remuneración',
     file: pdfEsquema,
     color: 'success',
+    permissionKey: 'esquemaRemuneracion',
   },
   {
     id: 'consentimiento-transferencia',
     title: 'Consentimiento informado para transferencia embrionaria y selección de programa',
     file: pdfConsentimientoTransf,
     color: 'warning',
+    permissionKey: 'consentimientoTransferencia',
   },
   {
     id: 'consentimiento-informado',
     title: 'Consentimiento informado',
     file: pdfConsentimientoInfo,
     color: 'danger',
+    permissionKey: 'consentimientoInformado',
   },
   {
     id: 'aviso-imagen',
     title: 'Aviso de uso y explotación de imagen',
     file: pdfAvisoImagen,
     color: 'secondary',
+    permissionKey: 'avisoImagen',
   },
   {
     id: 'confidencialidad',
     title: 'Contrato de confidencialidad',
     file: pdfConfidencialidad,
     color: 'dark',
+    permissionKey: 'confidencialidad',
   },
   {
     id: 'terminos',
     title: 'Términos y condiciones',
     file: pdfTerminos,
     color: 'primary',
+    permissionKey: 'terminosCondiciones',
   },
   {
     id: 'informacion-gestante',
     title: 'Información de la gestante',
     file: pdfInformacionGestante,
     color: 'info',
+    permissionKey: 'informacionGestante',
   },
   {
     id: 'declaracion-informacion-personal',
     title: 'Declaración de información personal',
     file: pdfDeclaracionInfoPersonal,
     color: 'success',
+    permissionKey: 'declaracionInfoPersonal',
   },
 ];
 
@@ -232,8 +243,25 @@ const LegalDocs = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState({});
     const [errors, setErrors] = useState({});
+    const { legalDocs } = usePermissions();
+
+    // Page-level access (access_84): 0 = hidden, 1 = view only, 2 = can generate
+    const canViewSection = legalDocs.general.visible;
+    const canEditSection = legalDocs.general.editable;
+
+    // Per-document access (access_85-94): only shown/usable docs the person
+    // has at least "view" on; only generate-able if "edit" as well
+    const visibleDocs = LEGAL_DOCS.filter((doc) => legalDocs[doc.permissionKey]?.visible);
 
     const handleGenerate = async (doc) => {
+        if (!legalDocs[doc.permissionKey]?.editable) {
+            setErrors((prev) => ({
+                ...prev,
+                [doc.id]: 'No tienes permiso para generar este documento.',
+            }));
+            return;
+        }
+
         setLoading((prev) => ({ ...prev, [doc.id]: true }));
         setErrors((prev) => ({ ...prev, [doc.id]: null }));
 
@@ -273,6 +301,24 @@ const LegalDocs = () => {
         }
     };
 
+    // Access denied view (no visible access to the Documentos legales section)
+    if (!canViewSection) {
+        return (
+            <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+                <CCard>
+                    <CCardBody className="text-center">
+                        <CIcon icon={cilBan} size="3xl" className="text-danger mb-3" />
+                        <h4>Acceso Denegado</h4>
+                        <p className="text-muted">No tienes permiso para ver esta sección.</p>
+                        <CButton color="primary" onClick={() => navigate('/progestor/admin')}>
+                            Volver a reportes y facturas
+                        </CButton>
+                    </CCardBody>
+                </CCard>
+            </CContainer>
+        );
+    }
+
     return (
         <CContainer lg>
             <CCard className="mb-4">
@@ -293,9 +339,18 @@ const LegalDocs = () => {
                     </div>
                 </CCardHeader>
 
+                {!canEditSection && (
+                    <CAlert color="warning" className="d-flex align-items-center mx-3 mt-3 mb-0">
+                        <CIcon icon={cilLockLocked} className="me-2" />
+                        <span>
+                            <strong>Modo solo lectura.</strong> No tienes permiso para generar documentos legales.
+                        </span>
+                    </CAlert>
+                )}
+
                 <CCardBody>
                     <CRow className="g-3">
-                        {LEGAL_DOCS.map((doc) => (
+                        {visibleDocs.map((doc) => (
                             <CCol key={doc.id} xs={12} sm={6} xl={4}>
                                 <CCard
                                     className="h-100 border-start border-start-3"
@@ -343,9 +398,10 @@ const LegalDocs = () => {
                                             color={doc.color}
                                             variant="outline"
                                             size="sm"
-                                            disabled={!!loading[doc.id]}
+                                            disabled={!!loading[doc.id] || !legalDocs[doc.permissionKey]?.editable}
                                             onClick={() => handleGenerate(doc)}
                                             className="d-flex align-items-center justify-content-center gap-2 align-self-stretch"
+                                            title={!legalDocs[doc.permissionKey]?.editable ? 'Solo lectura: no puedes generar este documento' : undefined}
                                         >
                                             {loading[doc.id] ? (
                                                 <>
@@ -365,6 +421,11 @@ const LegalDocs = () => {
                             </CCol>
                         ))}
                     </CRow>
+                    {visibleDocs.length === 0 && (
+                        <div className="text-center py-4 text-muted">
+                            No tienes permiso para ver ningún documento legal.
+                        </div>
+                    )}
                 </CCardBody>
             </CCard>
         </CContainer>

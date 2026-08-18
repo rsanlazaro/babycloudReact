@@ -19,7 +19,7 @@ import usePermissions from '../../../hooks/usePermissions';
 
 const Admin = () => {
 
-  const { reports } = usePermissions();
+  const { reports, legalDocs } = usePermissions();
   const canViewMedical = reports.medical.visible;
   const canEditMedical = reports.medical.editable;
   const canViewItinerary = reports.itinerary.visible;
@@ -30,6 +30,8 @@ const Admin = () => {
   const canEditInvoiceNexa = reports.invoiceNexa.editable;
   const canViewInvoiceBabymedic = reports.invoiceBabymedic.visible;
   const canEditInvoiceBabymedic = reports.invoiceBabymedic.editable;
+  const canViewLegalDocs = legalDocs.general.visible;
+  const canEditLegalDocs = legalDocs.general.editable;
 
   const sections = [
     {
@@ -56,8 +58,8 @@ const Admin = () => {
       icon: cilFolder,
       path: '/progestor/admin/legal-docs',
       color: 'warning',
-      visible: true,
-      editable: true,
+      visible: canViewLegalDocs,
+      editable: canEditLegalDocs,
     },
   ];
 

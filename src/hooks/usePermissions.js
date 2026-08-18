@@ -64,12 +64,29 @@ const usePermissions = () => {
       invoiceNexa: check(PERMISSIONS.GENERATE_INVOICE_NEXA),// access_24
       invoiceBabymedic: check(PERMISSIONS.GENERATE_INVOICE_BABYMEDIC), // access_25
     },
+
+    // Documentos legales (access_84 to access_94)
+    legalDocs: {
+      general: check(PERMISSIONS.LEGAL_DOCS_SECTION),                      // access_84
+      avisoPrivacidad: check(PERMISSIONS.LEGAL_DOC_AVISO_PRIVACIDAD),      // access_85
+      obligacionesEmbarazo: check(PERMISSIONS.LEGAL_DOC_OBLIGACIONES_EMBARAZO), // access_86
+      esquemaRemuneracion: check(PERMISSIONS.LEGAL_DOC_ESQUEMA_REMUNERACION),   // access_87
+      consentimientoTransferencia: check(PERMISSIONS.LEGAL_DOC_CONSENTIMIENTO_TRANSFERENCIA), // access_88
+      consentimientoInformado: check(PERMISSIONS.LEGAL_DOC_CONSENTIMIENTO_INFORMADO), // access_89
+      avisoImagen: check(PERMISSIONS.LEGAL_DOC_AVISO_IMAGEN),             // access_90
+      confidencialidad: check(PERMISSIONS.LEGAL_DOC_CONFIDENCIALIDAD),    // access_91
+      terminosCondiciones: check(PERMISSIONS.LEGAL_DOC_TERMINOS_CONDICIONES), // access_92
+      informacionGestante: check(PERMISSIONS.LEGAL_DOC_INFORMACION_GESTANTE), // access_93
+      declaracionInfoPersonal: check(PERMISSIONS.LEGAL_DOC_DECLARACION_INFO_PERSONAL), // access_94
+    },
     
-    // Payments (access_5 to access_7)
+    // Payments (access_5 to access_7, access_95)
     payments: {
       list: check(PERMISSIONS.LIST_PAYMENTS),           // access_5
-      register: check(PERMISSIONS.REGISTER_PAYMENT),    // access_6
-      edit: check(PERMISSIONS.EDIT_PAYMENTS),           // access_7
+      create: check(PERMISSIONS.REGISTER_PAYMENT),      // access_6 ("Crear Registro" — gates "Nuevo esquema")
+      register: check(PERMISSIONS.REGISTER_PAYMENT),    // access_6 — kept as an alias for backward compatibility
+      edit: check(PERMISSIONS.EDIT_PAYMENTS),           // access_7 ("Editar/Alterar Pagos Registrados")
+      delete: check(PERMISSIONS.DELETE_PAYMENT),        // access_95 ("Eliminar Registro")
     },
 
     // Notes (access_1 to access_4)

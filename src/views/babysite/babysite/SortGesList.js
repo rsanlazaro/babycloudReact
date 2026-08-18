@@ -73,20 +73,8 @@ const getIMCInfo = (imc) => {
   return           { label: 'Obesidad',  color: 'danger'    };
 };
 
-const formatPHCA = (c) =>
-  `${c.partos||0}-${c.hijos||0}-${c.cesareas||0}-${c.abortos||0}`;
-
-// Normalize a phone number for comparison (digits only)
-const normalizePhone = (phone) => (phone || '').replace(/\D/g, '');
-
-const isValidEmail = (email) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || '');
-
-// A valid phone: only digits/spaces/+/-/parentheses as typed, and at least
-// 10 actual digits once separators are stripped
-const isValidPhone = (phone) => {
-  if (!/^[0-9+\-\s()]+$/.test(phone || '')) return false;
-  return normalizePhone(phone).length >= 10;
-};
+const formatPHCAE = (c) =>
+  `${c.partos||0}-${c.hijos||0}-${c.cesareas||0}-${c.abortos||0}-${c.embarazos||0}`;
 
 // ─────────────────────────────────────────────────────────────
 // Reusable sub-components
@@ -143,7 +131,7 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
         <SortHeader label="Apellido"     sortKey="apellido"         sortConfig={sortConfig} onSort={onSort} />
         <SortHeader label="Edad"         sortKey="fecha_nacimiento" sortConfig={sortConfig} onSort={onSort} style={{ width: 60 }} />
         <CTableHeaderCell style={{ width: 130 }}>IMC</CTableHeaderCell>
-        <SortHeader label="P-H-C-A"      sortKey="partos"           sortConfig={sortConfig} onSort={onSort} style={{ width: 110 }} />
+        <SortHeader label="P-H-C-A-E"    sortKey="partos"           sortConfig={sortConfig} onSort={onSort} style={{ width: 130 }} />
         <SortHeader label="(RH)"         sortKey="tipo_sangre"      sortConfig={sortConfig} onSort={onSort} style={{ width: 60 }} />
         <SortHeader label=">ACO"         sortKey="metodo_aco"       sortConfig={sortConfig} onSort={onSort} />
         <CTableHeaderCell>ADM</CTableHeaderCell>
@@ -159,10 +147,10 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
         const imc     = calculateIMC(c.peso, c.altura);
         const imcInfo = getIMCInfo(imc);
         const stInfo  = STATUS_OPTIONS[c.status] || { label: c.status, color: 'secondary' };
-        // Split nombre_completo into nombre + apellido heuristically (last word = apellido)
-        const parts   = (c.nombre_completo || '').trim().split(' ');
-        const apellido = parts.length > 1 ? parts.slice(-1)[0] : '-';
-        const nombre   = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '-';
+        // Nombre = first word only, Apellido = last word only (middle names, if any, are dropped)
+        const parts   = (c.nombre_completo || '').trim().split(/\s+/).filter(Boolean);
+        const nombre   = parts[0] || '-';
+        const apellido = parts.length > 1 ? parts[parts.length - 1] : '-';
         return (
           <CTableRow key={c.id}>
             <CTableDataCell>
@@ -182,7 +170,7 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
               </div>
             </CTableDataCell>
             <CTableDataCell>
-              <span style={{ color: '#d97ea1', fontWeight: 600 }}>{formatPHCA(c)}</span>
+              <span style={{ color: '#d97ea1', fontWeight: 600 }}>{formatPHCAE(c)}</span>
             </CTableDataCell>
             <CTableDataCell>{c.tipo_sangre || '-'}</CTableDataCell>
             <CTableDataCell>{c.metodo_aco  || '-'}</CTableDataCell>
@@ -357,14 +345,12 @@ const PsicologiaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTer
   </CTable>
 );
 
-// Allow only digits, spaces, +, -, ( and ) while typing a phone number
-const sanitizePhoneInput = (value) => value.replace(/[^0-9+\-\s()]/g, '');
-
-// Shared form fields — defined at module scope (NOT inside SortGesList) so it
-// keeps a stable identity across renders. Defining it inside the component
-// body would recreate the component (and its inputs) on every keystroke,
-// which is what caused focus to jump back to "Nombre completo" (its autoFocus
-// input) whenever another field was clicked/typed into.
+// Shared form fields for the create/edit candidate modals — defined at
+// module scope (NOT inside SortGesList) so it keeps a stable identity
+// across renders. Defining it inside the component body would recreate
+// the component (and remount its inputs) on every keystroke, which is
+// what caused focus to jump back to "Nombre completo" (its autoFocus
+// input) whenever another field was clicked or typed into.
 const CandidateFormFields = ({ form, setForm }) => (
   <>
     <div className="mb-3">
@@ -373,20 +359,18 @@ const CandidateFormFields = ({ form, setForm }) => (
         onChange={e => setForm(p => ({ ...p, nombre_completo: e.target.value }))} autoFocus />
     </div>
     <div className="mb-3">
-      <CFormLabel>Fecha de nacimiento: <span className="text-danger">*</span></CFormLabel>
+      <CFormLabel>Fecha de nacimiento:</CFormLabel>
       <CFormInput type="date" value={form.fecha_nacimiento}
         onChange={e => setForm(p => ({ ...p, fecha_nacimiento: e.target.value }))} />
     </div>
     <CRow>
       <CCol md={6} className="mb-3">
-        <CFormLabel>Teléfono: <span className="text-danger">*</span></CFormLabel>
+        <CFormLabel>Teléfono:</CFormLabel>
         <CFormInput placeholder="+52 55 0000 0000" value={form.tel_1}
-          inputMode="tel"
-          onChange={e => setForm(p => ({ ...p, tel_1: sanitizePhoneInput(e.target.value) }))} />
-        <small className="text-muted">Solo números, espacios, +, - y paréntesis</small>
+          onChange={e => setForm(p => ({ ...p, tel_1: e.target.value }))} />
       </CCol>
       <CCol md={6} className="mb-3">
-        <CFormLabel>Email: <span className="text-danger">*</span></CFormLabel>
+        <CFormLabel>Email:</CFormLabel>
         <CFormInput type="email" placeholder="correo@ejemplo.com" value={form.email}
           onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
       </CCol>
@@ -432,7 +416,6 @@ const SortGesList = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'nombre_completo', direction: 'asc' });
   const [alert, setAlert]           = useState({ show: false, type: '', message: '' });
-  const [formError, setFormError]   = useState('');
 
   // ── Create modal ─────────────────────────────────────────────
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -479,33 +462,11 @@ const SortGesList = () => {
     }
   };
 
-  // Validate required fields + duplicate phone number across candidates
-  const validateCandidateForm = (form, { excludeId = null } = {}) => {
-    if (!form.nombre_completo.trim()) return 'El nombre completo es obligatorio';
-    if (!form.fecha_nacimiento) return 'La fecha de nacimiento es obligatoria';
-    if (!form.tel_1.trim()) return 'El teléfono es obligatorio';
-    if (!isValidPhone(form.tel_1)) return 'El teléfono solo debe contener números (10 dígitos mínimo)';
-    if (!form.email.trim()) return 'El email es obligatorio';
-    if (!isValidEmail(form.email)) return 'Ingresa un email válido';
-
-    const normalizedPhone = normalizePhone(form.tel_1);
-    const duplicate = candidates.some(c =>
-      c.id !== excludeId &&
-      normalizedPhone &&
-      normalizePhone(c.telefono) === normalizedPhone
-    );
-    if (duplicate) return 'Ya existe un candidato registrado con este número de teléfono';
-
-    return null;
-  };
-
   const handleCreate = async () => {
-    const validationError = validateCandidateForm(createForm);
-    if (validationError) {
-      setFormError(validationError);
+    if (!createForm.nombre_completo.trim()) {
+      showNotification('warning', 'El nombre completo es obligatorio');
       return;
     }
-    setFormError('');
     try {
       setCreating(true);
       const res = await api.post('/api/sort-ges', {
@@ -524,20 +485,17 @@ const SortGesList = () => {
       navigate(`/babysite/sortGes/${newId}`);
     } catch (err) {
       console.error(err);
-      const message = err.response?.data?.message || 'Error al crear el candidato';
-      setFormError(message);
+      showNotification('danger', 'Error al crear el candidato');
     } finally {
       setCreating(false);
     }
   };
 
   const handleEdit = async () => {
-    const validationError = validateCandidateForm(editForm, { excludeId: editingId });
-    if (validationError) {
-      setFormError(validationError);
+    if (!editForm.nombre_completo.trim()) {
+      showNotification('warning', 'El nombre completo es obligatorio');
       return;
     }
-    setFormError('');
     try {
       setSaving(true);
       await api.put(`/api/sort-ges/${editingId}`, {
@@ -567,8 +525,7 @@ const SortGesList = () => {
       showNotification('success', 'Candidato actualizado');
     } catch (err) {
       console.error(err);
-      const message = err.response?.data?.message || 'Error al actualizar el candidato';
-      setFormError(message);
+      showNotification('danger', 'Error al actualizar el candidato');
     } finally {
       setSaving(false);
     }
@@ -635,7 +592,6 @@ const SortGesList = () => {
         ip_responsable:   candidate.ip_responsable   || '',
         status:           candidate.status           || 'iniciales',
       });
-      setFormError('');
       setShowEditModal(true);
     } else {
       setDeletingId(candidate.id);
@@ -685,7 +641,6 @@ const SortGesList = () => {
   };
 
   // ── Shared form fields ────────────────────────────────────────
-
   // ─────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -753,7 +708,7 @@ const SortGesList = () => {
             <CButton
               size="sm"
               color="primary"
-              onClick={() => { setCreateForm(EMPTY_FORM); setFormError(''); setShowCreateModal(true); }}
+              onClick={() => { setCreateForm(EMPTY_FORM); setShowCreateModal(true); }}
               style={{
                 backgroundColor: '#d97ea1', borderColor: '#d97ea1',
                 borderRadius: '50%', width: '32px', height: '32px', padding: 0,
@@ -830,23 +785,18 @@ const SortGesList = () => {
       </CModal>
 
       {/* ── Create modal ── */}
-      <CModal visible={showCreateModal} onClose={() => { setShowCreateModal(false); setFormError(''); }} size="lg">
+      <CModal visible={showCreateModal} onClose={() => setShowCreateModal(false)} size="lg">
         <CModalHeader><CModalTitle>Nuevo candidato</CModalTitle></CModalHeader>
         <CModalBody>
           <p className="text-muted small mb-3">
             Ingrese los datos básicos. Podrá completar el resto desde el expediente.
           </p>
-          {formError && (
-            <CAlert color="danger" dismissible onClose={() => setFormError('')}>
-              {formError}
-            </CAlert>
-          )}
           <CandidateFormFields form={createForm} setForm={setCreateForm} />
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => { setShowCreateModal(false); setFormError(''); }}>Cancelar</CButton>
+          <CButton color="secondary" onClick={() => setShowCreateModal(false)}>Cancelar</CButton>
           <CButton color="primary" onClick={handleCreate}
-            disabled={creating || !createForm.nombre_completo.trim() || !createForm.fecha_nacimiento || !createForm.tel_1.trim() || !createForm.email.trim()}
+            disabled={creating || !createForm.nombre_completo.trim()}
             style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1' }}>
             {creating ? <><CSpinner size="sm" className="me-1" />Creando...</> : 'Crear y abrir expediente'}
           </CButton>
@@ -854,20 +804,15 @@ const SortGesList = () => {
       </CModal>
 
       {/* ── Edit modal ── */}
-      <CModal visible={showEditModal} onClose={() => { setShowEditModal(false); setFormError(''); }} size="lg">
+      <CModal visible={showEditModal} onClose={() => setShowEditModal(false)} size="lg">
         <CModalHeader><CModalTitle>Editar candidato</CModalTitle></CModalHeader>
         <CModalBody>
-          {formError && (
-            <CAlert color="danger" dismissible onClose={() => setFormError('')}>
-              {formError}
-            </CAlert>
-          )}
           <CandidateFormFields form={editForm} setForm={setEditForm} />
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => { setShowEditModal(false); setFormError(''); }}>Cancelar</CButton>
+          <CButton color="secondary" onClick={() => setShowEditModal(false)}>Cancelar</CButton>
           <CButton color="primary" onClick={handleEdit}
-            disabled={saving || !editForm.nombre_completo.trim() || !editForm.fecha_nacimiento || !editForm.tel_1.trim() || !editForm.email.trim()}
+            disabled={saving || !editForm.nombre_completo.trim()}
             style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1' }}>
             {saving ? <><CSpinner size="sm" className="me-1" />Guardando...</> : 'Guardar cambios'}
           </CButton>

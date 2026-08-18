@@ -102,14 +102,12 @@ const Guests = () => {
     email: '',
     password: '',
     profile: 'ip',
-    phone: '',
   });
 
   // Profile options
   const profileOptions = [
     { value: 'ip', label: 'IP' },
     { value: 'agency', label: 'Agency' },
-    { value: 'recluta', label: 'Recluta' },
   ];
 
   // New guest form errors
@@ -175,13 +173,7 @@ const Guests = () => {
 
   const validateProfile = (profile) => {
     if (!profile || !profile.trim()) return 'El perfil es obligatorio';
-    if (!['ip', 'agency', 'recluta'].includes(profile)) return 'Perfil inválido';
-    return '';
-  };
-
-  const validatePhone = (phone) => {
-    if (!phone || !phone.trim()) return ''; // optional field
-    if (!/^[0-9+\-\s()]{7,20}$/.test(phone)) return 'Ingresa un número de teléfono válido';
+    if (!['ip', 'agency'].includes(profile)) return 'Perfil inválido';
     return '';
   };
 
@@ -191,7 +183,6 @@ const Guests = () => {
       case 'email': return validateEmail(value);
       case 'password': return validatePassword(value);
       case 'profile': return validateProfile(value);
-      case 'phone': return validatePhone(value);
       default: return '';
     }
   };
@@ -202,7 +193,6 @@ const Guests = () => {
     errors.email = validateEmail(newGuest.email);
     errors.password = validatePassword(newGuest.password);
     errors.profile = validateProfile(newGuest.profile);
-    errors.phone = validatePhone(newGuest.phone);
     Object.keys(errors).forEach((key) => { if (!errors[key]) delete errors[key]; });
     setNewGuestErrors(errors);
     return Object.keys(errors).length === 0;
@@ -280,7 +270,8 @@ const Guests = () => {
   const startEditing = (guestId, field, currentValue) => {
     // Check permission for the specific field
     if (field === 'password' && !guestPerms.password.editable) return;
-    if ((field === 'username' || field === 'mail' || field === 'profile' || field === 'enabled') && !guestPerms.edit.editable) return;
+    if (field === 'enabled' && !guestPerms.permissions.editable) return;
+    if ((field === 'username' || field === 'mail' || field === 'profile') && !guestPerms.edit.editable) return;
     
     setEditingCell({ id: guestId, field });
     setEditValue(currentValue || '');
@@ -329,8 +320,8 @@ const Guests = () => {
 
   // Toggle guest status
   const toggleGuestStatus = async (guestId, currentStatus) => {
-    // Only allow if has edit permission level 2
-    if (!guestPerms.edit.editable) return;
+    // Estado is governed by "Permisos de Guests", not "Editar Guests"
+    if (!guestPerms.permissions.editable) return;
     
     try {
       const newStatus = currentStatus ? 0 : 1;
@@ -401,7 +392,7 @@ const Guests = () => {
   };
 
   const resetNewGuestForm = () => {
-    setNewGuest({ username: '', email: '', password: '', profile: 'ip', phone: '' });
+    setNewGuest({ username: '', email: '', password: '', profile: 'ip' });
     setNewGuestErrors({});
     setNewGuestTouched({});
   };
@@ -410,7 +401,7 @@ const Guests = () => {
     // Only allow if has create permission level 2
     if (!guestPerms.create.editable) return;
     
-    setNewGuestTouched({ username: true, email: true, password: true, profile: true, phone: true });
+    setNewGuestTouched({ username: true, email: true, password: true, profile: true });
     if (!validateNewGuestForm()) {
       showNotification('danger', 'Por favor corrija los errores antes de continuar');
       return;
@@ -421,12 +412,7 @@ const Guests = () => {
       setGuests((prev) => [...prev, res.data]);
       setShowNewGuestModal(false);
       resetNewGuestForm();
-      showNotification(
-        'success',
-        res.data?.codigo
-          ? `Invitado creado correctamente. Código asignado: ${res.data.codigo}`
-          : 'Invitado creado correctamente'
-      );
+      showNotification('success', 'Invitado creado correctamente');
     } catch (err) {
       console.error('Error creating guest:', err);
       const message = err.response?.data?.message || 'Error al crear el invitado';
@@ -460,6 +446,7 @@ const Guests = () => {
     // Determine which permission applies to this field
     let fieldPerm;
     if (field === 'password') fieldPerm = guestPerms.password;
+    else if (field === 'enabled') fieldPerm = guestPerms.permissions;
     else fieldPerm = guestPerms.edit;
 
     // If not visible (level 0), don't show at all
@@ -651,7 +638,7 @@ const Guests = () => {
 
           {/* Guests table */}
           <div className="table-responsive">
-            <CTable hover striped className="nowrap-table">
+            <CTable hover striped>
               <CTableHead>
                 <CTableRow>
                   {/* Checkbox column - only if delete permission level >= 1 */}
@@ -670,11 +657,9 @@ const Guests = () => {
                   {/* Password column - only if permission level >= 1 */}
                   {guestPerms.password.visible && <CTableHeaderCell>Contraseña</CTableHeaderCell>}
                   <SortableHeader label="Perfil" sortKey="profile" />
-                  <SortableHeader label="Código" sortKey="codigo" />
-                  <SortableHeader label="Teléfono" sortKey="phone" />
                   <SortableHeader label="Fecha de creación" sortKey="created_on" />
-                  {/* Status column - only if edit permission level >= 1 */}
-                  {guestPerms.edit.visible && <CTableHeaderCell>Estado</CTableHeaderCell>}
+                  {/* Status column - governed by "Permisos de Guests", not "Editar Guests" */}
+                  {guestPerms.permissions.visible && <CTableHeaderCell>Estado</CTableHeaderCell>}
                   {/* Actions column - only if delete permission level >= 1 */}
                   {guestPerms.delete.visible && <CTableHeaderCell style={{ width: '80px' }}>Acciones</CTableHeaderCell>}
                 </CTableRow>
@@ -715,27 +700,21 @@ const Guests = () => {
                       
                       {/* Profile */}
                       <CTableDataCell>{renderEditableCell(guest, 'profile', 'select')}</CTableDataCell>
-
-                      {/* Código - only generated/shown for Recluta profile, not editable */}
-                      <CTableDataCell>{guest.codigo || '-'}</CTableDataCell>
-
-                      {/* Teléfono */}
-                      <CTableDataCell>{renderEditableCell(guest, 'phone')}</CTableDataCell>
-
+                      
                       {/* Created date */}
                       <CTableDataCell>{formatDate(guest.created_on)}</CTableDataCell>
                       
-                      {/* Status toggle - only if edit permission level >= 1 */}
-                      {guestPerms.edit.visible && (
+                      {/* Status toggle - governed by "Permisos de Guests", not "Editar Guests" */}
+                      {guestPerms.permissions.visible && (
                         <CTableDataCell>
                           <CButton
                             color={guest.enabled ? 'success' : 'secondary'}
                             variant="outline"
                             size="sm"
-                            onClick={() => guestPerms.edit.editable && toggleGuestStatus(guest.id, guest.enabled)}
-                            disabled={!guestPerms.edit.editable}
-                            style={!guestPerms.edit.editable ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
-                            title={!guestPerms.edit.editable ? 'Solo lectura' : ''}
+                            onClick={() => guestPerms.permissions.editable && toggleGuestStatus(guest.id, guest.enabled)}
+                            disabled={!guestPerms.permissions.editable}
+                            style={!guestPerms.permissions.editable ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
+                            title={!guestPerms.permissions.editable ? 'Solo lectura' : ''}
                           >
                             {guest.enabled ? 'Habilitado' : 'Deshabilitado'}
                           </CButton>
@@ -849,26 +828,6 @@ const Guests = () => {
             {newGuestTouched.profile && newGuestErrors.profile && (
               <CFormFeedback invalid style={{ display: 'block' }}>{newGuestErrors.profile}</CFormFeedback>
             )}
-            {newGuest.profile === 'recluta' && (
-              <small className="text-muted">
-                Se generará automáticamente un Código (ej. R2026001) al crear el invitado.
-              </small>
-            )}
-          </div>
-          <div className="mb-3">
-            <label className="form-label">Teléfono</label>
-            <CFormInput
-              type="tel"
-              name="phone"
-              value={newGuest.phone}
-              onChange={handleNewGuestChange}
-              onBlur={handleNewGuestBlur}
-              placeholder="Número de teléfono"
-              invalid={newGuestTouched.phone && !!newGuestErrors.phone}
-            />
-            {newGuestTouched.phone && newGuestErrors.phone && (
-              <CFormFeedback invalid style={{ display: 'block' }}>{newGuestErrors.phone}</CFormFeedback>
-            )}
           </div>
         </CModalBody>
         <CModalFooter>
@@ -880,11 +839,6 @@ const Guests = () => {
       <style>{`
         .editable-cell .edit-icon { opacity: 0; transition: opacity 0.2s; }
         .editable-cell:hover .edit-icon { opacity: 1; }
-        .nowrap-table th,
-        .nowrap-table td {
-          white-space: nowrap;
-          vertical-align: middle;
-        }
       `}</style>
     </CContainer>
   );

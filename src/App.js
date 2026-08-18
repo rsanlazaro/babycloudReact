@@ -1,7 +1,7 @@
 import React, { Suspense, useEffect } from 'react';
-import { BrowserRouter, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { useSelector } from 'react-redux';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useUser } from './context/AuthContext';
 
 import { useColorModes } from '@coreui/react';
 import './scss/style.scss';
@@ -44,6 +44,25 @@ const LoadingFallback = () => (
   </div>
 );
 
+// Re-fetches the current user's permissions on every navigation, so a role
+// change made by an admin (e.g. from the Roles screen) takes effect the next
+// time this user clicks into any section — no logout/login required.
+// Renders nothing; must live inside <BrowserRouter> to read the location,
+// and inside <AuthProvider> to reach refreshPermissions().
+const PermissionsRefresher = () => {
+  const location = useLocation();
+  const { isAuthenticated, refreshPermissions } = useUser();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      refreshPermissions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  return null;
+};
+
 const App = () => {
   const { isColorModeSet, setColorMode } = useColorModes('coreui-free-react-admin-template-theme');
   const storedTheme = useSelector((state) => state.theme);
@@ -66,6 +85,7 @@ const App = () => {
     <AuthProvider>
       <BillsAuthProvider>
         <BrowserRouter>
+          <PermissionsRefresher />
           <Suspense fallback={<LoadingFallback />}>
             <Routes>
               {/* Public */}

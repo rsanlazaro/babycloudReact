@@ -103,7 +103,7 @@ const Users = () => {
     username: '',
     email: '',
     password: '',
-    profile: 'operador',
+    profile: 'recluta',
   });
 
   // New user form errors
@@ -119,6 +119,7 @@ const Users = () => {
     { value: 'admin_junior', label: 'Admin Jr' },
     { value: 'coordinador', label: 'Coordinador' },
     { value: 'operador', label: 'Operador' },
+    { value: 'recluta', label: 'Recluta' },
   ];
 
   // Redirect if no view permission (level 0)
@@ -272,8 +273,8 @@ const Users = () => {
   const startEditing = (userId, field, currentValue) => {
     // Check permission for the specific field
     if (field === 'password' && !userPerms.password.editable) return;
-    if (field === 'profile' && !userPerms.permissions.editable) return;
-    if ((field === 'username' || field === 'email' || field === 'enabled') && !userPerms.edit.editable) return;
+    if ((field === 'profile' || field === 'enabled') && !userPerms.permissions.editable) return;
+    if ((field === 'username' || field === 'email') && !userPerms.edit.editable) return;
     
     setEditingCell({ id: userId, field });
     setEditValue(currentValue || '');
@@ -322,8 +323,8 @@ const Users = () => {
 
   // Toggle user status
   const toggleUserStatus = async (userId, currentStatus) => {
-    // Only allow if has edit permission level 2
-    if (!userPerms.edit.editable) return;
+    // Estado is governed by "Permisos de usuario", not "Usuario y correo"
+    if (!userPerms.permissions.editable) return;
     
     try {
       const newStatus = currentStatus ? 0 : 1;
@@ -401,7 +402,7 @@ const Users = () => {
   };
 
   const resetNewUserForm = () => {
-    setNewUser({ username: '', email: '', password: '', profile: 'operador' });
+    setNewUser({ username: '', email: '', password: '', profile: 'recluta' });
     setNewUserErrors({});
     setNewUserTouched({});
   };
@@ -457,7 +458,7 @@ const Users = () => {
     // Determine which permission applies to this field
     let fieldPerm;
     if (field === 'password') fieldPerm = userPerms.password;
-    else if (field === 'profile') fieldPerm = userPerms.permissions;
+    else if (field === 'profile' || field === 'enabled') fieldPerm = userPerms.permissions;
     else fieldPerm = userPerms.edit;
 
     // If not visible (level 0), don't show at all
@@ -667,7 +668,7 @@ const Users = () => {
 
           {/* Users table */}
           <div className="table-responsive">
-            <CTable hover striped className="nowrap-table">
+            <CTable hover striped>
               <CTableHead>
                 <CTableRow>
                   {/* Checkbox column - only if delete permission level >= 1 */}
@@ -687,8 +688,8 @@ const Users = () => {
                   {userPerms.password.visible && <CTableHeaderCell>Contraseña</CTableHeaderCell>}
                   <SortableHeader label="Perfil" sortKey="profile" />
                   <SortableHeader label="Fecha de creación" sortKey="created_on" />
-                  {/* Status column - only if edit permission level >= 1 */}
-                  {userPerms.edit.visible && <CTableHeaderCell>Estado</CTableHeaderCell>}
+                  {/* Status column - governed by "Permisos de usuario", not "Usuario y correo" */}
+                  {userPerms.permissions.visible && <CTableHeaderCell>Estado</CTableHeaderCell>}
                   {/* Roles column - only if permissions permission level >= 1 */}
                   {userPerms.permissions.visible && <CTableHeaderCell>Roles</CTableHeaderCell>}
                   {/* Actions column - only if delete permission level >= 1 */}
@@ -744,17 +745,17 @@ const Users = () => {
                         {/* Created date */}
                         <CTableDataCell>{formatDate(user.created_on)}</CTableDataCell>
                         
-                        {/* Status toggle - only if edit permission level >= 1 */}
-                        {userPerms.edit.visible && (
+                        {/* Status toggle - governed by "Permisos de usuario", not "Usuario y correo" */}
+                        {userPerms.permissions.visible && (
                           <CTableDataCell>
                             <CButton
                               color={user.enabled ? 'success' : 'secondary'}
                               variant="outline"
                               size="sm"
-                              onClick={() => userPerms.edit.editable && toggleUserStatus(user.id, user.enabled)}
-                              disabled={!userPerms.edit.editable}
-                              style={!userPerms.edit.editable ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
-                              title={!userPerms.edit.editable ? 'Solo lectura' : ''}
+                              onClick={() => userPerms.permissions.editable && toggleUserStatus(user.id, user.enabled)}
+                              disabled={!userPerms.permissions.editable}
+                              style={!userPerms.permissions.editable ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
+                              title={!userPerms.permissions.editable ? 'Solo lectura' : ''}
                             >
                               {user.enabled ? 'Habilitado' : 'Deshabilitado'}
                             </CButton>
@@ -893,11 +894,6 @@ const Users = () => {
       <style>{`
         .editable-cell .edit-icon { opacity: 0; transition: opacity 0.2s; }
         .editable-cell:hover .edit-icon { opacity: 1; }
-        .nowrap-table th,
-        .nowrap-table td {
-          white-space: nowrap;
-          vertical-align: middle;
-        }
       `}</style>
     </CContainer>
   );

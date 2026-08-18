@@ -40,91 +40,115 @@ import {
 } from '@coreui/icons';
 import api from '../../../services/api';
 
-// Access names mapping (same as UserRoles)
+// Access names mapping (same structure as Roles.js) — module = top-level
+// (Progestor/Babysite/Recluta/Babycloud), section = the specific page/feature.
+// Order follows the actual appearance order in the sidebar (_nav.js).
+// locked: true = the section has no working/enabled nav entry yet (still under
+// development) — its permissions are kept here so they're ready once it ships.
 const accessNames = [
-    { key: 1, name: 'Listado de Nota de Atención', category: 'Progestor' },
-    { key: 2, name: 'Abrir de Nota de Atención', category: 'Progestor' },
-    { key: 3, name: 'Listado de Nota Pendiente', category: 'Progestor' },
-    { key: 4, name: 'Abrir Nota Pendiente', category: 'Progestor' },
-    { key: 5, name: 'Listado de Pagos', category: 'Progestor' },
-    { key: 6, name: 'Registro de Pagos', category: 'Progestor' },
-    { key: 7, name: 'Editar/Alterar Pagos Registrados', category: 'Progestor' },
-    { key: 8, name: 'Listado de Usuarios', category: 'Progestor' },
-    { key: 9, name: 'Crear usuario', category: 'Progestor' },
-    { key: 10, name: 'Editar usuario', category: 'Progestor' },
-    { key: 11, name: 'Contraseña de Usuario', category: 'Progestor' },
-    { key: 12, name: 'Permisos de Usuario', category: 'Progestor' },
-    { key: 13, name: 'Borrar Usuario', category: 'Progestor' },
-    { key: 14, name: 'Listado de Guests', category: 'Progestor' },
-    { key: 15, name: 'Crear Guests', category: 'Progestor' },
-    { key: 16, name: 'Editar Guests', category: 'Progestor' },
-    { key: 17, name: 'Contraseña de Guests', category: 'Progestor' },
-    { key: 18, name: 'Permisos de Guests', category: 'Progestor' },
-    { key: 19, name: 'Borrar Guests', category: 'Progestor' },
-    { key: 20, name: 'Generación de reportes y facturas', category: 'Progestor' },
-    { key: 21, name: 'Generar reporte médico', category: 'Progestor' },
-    { key: 22, name: 'Generar Itinerario', category: 'Progestor' },
-    { key: 23, name: 'Generar factura (Travel Medical Care)', category: 'Progestor' },
-    { key: 24, name: 'Generar factura (Nexa Travel)', category: 'Progestor' },
-    { key: 25, name: 'Generar factura (Babymedic)', category: 'Progestor' },
-    { key: 26, name: 'Dash Boards', category: 'Progestor' },
-    { key: 27, name: 'Listado Sort_GES', category: 'Babysite' },
-    { key: 28, name: 'Alta Sort_GES', category: 'Babysite' },
-    { key: 29, name: 'Documentación (Sort_GES)', category: 'Babysite' },
-    { key: 30, name: 'Alterar Documentación (Sort_GES)', category: 'Babysite' },
-    { key: 31, name: 'Start Programa', category: 'Babysite' },
-    { key: 32, name: 'Alta Seguro', category: 'Babysite' },
-    { key: 33, name: 'Listado Sort_IP', category: 'Babysite' },
-    { key: 34, name: 'Alta Sort_IP', category: 'Babysite' },
-    { key: 35, name: 'Editar Sort_IP', category: 'Babysite' },
-    { key: 36, name: 'Documentación (Sort_IP)', category: 'Babysite' },
-    { key: 37, name: 'Alterar/Borrar Documentación (Sort_IP)', category: 'Babysite' },
-    { key: 38, name: 'Start Crio Embrio', category: 'Babysite' },
-    { key: 39, name: 'Actualizar Seguimiento', category: 'Babysite' },
-    { key: 40, name: 'Programas', category: 'Babysite' },
-    { key: 41, name: 'Crioembrio', category: 'Babysite' },
-    { key: 42, name: 'Asignar/Editar Donante', category: 'Babysite' },
-    { key: 43, name: 'Editar Material Genético', category: 'Babysite' },
-    { key: 44, name: 'Seleccionar Material Genético', category: 'Babysite' },
-    { key: 45, name: 'Asignar/Editar Gestante', category: 'Babysite' },
-    { key: 46, name: 'Iniciales', category: 'Babysite' },
-    { key: 47, name: 'Perfil Psicológico', category: 'Babysite' },
-    { key: 48, name: 'Agregar Sesión Psicológica', category: 'Babysite' },
-    { key: 49, name: 'Alterar datos Sesión Psicológica', category: 'Babysite' },
-    { key: 50, name: 'Socio Económico', category: 'Babysite' },
-    { key: 51, name: 'Agregar Visita ESE', category: 'Babysite' },
-    { key: 52, name: 'Alterar Datos ESE', category: 'Babysite' },
-    { key: 53, name: 'Alta Citas', category: 'Babysite' },
-    { key: 54, name: 'Agregar Tratamientos', category: 'Babysite' },
-    { key: 55, name: 'Enviar a Pizarrón', category: 'Babysite' },
-    { key: 56, name: 'Pizarrón', category: 'Babysite' },
-    { key: 57, name: 'Agregar ACO', category: 'Babysite' },
-    { key: 58, name: 'Detener ACO', category: 'Babysite' },
-    { key: 59, name: 'Comenzar Preparación', category: 'Babysite' },
-    { key: 60, name: 'Detener Preparación', category: 'Babysite' },
-    { key: 61, name: 'Enviar a Transfer', category: 'Babysite' },
-    { key: 62, name: 'Registrar Beta', category: 'Babysite' },
-    { key: 63, name: 'Registrar Saco Gestacional', category: 'Babysite' },
-    { key: 64, name: 'Registrar Latido', category: 'Babysite' },
-    { key: 65, name: 'Confirmar GESTA', category: 'Babysite' },
-    { key: 66, name: 'Comenzar SDG GESTA', category: 'Babysite' },
-    { key: 67, name: 'Agenda de Seguro', category: 'Babysite' },
-    { key: 68, name: 'Listado Egg Donor', category: 'Babysite' },
-    { key: 69, name: 'Dash Boards (Egg Donor)', category: 'Babysite' },
-    { key: 70, name: 'Inicio', category: 'Recluta' },
-    { key: 71, name: 'Agregar etapa', category: 'Babycloud' },
-    { key: 72, name: 'Modificar estado', category: 'Babycloud' },
-    { key: 73, name: 'Modificar underway', category: 'Babycloud' },
-    { key: 74, name: 'Modificar info 1', category: 'Babycloud' },
-    { key: 75, name: 'Modificar info 2', category: 'Babycloud' },
-    { key: 76, name: 'Subir archivo 1', category: 'Babycloud' },
-    { key: 77, name: 'Subir archivo 2', category: 'Babycloud' },
-    { key: 78, name: 'Subir archivo 3', category: 'Babycloud' },
-    { key: 79, name: 'Habilitar 1', category: 'Babycloud' },
-    { key: 80, name: 'Habilitar 2', category: 'Babycloud' },
-    { key: 81, name: 'Habilitar 3', category: 'Babycloud' },
-    { key: 82, name: 'Habilitar vista de la etapa', category: 'Babycloud' },
-    { key: 83, name: 'Historial de actividades', category: 'Babycloud' },
+    // ── Progestor (order matches _nav.js) ──
+    { key: 20, name: 'Generación de reportes y facturas', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 21, name: 'Generar reporte médico', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 22, name: 'Generar Itinerario', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 23, name: 'Generar factura (Travel Medical Care)', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 24, name: 'Generar factura (Nexa Travel)', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 25, name: 'Generar factura (Babymedic)', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 84, name: 'Documentos legales (sección completa)', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 85, name: 'Doc: Aviso de privacidad simplificado', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 86, name: 'Doc: Obligaciones, cuidados y limitaciones durante el embarazo', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 87, name: 'Doc: Esquema de remuneración', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 88, name: 'Doc: Consentimiento informado para transferencia embrionaria y selección de programa', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 89, name: 'Doc: Consentimiento informado', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 90, name: 'Doc: Aviso de uso y explotación de imagen', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 91, name: 'Doc: Contrato de confidencialidad', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 92, name: 'Doc: Términos y condiciones', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 93, name: 'Doc: Información de la gestante', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 94, name: 'Doc: Declaración de información personal', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 8, name: 'Listado de Usuarios', module: 'Progestor', section: 'Users' },
+    { key: 9, name: 'Crear usuario', module: 'Progestor', section: 'Users' },
+    { key: 10, name: 'Usuario y correo', module: 'Progestor', section: 'Users' },
+    { key: 11, name: 'Contraseña de Usuario', module: 'Progestor', section: 'Users' },
+    { key: 12, name: 'Permisos de Usuario', module: 'Progestor', section: 'Users' },
+    { key: 13, name: 'Borrar Usuario', module: 'Progestor', section: 'Users' },
+    { key: 14, name: 'Listado de Guests', module: 'Progestor', section: 'guests' },
+    { key: 15, name: 'Crear Guests', module: 'Progestor', section: 'guests' },
+    { key: 16, name: 'Editar Guests', module: 'Progestor', section: 'guests' },
+    { key: 17, name: 'Contraseña de Guests', module: 'Progestor', section: 'guests' },
+    { key: 18, name: 'Permisos de Guests', module: 'Progestor', section: 'guests' },
+    { key: 19, name: 'Borrar Guests', module: 'Progestor', section: 'guests' },
+    { key: 5, name: 'Listado de Pagos', module: 'Progestor', section: 'Listado de pagos' },
+    { key: 6, name: 'Crear Registro', module: 'Progestor', section: 'Listado de pagos' },
+    { key: 7, name: 'Editar/Alterar Pagos Registrados', module: 'Progestor', section: 'Listado de pagos' },
+    { key: 95, name: 'Eliminar Registro', module: 'Progestor', section: 'Listado de pagos' },
+    { key: 1, name: 'Listado de Nota de Atención', module: 'Progestor', section: 'Listado de notas' },
+    { key: 2, name: 'Abrir de Nota de Atención', module: 'Progestor', section: 'Listado de notas' },
+    { key: 3, name: 'Listado de Nota Pendiente', module: 'Progestor', section: 'Listado de notas' },
+    { key: 4, name: 'Abrir Nota Pendiente', module: 'Progestor', section: 'Listado de notas' },
+    { key: 26, name: 'Dash Boards', module: 'Progestor', section: 'Dashboard', locked: true },
+    { key: 83, name: 'Historial de actividades', module: 'Progestor', section: 'Historial de actividad' },
+
+    // ── Babysite (order matches _nav.js; sections with no nav entry go last) ──
+    { key: 27, name: 'Listado Sort_GES', module: 'Babysite', section: 'Listado Sort_GES' },
+    { key: 28, name: 'Alta Sort_GES', module: 'Babysite', section: 'Listado Sort_GES' },
+    { key: 29, name: 'Documentación (Sort_GES)', module: 'Babysite', section: 'Listado Sort_GES' },
+    { key: 30, name: 'Alterar Documentación (Sort_GES)', module: 'Babysite', section: 'Listado Sort_GES' },
+    { key: 31, name: 'Start Programa', module: 'Babysite', section: 'Listado Sort_GES' },
+    { key: 32, name: 'Alta Seguro', module: 'Babysite', section: 'Listado Sort_GES' },
+    { key: 33, name: 'Listado Sort_IP', module: 'Babysite', section: 'Listado Sort_IPS', locked: true },
+    { key: 34, name: 'Alta Sort_IP', module: 'Babysite', section: 'Listado Sort_IPS', locked: true },
+    { key: 35, name: 'Editar Sort_IP', module: 'Babysite', section: 'Listado Sort_IPS', locked: true },
+    { key: 36, name: 'Documentación (Sort_IP)', module: 'Babysite', section: 'Listado Sort_IPS', locked: true },
+    { key: 37, name: 'Alterar/Borrar Documentación (Sort_IP)', module: 'Babysite', section: 'Listado Sort_IPS', locked: true },
+    { key: 38, name: 'Start Crio Embrio', module: 'Babysite', section: 'Listado Sort_IPS', locked: true },
+    { key: 39, name: 'Actualizar Seguimiento', module: 'Babysite', section: 'Listado Sort_IPS', locked: true },
+    { key: 67, name: 'Agenda de Seguro', module: 'Babysite', section: 'Listado Sort_DON', locked: true },
+    { key: 68, name: 'Listado Egg Donor', module: 'Babysite', section: 'Listado Sort_DON', locked: true },
+    { key: 69, name: 'Dash Boards (Egg Donor)', module: 'Babysite', section: 'Listado Sort_DON', locked: true },
+    { key: 40, name: 'Programas', module: 'Babysite', section: 'Programas', locked: true },
+    { key: 41, name: 'Crioembrio', module: 'Babysite', section: 'Programas', locked: true },
+    { key: 42, name: 'Asignar/Editar Donante', module: 'Babysite', section: 'Programas', locked: true },
+    { key: 43, name: 'Editar Material Genético', module: 'Babysite', section: 'Programas', locked: true },
+    { key: 44, name: 'Seleccionar Material Genético', module: 'Babysite', section: 'Programas', locked: true },
+    { key: 45, name: 'Asignar/Editar Gestante', module: 'Babysite', section: 'Programas', locked: true },
+    // Not in the nav at all yet — kept for when these are built
+    { key: 46, name: 'Iniciales', module: 'Babysite', section: 'Perfil', locked: true },
+    { key: 47, name: 'Perfil Psicológico', module: 'Babysite', section: 'Perfil', locked: true },
+    { key: 48, name: 'Agregar Sesión Psicológica', module: 'Babysite', section: 'Perfil', locked: true },
+    { key: 49, name: 'Alterar datos Sesión Psicológica', module: 'Babysite', section: 'Perfil', locked: true },
+    { key: 50, name: 'Socio Económico', module: 'Babysite', section: 'Perfil', locked: true },
+    { key: 51, name: 'Agregar Visita ESE', module: 'Babysite', section: 'Perfil', locked: true },
+    { key: 52, name: 'Alterar Datos ESE', module: 'Babysite', section: 'Perfil', locked: true },
+    { key: 53, name: 'Alta Citas', module: 'Babysite', section: 'Citas', locked: true },
+    { key: 54, name: 'Agregar Tratamientos', module: 'Babysite', section: 'Citas', locked: true },
+    { key: 55, name: 'Enviar a Pizarrón', module: 'Babysite', section: 'Citas', locked: true },
+    { key: 56, name: 'Pizarrón', module: 'Babysite', section: 'Citas', locked: true },
+    { key: 57, name: 'Agregar ACO', module: 'Babysite', section: 'ACO', locked: true },
+    { key: 58, name: 'Detener ACO', module: 'Babysite', section: 'ACO', locked: true },
+    { key: 59, name: 'Comenzar Preparación', module: 'Babysite', section: 'ACO', locked: true },
+    { key: 60, name: 'Detener Preparación', module: 'Babysite', section: 'ACO', locked: true },
+    { key: 61, name: 'Enviar a Transfer', module: 'Babysite', section: 'Gestación', locked: true },
+    { key: 62, name: 'Registrar Beta', module: 'Babysite', section: 'Gestación', locked: true },
+    { key: 63, name: 'Registrar Saco Gestacional', module: 'Babysite', section: 'Gestación', locked: true },
+    { key: 64, name: 'Registrar Latido', module: 'Babysite', section: 'Gestación', locked: true },
+    { key: 65, name: 'Confirmar GESTA', module: 'Babysite', section: 'Gestación', locked: true },
+    { key: 66, name: 'Comenzar SDG GESTA', module: 'Babysite', section: 'Gestación', locked: true },
+
+    // ── Recluta (all nav entries are currently disabled) ──
+    { key: 70, name: 'Inicio', module: 'Recluta', section: 'Inicio', locked: true },
+
+    // ── Babycloud (Cloud IPS_upload is enabled in nav; rest of the module shares this permission set) ──
+    { key: 71, name: 'Agregar etapa', module: 'Babycloud', section: 'Etapas' },
+    { key: 72, name: 'Modificar estado', module: 'Babycloud', section: 'Etapas' },
+    { key: 73, name: 'Modificar underway', module: 'Babycloud', section: 'Etapas' },
+    { key: 74, name: 'Modificar info 1', module: 'Babycloud', section: 'Etapas' },
+    { key: 75, name: 'Modificar info 2', module: 'Babycloud', section: 'Etapas' },
+    { key: 76, name: 'Subir archivo 1', module: 'Babycloud', section: 'Etapas' },
+    { key: 77, name: 'Subir archivo 2', module: 'Babycloud', section: 'Etapas' },
+    { key: 78, name: 'Subir archivo 3', module: 'Babycloud', section: 'Etapas' },
+    { key: 79, name: 'Habilitar 1', module: 'Babycloud', section: 'Etapas' },
+    { key: 80, name: 'Habilitar 2', module: 'Babycloud', section: 'Etapas' },
+    { key: 81, name: 'Habilitar 3', module: 'Babycloud', section: 'Etapas' },
+    { key: 82, name: 'Habilitar vista de la etapa', module: 'Babycloud', section: 'Etapas' },
 ];
 
 // Profile options
@@ -143,8 +167,8 @@ const permissionOptions = [
     { value: 2, label: 'Ver y editar', color: 'success', icon: cilPencil },
 ];
 
-// Get unique categories
-const categories = [...new Set(accessNames.map((a) => a.category))];
+// Get unique modules
+const modules = [...new Set(accessNames.map((a) => a.module))];
 
 const AccessRoles = () => {
     const navigate = useNavigate();
@@ -155,7 +179,7 @@ const AccessRoles = () => {
     const [saving, setSaving] = useState(false);
     const [alert, setAlert] = useState({ show: false, type: '', message: '' });
     const [searchTerm, setSearchTerm] = useState('');
-    const [selectedCategory, setSelectedCategory] = useState('all');
+    const [selectedModule, setSelectedModule] = useState('all');
     const [activeTab, setActiveTab] = useState('super_admin');
 
     // Fetch all permissions on mount
@@ -237,12 +261,25 @@ const AccessRoles = () => {
         });
     };
 
-    const handleSetCategoryForProfile = (profileKey, category, value) => {
+    const handleSetSectionForProfile = (profileKey, module, section, value) => {
         setAllPermissions((prev) => {
             const newPerms = { ...prev };
             newPerms[profileKey] = { ...prev[profileKey] };
             accessNames
-                .filter((access) => access.category === category)
+                .filter((access) => access.module === module && access.section === section)
+                .forEach((access) => {
+                    newPerms[profileKey][access.key] = value;
+                });
+            return newPerms;
+        });
+    };
+
+    const handleSetModuleForProfile = (profileKey, module, value) => {
+        setAllPermissions((prev) => {
+            const newPerms = { ...prev };
+            newPerms[profileKey] = { ...prev[profileKey] };
+            accessNames
+                .filter((access) => access.module === module)
                 .forEach((access) => {
                     newPerms[profileKey][access.key] = value;
                 });
@@ -257,6 +294,10 @@ const AccessRoles = () => {
         }));
     };
 
+    const handleDiscardAllChanges = () => {
+        setAllPermissions(JSON.parse(JSON.stringify(originalPermissions)));
+    };
+
     const hasChanges = () => {
         return JSON.stringify(allPermissions) !== JSON.stringify(originalPermissions);
     };
@@ -265,19 +306,18 @@ const AccessRoles = () => {
         return JSON.stringify(allPermissions[profileKey]) !== JSON.stringify(originalPermissions[profileKey]);
     };
 
-    // Filter access names by search and category
+    // Filter access names by search and module
     const filteredAccess = accessNames.filter((access) => {
         const matchesSearch = access.name.toLowerCase().includes(searchTerm.toLowerCase());
-        const matchesCategory = selectedCategory === 'all' || access.category === selectedCategory;
-        return matchesSearch && matchesCategory;
+        const matchesModule = selectedModule === 'all' || access.module === selectedModule;
+        return matchesSearch && matchesModule;
     });
 
-    // Group filtered access by category
+    // Group filtered access by module, then by section within each module
     const groupedAccess = filteredAccess.reduce((acc, access) => {
-        if (!acc[access.category]) {
-            acc[access.category] = [];
-        }
-        acc[access.category].push(access);
+        if (!acc[access.module]) acc[access.module] = {};
+        if (!acc[access.module][access.section]) acc[access.module][access.section] = [];
+        acc[access.module][access.section].push(access);
         return acc;
     }, {});
 
@@ -364,13 +404,13 @@ const AccessRoles = () => {
                         </CCol>
                         <CCol md={4}>
                             <CFormSelect
-                                value={selectedCategory}
-                                onChange={(e) => setSelectedCategory(e.target.value)}
+                                value={selectedModule}
+                                onChange={(e) => setSelectedModule(e.target.value)}
                             >
-                                <option value="all">Todas las categorías</option>
-                                {categories.map((cat) => (
-                                    <option key={cat} value={cat}>
-                                        {cat}
+                                <option value="all">Todos los módulos</option>
+                                {modules.map((mod) => (
+                                    <option key={mod} value={mod}>
+                                        {mod}
                                     </option>
                                 ))}
                             </CFormSelect>
@@ -451,97 +491,145 @@ const AccessRoles = () => {
                                     </CCol>
                                 </CRow>
 
-                                {/* Permissions by category */}
-                                {Object.entries(groupedAccess).map(([category, accesses]) => (
-                                    <CCard key={category} className="mb-3">
-                                        <CCardHeader className="py-2">
-                                            <CRow className="align-items-center">
-                                                <CCol>
-                                                    <strong>{category}</strong>
-                                                    <span className="text-muted ms-2 small">({accesses.length} permisos)</span>
-                                                </CCol>
-                                                <CCol xs="auto">
-                                                    <span className="me-2 text-muted small">Aplicar:</span>
-                                                    <CButton
-                                                        color="danger"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => handleSetCategoryForProfile(profile.key, category, 0)}
-                                                        title="Sin acceso"
-                                                    >
-                                                        <CIcon icon={cilLockLocked} />
-                                                    </CButton>
-                                                    <CButton
-                                                        color="warning"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => handleSetCategoryForProfile(profile.key, category, 1)}
-                                                        title="Solo ver"
-                                                    >
-                                                        <CIcon icon={cilLockUnlocked} />
-                                                    </CButton>
-                                                    <CButton
-                                                        color="success"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => handleSetCategoryForProfile(profile.key, category, 2)}
-                                                        title="Ver y editar"
-                                                    >
-                                                        <CIcon icon={cilPencil} />
-                                                    </CButton>
-                                                </CCol>
-                                            </CRow>
-                                        </CCardHeader>
-                                        <CCardBody className="p-0">
-                                            <CTable hover striped className="mb-0">
-                                                <CTableHead>
-                                                    <CTableRow>
-                                                        <CTableHeaderCell style={{ width: '50%' }}>Permiso</CTableHeaderCell>
-                                                        <CTableHeaderCell style={{ width: '25%' }}>Estado actual</CTableHeaderCell>
-                                                        <CTableHeaderCell style={{ width: '25%' }}>Cambiar a</CTableHeaderCell>
-                                                    </CTableRow>
-                                                </CTableHead>
-                                                <CTableBody>
-                                                    {accesses.map((access) => {
-                                                        const currentValue = allPermissions[profile.key]?.[access.key] ?? 0;
-                                                        const originalValue = originalPermissions[profile.key]?.[access.key] ?? 0;
-                                                        const hasChanged = currentValue !== originalValue;
+                                {/* Permissions grouped by module, then by section within each module */}
+                                {Object.entries(groupedAccess).map(([module, sections]) => {
+                                    const moduleCount = Object.values(sections).reduce((sum, arr) => sum + arr.length, 0);
+                                    return (
+                                        <CCard key={module} className="mb-3">
+                                            <CCardHeader className="py-2">
+                                                <CRow className="align-items-center">
+                                                    <CCol>
+                                                        <strong>{module}</strong>
+                                                        <span className="text-muted ms-2 small">({moduleCount} permisos)</span>
+                                                    </CCol>
+                                                    <CCol xs="auto">
+                                                        <span className="me-2 text-muted small">Aplicar a todo el módulo:</span>
+                                                        <CButton
+                                                            color="danger"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => handleSetModuleForProfile(profile.key, module, 0)}
+                                                            title="Sin acceso"
+                                                        >
+                                                            <CIcon icon={cilLockLocked} />
+                                                        </CButton>
+                                                        <CButton
+                                                            color="warning"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => handleSetModuleForProfile(profile.key, module, 1)}
+                                                            title="Solo ver"
+                                                        >
+                                                            <CIcon icon={cilLockUnlocked} />
+                                                        </CButton>
+                                                        <CButton
+                                                            color="success"
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => handleSetModuleForProfile(profile.key, module, 2)}
+                                                            title="Ver y editar"
+                                                        >
+                                                            <CIcon icon={cilPencil} />
+                                                        </CButton>
+                                                    </CCol>
+                                                </CRow>
+                                            </CCardHeader>
+                                            <CCardBody className="p-0">
+                                                {Object.entries(sections).map(([section, accesses], idx) => (
+                                                    <div key={section} className={idx > 0 ? 'border-top' : ''}>
+                                                        <div className="d-flex align-items-center justify-content-between px-3 py-2 bg-body-tertiary">
+                                                            <div>
+                                                                <span className="fw-semibold">{section}</span>
+                                                                <span className="text-muted ms-2 small">({accesses.length} permisos)</span>
+                                                                {accesses[0]?.locked && (
+                                                                    <CBadge color="secondary" className="ms-2" title="Esta sección aún no está disponible en el sistema; se desarrollará más adelante">
+                                                                        En desarrollo
+                                                                    </CBadge>
+                                                                )}
+                                                            </div>
+                                                            <div>
+                                                                <span className="me-2 text-muted small">Aplicar:</span>
+                                                                <CButton
+                                                                    color="danger"
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => handleSetSectionForProfile(profile.key, module, section, 0)}
+                                                                    title="Sin acceso"
+                                                                >
+                                                                    <CIcon icon={cilLockLocked} />
+                                                                </CButton>
+                                                                <CButton
+                                                                    color="warning"
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => handleSetSectionForProfile(profile.key, module, section, 1)}
+                                                                    title="Solo ver"
+                                                                >
+                                                                    <CIcon icon={cilLockUnlocked} />
+                                                                </CButton>
+                                                                <CButton
+                                                                    color="success"
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() => handleSetSectionForProfile(profile.key, module, section, 2)}
+                                                                    title="Ver y editar"
+                                                                >
+                                                                    <CIcon icon={cilPencil} />
+                                                                </CButton>
+                                                            </div>
+                                                        </div>
+                                                        <CTable hover striped className="mb-0">
+                                                            <CTableHead>
+                                                                <CTableRow>
+                                                                    <CTableHeaderCell style={{ width: '50%' }}>Permiso</CTableHeaderCell>
+                                                                    <CTableHeaderCell style={{ width: '25%' }}>Estado actual</CTableHeaderCell>
+                                                                    <CTableHeaderCell style={{ width: '25%' }}>Cambiar a</CTableHeaderCell>
+                                                                </CTableRow>
+                                                            </CTableHead>
+                                                            <CTableBody>
+                                                                {accesses.map((access) => {
+                                                                    const currentValue = allPermissions[profile.key]?.[access.key] ?? 0;
+                                                                    const originalValue = originalPermissions[profile.key]?.[access.key] ?? 0;
+                                                                    const hasChanged = currentValue !== originalValue;
 
-                                                        return (
-                                                            <CTableRow
-                                                                key={access.key}
-                                                                className={hasChanged ? 'alert-warning-gray' : ''}
-                                                            >
-                                                                <CTableDataCell>
-                                                                    <div className="fw-medium">{access.name}</div>
-                                                                </CTableDataCell>
-                                                                <CTableDataCell>
-                                                                    {getPermissionBadge(currentValue)}
-                                                                </CTableDataCell>
-                                                                <CTableDataCell>
-                                                                    <CFormSelect
-                                                                        size="sm"
-                                                                        value={currentValue}
-                                                                        onChange={(e) =>
-                                                                            handlePermissionChange(profile.key, access.key, e.target.value)
-                                                                        }
-                                                                        style={{ maxWidth: '150px' }}
-                                                                    >
-                                                                        {permissionOptions.map((opt) => (
-                                                                            <option key={opt.value} value={opt.value}>
-                                                                                {opt.label}
-                                                                            </option>
-                                                                        ))}
-                                                                    </CFormSelect>
-                                                                </CTableDataCell>
-                                                            </CTableRow>
-                                                        );
-                                                    })}
-                                                </CTableBody>
-                                            </CTable>
-                                        </CCardBody>
-                                    </CCard>
-                                ))}
+                                                                    return (
+                                                                        <CTableRow
+                                                                            key={access.key}
+                                                                            className={hasChanged ? 'alert-warning-gray' : ''}
+                                                                        >
+                                                                            <CTableDataCell>
+                                                                                <div className="fw-medium">{access.name}</div>
+                                                                            </CTableDataCell>
+                                                                            <CTableDataCell>
+                                                                                {getPermissionBadge(currentValue)}
+                                                                            </CTableDataCell>
+                                                                            <CTableDataCell>
+                                                                                <CFormSelect
+                                                                                    size="sm"
+                                                                                    value={currentValue}
+                                                                                    onChange={(e) =>
+                                                                                        handlePermissionChange(profile.key, access.key, e.target.value)
+                                                                                    }
+                                                                                    style={{ maxWidth: '150px' }}
+                                                                                >
+                                                                                    {permissionOptions.map((opt) => (
+                                                                                        <option key={opt.value} value={opt.value}>
+                                                                                            {opt.label}
+                                                                                        </option>
+                                                                                    ))}
+                                                                                </CFormSelect>
+                                                                            </CTableDataCell>
+                                                                        </CTableRow>
+                                                                    );
+                                                                })}
+                                                            </CTableBody>
+                                                        </CTable>
+                                                    </div>
+                                                ))}
+                                            </CCardBody>
+                                        </CCard>
+                                    );
+                                })}
 
                                 {filteredAccess.length === 0 && (
                                     <div className="text-center py-4 text-muted">
@@ -552,14 +640,88 @@ const AccessRoles = () => {
                         ))}
                     </CTabContent>
 
-                    {/* Changes indicator */}
-                    {hasChanges() && (
-                        <CAlert className="mt-3 alert-warning-gray">
-                            Hay cambios sin guardar. Los permisos modificados están resaltados en gris.
-                        </CAlert>
-                    )}
+                    {/* Bottom padding so the sticky save bar never covers the last rows */}
+                    {hasChanges() && <div style={{ height: '76px' }} />}
                 </CCardBody>
             </CCard>
+
+            {/* Sticky save bar — lets the user save from anywhere on the page,
+                without having to scroll back up to the header */}
+            {hasChanges() && (
+                <div
+                    className="sticky-save-bar"
+                    style={{
+                        position: 'fixed',
+                        left: 'var(--cui-sidebar-occupy-start, 0)',
+                        right: 0,
+                        bottom: 0,
+                        zIndex: 1030,
+                    }}
+                >
+                    <div
+                        className="d-flex align-items-center justify-content-between shadow"
+                        style={{
+                            backgroundColor: 'var(--app-primary, #eb6c9c)',
+                            opacity: 1,
+                            padding: '0.75rem 1.25rem',
+                        }}
+                    >
+                        <span className="text-white fw-medium">Hay cambios sin guardar. Los permisos modificados están resaltados en gris.</span>
+                        <div className="d-flex gap-2">
+                            <CButton
+                                variant="outline"
+                                size="sm"
+                                onClick={handleDiscardAllChanges}
+                                disabled={saving}
+                                className="sticky-bar-discard-btn"
+                            >
+                                Descartar todos los cambios
+                            </CButton>
+                            <CButton
+                                size="sm"
+                                onClick={handleSave}
+                                disabled={saving}
+                                className="sticky-bar-save-btn"
+                            >
+                                {saving ? (
+                                    <>
+                                        <CSpinner size="sm" className="me-2" />
+                                        Guardando...
+                                    </>
+                                ) : (
+                                    <>
+                                        <CIcon icon={cilSave} className="me-2" />
+                                        Guardar todos los cambios
+                                    </>
+                                )}
+                            </CButton>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <style>{`
+                .sticky-bar-discard-btn {
+                    color: #fff !important;
+                    border-color: #fff !important;
+                    background-color: transparent !important;
+                }
+                .sticky-bar-discard-btn:hover:not(:disabled) {
+                    color: var(--app-primary, #eb6c9c) !important;
+                    background-color: #fff !important;
+                    border-color: #fff !important;
+                }
+                .sticky-bar-save-btn {
+                    color: var(--app-primary, #eb6c9c) !important;
+                    background-color: #fff !important;
+                    border-color: #fff !important;
+                }
+                .sticky-bar-save-btn:hover:not(:disabled) {
+                    color: #fff !important;
+                    background-color: var(--app-primary-dark, #df457b) !important;
+                    border-color: var(--app-primary-dark, #df457b) !important;
+                }
+            `}</style>
         </CContainer>
     );
 };

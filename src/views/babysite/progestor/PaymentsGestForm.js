@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
+  CCard, CCardBody,
   CCol, CContainer, CRow,
   CButton, CFormInput, CFormSelect, CFormLabel, CFormCheck,
   CAlert, CTable, CTableHead, CTableRow, CTableHeaderCell,
@@ -10,12 +11,14 @@ import {
   CAccordionHeader, CAccordionBody,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilArrowLeft, cilSave, cilPlus, cilTrash, cilWarning, cilLockLocked, cilLockUnlocked, cilPencil, cilDescription, cilCloudDownload } from '@coreui/icons';
+import { cilArrowLeft, cilSave, cilPlus, cilTrash, cilWarning, cilLockLocked, cilLockUnlocked, cilPencil, cilDescription, cilCloudDownload, cilBan } from '@coreui/icons';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSXStyle from 'xlsx-js-style';
 import api from '../../../services/api';
 import { useBillsAuth } from '../../../context/BillsAuthContext';
+import { logActivity } from '../../../utils/activityLog';
+import usePermissions from '../../../hooks/usePermissions';
 
 const BABYBOOM_LOGO_DATAURI = '';
 
@@ -190,6 +193,13 @@ const PaymentsGestForm = () => {
   const navigate = useNavigate();
   const { authenticateBills } = useBillsAuth();
   const isEditMode = Boolean(id);
+  const { payments } = usePermissions();
+  // Creating a new scheme is governed by "Crear Registro" (access_6);
+  // opening/editing an existing one is governed by "Editar/Alterar Pagos
+  // Registrados" (access_7) — this guards direct URL access too, not just
+  // the UI icon that links here.
+  const canAccessForm = isEditMode ? payments.edit.visible   : payments.create.visible;
+  const canEditForm    = isEditMode ? payments.edit.editable : payments.create.editable;
 
   const [loading, setLoading] = useState(false);
   const [autoSaving, setAutoSaving] = useState(false);
@@ -201,6 +211,10 @@ const PaymentsGestForm = () => {
   const stateRef     = useRef({});
   const saveTimerRef = useRef(null);
   const isSavingRef  = useRef(false);
+  // Tracks which accordion section(s) changed since the last successful save,
+  // so the activity log can say what was modified (cleared after each save).
+  const dirtySectionsRef = useRef(new Set());
+  const markSectionDirty = (section) => { dirtySectionsRef.current.add(section); };
 
   // ── Scheme gate ───────────────────────────────────────────────────────────
   const [schemeSelected, setSchemeSelected] = useState(isEditMode);
@@ -275,9 +289,13 @@ const PaymentsGestForm = () => {
   const [commentPwError,    setCommentPwError]    = useState('');
 
   // ── Delete modals ─────────────────────────────────────────────────────────
+  // A single modal with two steps ('password' then 'confirm') instead of two
+  // separate CModals that close/open back-to-back — chaining two Bootstrap
+  // modals in the same click handler can leave a stale backdrop behind that
+  // blocks clicks on the second modal, making it look like nothing happens.
   const [showDeleteModal,         setShowDeleteModal]         = useState(false);
+  const [deleteStep,              setDeleteStep]              = useState('password'); // 'password' | 'confirm'
   const [deleteTarget,            setDeleteTarget]            = useState({ type: '', id: null, label: '', autoKey: '', isAuto: false });
-  const [showDeletePasswordModal, setShowDeletePasswordModal] = useState(false);
   const [deletePasswordInput,     setDeletePasswordInput]     = useState('');
   const [deletePasswordError,     setDeletePasswordError]     = useState('');
 
@@ -884,7 +902,7 @@ const PaymentsGestForm = () => {
   };
 
   // ── Per-field lock handlers ───────────────────────────────────────────────
-  const handleFormChange = (e) => { setFormData(p => ({ ...p, [e.target.name]: e.target.value })); debouncedSave(); };
+  const handleFormChange = (e) => { setFormData(p => ({ ...p, [e.target.name]: e.target.value })); markSectionDirty('Datos del esquema'); debouncedSave(); };
 
   const FIELD_LABELS = {
     gesca: 'GESCA', ip: 'IP', banco: 'Banco', clabe: 'Clabe',
@@ -896,6 +914,7 @@ const PaymentsGestForm = () => {
       const v = formData[name];
       if (v && String(v).trim() !== '') {
         setLockedFields(p => ({ ...p, [name]: true }));
+        markSectionDirty('Datos del esquema');
         autoSaveDeferred();
       }
     } else if (action === 'unlock') {
@@ -923,6 +942,7 @@ const PaymentsGestForm = () => {
   const handleSchemeDropdownChange = (newValue) => {
     if (!newValue || schemeLocked) return;
     setFormData(p => ({ ...p, scheme_value: newValue }));
+    markSectionDirty('Datos del esquema');
     debouncedSave();
   };
 
@@ -930,6 +950,7 @@ const PaymentsGestForm = () => {
     if (!formData.scheme_value) return;
     setSchemeSelected(true);
     setSchemeLocked(true);
+    markSectionDirty('Datos del esquema');
     autoSaveDeferred({ schemeSelected: true, formData });
   };
 
@@ -951,7 +972,7 @@ const PaymentsGestForm = () => {
 
   // ── Row / payment handlers ────────────────────────────────────────────────
   // FIX 2: updateTransferencia syncs extrato when the row is already completed
-  const updateTransferencia = (i, f, v) => {
+  const updateTransferencia = (i, f, v, opts = {}) => {
     setTransferencias(prev => {
       const next = prev.map((t, idx) => idx === i ? { ...t, [f]: v } : t);
       const trans = next[i];
@@ -987,7 +1008,10 @@ const PaymentsGestForm = () => {
       }
       return next;
     });
-    debouncedSave();
+    if (!opts.silent) {
+      markSectionDirty('Fase 1');
+      debouncedSave();
+    }
   };
 
   const handleBetaSuccessful = (i, checked) => {
@@ -1009,11 +1033,12 @@ const PaymentsGestForm = () => {
         return id === null || !clearedIds.includes(id);
       }));
     }
+    markSectionDirty('Fase 1');
     autoSaveDeferred();
   };
 
   // FIX 2: updateRowState syncs extrato when the row is already completed
-  const updateRowState = (rid, f, v) => {
+  const updateRowState = (rid, f, v, opts = {}) => {
     setRowStates(prev => {
       const existing = prev[rid] || initRS();
       const next = { ...prev, [rid]: { ...existing, [f]: v } };
@@ -1045,11 +1070,15 @@ const PaymentsGestForm = () => {
       }
       return next;
     });
-    debouncedSave();
+    if (!opts.silent) {
+      const fixedRow = FIXED_ROWS.find(r => r.id === rid);
+      markSectionDirty(fixedRow?.section === 2 ? 'Fase 2' : 'Fases de pagos');
+      debouncedSave();
+    }
   };
 
   // FIX 2: updatePuerperioState syncs extrato when the row is already completed
-  const updatePuerperioState = (rid, f, v) => {
+  const updatePuerperioState = (rid, f, v, opts = {}) => {
     setPuerperioStates(prev => {
       const existing = prev[rid] || initRS();
       const next = { ...prev, [rid]: { ...existing, [f]: v } };
@@ -1078,15 +1107,24 @@ const PaymentsGestForm = () => {
       }
       return next;
     });
-    debouncedSave();
+    if (!opts.silent) {
+      markSectionDirty('Puerperio');
+      debouncedSave();
+    }
   };
 
-  const updateBonoState = (k, f, v) => { setBonoStates(p => ({ ...p, [k]: { ...p[k], [f]: v } })); debouncedSave(); };
-  const updateBgCondition = (k, v) => { setBgConditions(p => ({ ...p, [k]: v })); debouncedSave(); };
-  const updateBgState     = (f, v) => { setBgState(p => ({ ...p, [f]: v })); debouncedSave(); };
+  const updateBonoState = (k, f, v, opts = {}) => {
+    setBonoStates(p => ({ ...p, [k]: { ...p[k], [f]: v } }));
+    if (!opts.silent) { markSectionDirty('Bonos adicionales'); debouncedSave(); }
+  };
+  const updateBgCondition = (k, v) => { setBgConditions(p => ({ ...p, [k]: v })); markSectionDirty('Fases de pagos'); debouncedSave(); };
+  const updateBgState     = (f, v, opts = {}) => {
+    setBgState(p => ({ ...p, [f]: v }));
+    if (!opts.silent) { markSectionDirty('Puerperio'); debouncedSave(); }
+  };
 
   // FIX 2: updateAyudaState syncs extrato when already completed
-  const updateAyudaState = (f, v) => {
+  const updateAyudaState = (f, v, opts = {}) => {
     setAyudaState(prev => {
       const next = { ...prev, [f]: v };
       if (next.completed) {
@@ -1106,11 +1144,14 @@ const PaymentsGestForm = () => {
       }
       return next;
     });
-    debouncedSave();
+    if (!opts.silent) {
+      markSectionDirty('Puerperio');
+      debouncedSave();
+    }
   };
 
   // FIX 2: updateBonoPosSDG40State syncs extrato when already completed
-  const updateBonoPosSDG40State = (f, v) => {
+  const updateBonoPosSDG40State = (f, v, opts = {}) => {
     setBonoPosSDG40State(prev => {
       const next = { ...prev, [f]: v };
       if (next.completed) {
@@ -1130,7 +1171,10 @@ const PaymentsGestForm = () => {
       }
       return next;
     });
-    debouncedSave();
+    if (!opts.silent) {
+      markSectionDirty('Fases de pagos');
+      debouncedSave();
+    }
   };
 
   const handleExtratoSort = (key) => {
@@ -1150,6 +1194,7 @@ const PaymentsGestForm = () => {
     const capped = Math.min(3, n);
     setParcCount(capped);
     setParcCompleted(prev => prev.map((v, i) => i >= capped ? false : v));
+    markSectionDirty('Puerperio');
     debouncedSave();
   };
 
@@ -1171,6 +1216,7 @@ const PaymentsGestForm = () => {
         return !(m && newBlocked.has(m[1]));
       }));
     }
+    markSectionDirty('Fases de pagos');
     autoSaveDeferred();
   };
 
@@ -1230,39 +1276,48 @@ const PaymentsGestForm = () => {
     }
     setExtratoGastos(p => [...p, { id: Date.now(), ...newExtrato, valor: parseFloat(newExtrato.valor), isAuto: false, category: 'manual' }]);
     setNewExtrato({ fecha: '', motivo: '', movimiento: '', valor: '' });
+    markSectionDirty('Extrato Gastos');
     autoSaveDeferred();
   };
 
   const confirmDeleteExtrato = (entry) => {
     setDeleteTarget({ type: 'extrato', id: entry.id, label: entry.movimiento || entry.motivo || 'entrada', autoKey: entry.autoKey || null, isAuto: entry.isAuto || false });
     setDeletePasswordInput(''); setDeletePasswordError('');
-    setShowDeletePasswordModal(true);
+    setDeleteStep('password');
+    setShowDeleteModal(true);
   };
 
+  // Only ever called from executeDelete (deleting an entry from the Extrato
+  // Gastos table). It resets the originating row's "completed" flag so the
+  // row becomes editable again, but does so silently — the section the user
+  // actually acted on is Extrato Gastos, not the row's own section, so
+  // executeDelete is solely responsible for marking the dirty section and
+  // triggering the save (avoids a second, mis-attributed save/log entry).
   const uncompleteByAutoKey = (autoKey) => {
     if (!autoKey) return;
-    if      (autoKey.startsWith('transferencia_')) { const idx = transferencias.findIndex(t => t.id === parseInt(autoKey.split('_')[1])); if (idx !== -1) updateTransferencia(idx, 'completed', false); }
-    else if (autoKey.startsWith('trans_bono_'))    { const idx = transferencias.findIndex(t => t.id === parseInt(autoKey.split('_')[2])); if (idx !== -1) updateTransferencia(idx, 'transCompleted', false); }
-    else if (autoKey.startsWith('fixed_'))         { updateRowState(autoKey.replace('fixed_', ''), 'completed', false); }
-    else if (autoKey.startsWith('puerperio_'))     { updatePuerperioState(autoKey.replace('puerperio_', ''), 'completed', false); }
-    else if (autoKey === 'bono_vih')               { updateBonoState('vih', 'completed', false); }
-    else if (autoKey === 'bono_gemelar')           { updateBonoState('gemelar', 'completed', false); }
+    const silent = { silent: true };
+    if      (autoKey.startsWith('transferencia_')) { const idx = transferencias.findIndex(t => t.id === parseInt(autoKey.split('_')[1])); if (idx !== -1) updateTransferencia(idx, 'completed', false, silent); }
+    else if (autoKey.startsWith('trans_bono_'))    { const idx = transferencias.findIndex(t => t.id === parseInt(autoKey.split('_')[2])); if (idx !== -1) updateTransferencia(idx, 'transCompleted', false, silent); }
+    else if (autoKey.startsWith('fixed_'))         { updateRowState(autoKey.replace('fixed_', ''), 'completed', false, silent); }
+    else if (autoKey.startsWith('puerperio_'))     { updatePuerperioState(autoKey.replace('puerperio_', ''), 'completed', false, silent); }
+    else if (autoKey === 'bono_vih')               { updateBonoState('vih', 'completed', false, silent); }
+    else if (autoKey === 'bono_gemelar')           { updateBonoState('gemelar', 'completed', false, silent); }
     else if (autoKey.startsWith('parcialidad_'))   { const i = parseInt(autoKey.split('_')[1]); setParcCompleted(prev => prev.map((v, j) => j === i ? false : v)); }
-    else if (autoKey === 'ayuda_maternidad')        { updateAyudaState('completed', false); }
-    else if (autoKey === 'buena_gestante')          { updateBgState('completed', false); }
-    else if (autoKey === 'bono_pos_sdg40')          { updateBonoPosSDG40State('completed', false); }
+    else if (autoKey === 'ayuda_maternidad')        { updateAyudaState('completed', false, silent); }
+    else if (autoKey === 'buena_gestante')          { updateBgState('completed', false, silent); }
+    else if (autoKey === 'bono_pos_sdg40')          { updateBonoPosSDG40State('completed', false, silent); }
   };
 
   const handleDeletePasswordSubmit = () => {
     if (deletePasswordInput !== UNLOCK_PASSWORD) { setDeletePasswordError('Contraseña incorrecta'); return; }
     authenticateBills();
-    setShowDeletePasswordModal(false);
     setDeletePasswordInput(''); setDeletePasswordError('');
-    setShowDeleteModal(true);
+    setDeleteStep('confirm');
   };
 
   const handleDeletePasswordModalClose = () => {
-    setShowDeletePasswordModal(false);
+    setShowDeleteModal(false);
+    setDeleteStep('password');
     setDeletePasswordInput(''); setDeletePasswordError('');
     setDeleteTarget({ type: '', id: null, label: '', autoKey: '', isAuto: false });
   };
@@ -1270,9 +1325,17 @@ const PaymentsGestForm = () => {
   const executeDelete = () => {
     if (deleteTarget.type === 'extrato') {
       setExtratoGastos(p => p.filter(e => e.id !== deleteTarget.id));
-      if (deleteTarget.isAuto && deleteTarget.autoKey) uncompleteByAutoKey(deleteTarget.autoKey);
+      // Reset the originating row's "completed" flag (unlocks/clears it) when
+      // the deleted entry was auto-generated — done silently, see
+      // uncompleteByAutoKey above. Either way, the section the user directly
+      // acted on here is Extrato Gastos.
+      if (deleteTarget.isAuto && deleteTarget.autoKey) {
+        uncompleteByAutoKey(deleteTarget.autoKey);
+      }
+      markSectionDirty('Extrato Gastos');
     }
     setShowDeleteModal(false);
+    setDeleteStep('password');
     setDeleteTarget({ type: '', id: null, label: '', autoKey: '', isAuto: false });
     autoSaveDeferred();
   };
@@ -1289,12 +1352,28 @@ const PaymentsGestForm = () => {
     setShowCommentModal(true);
   };
 
+  const sectionForCommentKey = (key) => {
+    if (!key) return 'Extrato Gastos';
+    if (key.startsWith('transferencia_') || key.startsWith('trans_bono_')) return 'Fase 1';
+    if (key.startsWith('fixed_')) {
+      const row = FIXED_ROWS.find(r => r.id === key.replace('fixed_', ''));
+      return row?.section === 2 ? 'Fase 2' : 'Fases de pagos';
+    }
+    if (key.startsWith('puerperio_')) return 'Puerperio';
+    if (key === 'bono_vih' || key === 'bono_gemelar') return 'Bonos adicionales';
+    if (key.startsWith('parcialidad_')) return 'Puerperio';
+    if (key === 'ayuda_maternidad' || key === 'buena_gestante') return 'Puerperio';
+    if (key === 'bono_pos_sdg40') return 'Fases de pagos';
+    return 'Extrato Gastos';
+  };
+
   const saveComment = () => {
     const updated = { ...rowComments, [commentCtx.key]: commentDraft };
     setRowComments(updated);
     setLockedComments(p => ({ ...p, [commentCtx.key]: true }));
     setCommentEditMode(false);
     setCommentPwVisible(false);
+    markSectionDirty(sectionForCommentKey(commentCtx.key));
     autoSaveDeferred({ rowComments: updated });
   };
 
@@ -1533,6 +1612,12 @@ const PaymentsGestForm = () => {
     XLSXStyle.utils.book_append_sheet(wb, ws, 'Extrato Gastos');
     XLSXStyle.writeFile(wb, `extrato_${formData.gesca || 'esquema'}_${new Date().toISOString().split('T')[0]}.xlsx`);
     setShowExportModal(false);
+    logActivity({
+      activityType: 'generate',
+      entityType: 'progestor',
+      description: `Generó Excel: Extrato Gastos - ${formData.gesca || 'esquema'}`,
+      metadata: { paymentsGestId: recordIdRef.current, gesca: formData.gesca, format: 'excel', rows: filteredAndSortedExtrato.length },
+    });
   };
   const exportPDF = () => {
     const { cols, rows, totals, entries } = buildExportRows();
@@ -1672,6 +1757,12 @@ const PaymentsGestForm = () => {
 
     doc.save(`extrato_${formData.gesca || 'esquema'}_${new Date().toISOString().split('T')[0]}.pdf`);
     setShowExportModal(false);
+    logActivity({
+      activityType: 'generate',
+      entityType: 'progestor',
+      description: `Generó PDF: Extrato Gastos - ${formData.gesca || 'esquema'}`,
+      metadata: { paymentsGestId: recordIdRef.current, gesca: formData.gesca, format: 'pdf', rows: filteredAndSortedExtrato.length },
+    });
   };
 
   // ── Auto-save system ──────────────────────────────────────────────────────
@@ -1716,7 +1807,11 @@ const PaymentsGestForm = () => {
     setAutoSaving(true);
     setSaveError('');
 
-    const payload = buildPayload(overrides);
+    // Snapshot which sections changed since the last save — sent for
+    // activity-log purposes only (not a real column, ignored by the backend's
+    // column whitelist for anything else).
+    const modifiedSections = Array.from(dirtySectionsRef.current);
+    const payload = { ...buildPayload(overrides), _modifiedSections: modifiedSections };
     try {
       if (!recordIdRef.current) {
         const res = await api.post('/api/payments-gest', payload, { withCredentials: true });
@@ -1727,6 +1822,7 @@ const PaymentsGestForm = () => {
       } else {
         await api.put(`/api/payments-gest/${recordIdRef.current}`, payload, { withCredentials: true });
       }
+      dirtySectionsRef.current = new Set();
       setLastSaved(new Date());
     } catch (err) {
       setSaveError(err.response?.data?.message || 'Error al guardar');
@@ -1757,6 +1853,29 @@ const PaymentsGestForm = () => {
     return (
       <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
         <CSpinner color="primary" />
+      </CContainer>
+    );
+  }
+
+  // Route guard: blocks direct URL access (typing/pasting the link) as well
+  // as the UI entry points — not just hiding the icon that leads here.
+  if (!canAccessForm) {
+    return (
+      <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+        <CCard>
+          <CCardBody className="text-center">
+            <CIcon icon={cilBan} size="3xl" className="text-danger mb-3" />
+            <h4>Acceso Denegado</h4>
+            <p className="text-muted">
+              {isEditMode
+                ? 'No tienes permiso para editar registros de pagos.'
+                : 'No tienes permiso para crear nuevos registros de pagos.'}
+            </p>
+            <CButton color="primary" onClick={() => navigate('/progestor/payments-gest')}>
+              Volver al listado
+            </CButton>
+          </CCardBody>
+        </CCard>
       </CContainer>
     );
   }
@@ -1921,6 +2040,13 @@ const PaymentsGestForm = () => {
       {alert.show && (
         <CAlert className="mx-5" color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
           {alert.message}
+        </CAlert>
+      )}
+
+      {!canEditForm && (
+        <CAlert color="warning" className="mx-5 d-flex align-items-center">
+          <CIcon icon={cilLockLocked} className="me-2" />
+          <span><strong>Modo solo lectura.</strong> No tienes permiso para {isEditMode ? 'editar este registro' : 'crear nuevos registros'} de pagos.</span>
         </CAlert>
       )}
 
@@ -2133,7 +2259,7 @@ const PaymentsGestForm = () => {
                         size="sm"
                         className={`d-flex align-items-center gap-2 px-3 py-1 ${bonoVIH ? 'toggle-btn-on' : 'toggle-btn-off'}`}
                         style={{ borderRadius: '6px', minWidth: '110px', justifyContent: 'space-between', border: '1px solid', transition: 'background-color 0.15s' }}
-                        onClick={() => { setBonoVIH(v => !v); debouncedSave(); }}
+                        onClick={() => { setBonoVIH(v => !v); markSectionDirty('Bonos adicionales'); debouncedSave(); }}
                       >
                         <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>VIH</span>
                         <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
@@ -2158,7 +2284,7 @@ const PaymentsGestForm = () => {
                         size="sm"
                         className={`d-flex align-items-center gap-2 px-3 py-1 ${bonoGemelar ? 'toggle-btn-on' : 'toggle-btn-off'}`}
                         style={{ borderRadius: '6px', minWidth: '120px', justifyContent: 'space-between', border: '1px solid', transition: 'background-color 0.15s' }}
-                        onClick={() => { setBonoGemelar(v => !v); debouncedSave(); }}
+                        onClick={() => { setBonoGemelar(v => !v); markSectionDirty('Bonos adicionales'); debouncedSave(); }}
                       >
                         <span style={{ fontSize: '0.85rem', fontWeight: 600 }}>Gemelar</span>
                         <span style={{ whiteSpace: 'nowrap', fontWeight: 600 }}>
@@ -2291,7 +2417,7 @@ const PaymentsGestForm = () => {
                           placeholder="Título del bono (ej. Bono lactancia)…"
                           value={bonoPosSDG40Title}
                           disabled={bonoPosSDG40Locked}
-                          onChange={e => { setBonoPosSDG40Title(e.target.value); debouncedSave(); }}
+                          onChange={e => { setBonoPosSDG40Title(e.target.value); markSectionDirty('Fases de pagos'); debouncedSave(); }}
                           style={{ maxWidth: '240px' }}
                         />
                       </div>
@@ -2310,7 +2436,7 @@ const PaymentsGestForm = () => {
                           </div>
                           <NumInput
                             value={bonoPosSDG40Amount}
-                            onChange={e => { setBonoPosSDG40Amount(e.target.value); debouncedSave(); }}
+                            onChange={e => { setBonoPosSDG40Amount(e.target.value); markSectionDirty('Fases de pagos'); debouncedSave(); }}
                             placeholder="0"
                             disabled={false}
                           />
@@ -2555,7 +2681,7 @@ const PaymentsGestForm = () => {
                         <CTableDataCell style={cs}>
                           <ImporteCell planned={amt} realValue={parcRealAmounts[i] ?? ''}
                             disabled={locked}
-                            onChange={e => setParcRealAmounts(prev => { const n = [...prev]; n[i] = e.target.value; debouncedSave(); return n; })} />
+                            onChange={e => setParcRealAmounts(prev => { const n = [...prev]; n[i] = e.target.value; markSectionDirty('Puerperio'); debouncedSave(); return n; })} />
                         </CTableDataCell>
                         <CompletedCell completed={locked} autoKey={autoKey} label={`Parcialidad ${i + 1}`}
                           importe={realImp} bonoVal={0} penalizacion={0} reembolso={0} category="scheme"
@@ -2597,12 +2723,12 @@ const PaymentsGestForm = () => {
                       <strong>Bonificación extra</strong>
                       <CFormInput size="sm" className="mt-1" placeholder="Título de bonificación…"
                         value={bgExtraTitle} disabled={bgState.completed}
-                        onChange={e => { setBgExtraTitle(e.target.value); debouncedSave(); }}
+                        onChange={e => { setBgExtraTitle(e.target.value); markSectionDirty('Puerperio'); debouncedSave(); }}
                         style={{ maxWidth: '280px' }} />
                     </CTableDataCell>
                     <CTableDataCell style={cs}>
                       <NumInput disabled={bgState.completed} value={bgExtraImporte}
-                        onChange={e => { setBgExtraImporte(e.target.value); debouncedSave(); }} />
+                        onChange={e => { setBgExtraImporte(e.target.value); markSectionDirty('Puerperio'); debouncedSave(); }} />
                     </CTableDataCell>
                     <CTableDataCell style={cs}><CurrencyInput disabled={bgState.completed} value={bgState.penalizacion} onChange={e => updateBgState('penalizacion', e.target.value)} inputStyle={{ color: 'var(--cui-danger)' }} /></CTableDataCell>
                     <CTableDataCell style={cs}><CurrencyInput disabled={bgState.completed} value={bgState.reembolso}    onChange={e => updateBgState('reembolso',    e.target.value)} inputStyle={{ color: 'var(--cui-info)' }} /></CTableDataCell>
@@ -3092,37 +3218,40 @@ const PaymentsGestForm = () => {
         </CModalFooter>
       </CModal>
 
-      {/* ── Modal: delete password ── */}
-      <CModal visible={showDeletePasswordModal} onClose={handleDeletePasswordModalClose} alignment="center" backdrop="static" keyboard={false}>
-        <CModalHeader closeButton={false}>
-          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilLockLocked} className="text-danger me-2" size="lg" />Autorización requerida</CModalTitle>
-        </CModalHeader>
-        <CModalBody>
-          <p className="mb-1">Ingresa la contraseña para eliminar <strong>"{deleteTarget.label}"</strong>:</p>
-          {deleteTarget.isAuto && <small className="text-warning d-block mb-2">⚠ Esta entrada fue generada automáticamente. Eliminarla también desbloqueará la fila correspondiente.</small>}
-          <CFormInput type="password" autoComplete="new-password" value={deletePasswordInput}
-            onChange={e => { setDeletePasswordInput(e.target.value); setDeletePasswordError(''); }}
-            onKeyDown={e => { if (e.key === 'Enter') handleDeletePasswordSubmit(); }} invalid={!!deletePasswordError} />
-          {deletePasswordError && <div className="text-danger mt-2 small">{deletePasswordError}</div>}
-        </CModalBody>
-        <CModalFooter>
-          <CButton color="secondary" onClick={handleDeletePasswordModalClose}>Cancelar</CButton>
-          <CButton color="danger" onClick={handleDeletePasswordSubmit} style={{ color: 'white' }}><CIcon icon={cilTrash} className="me-2" />Continuar</CButton>
-        </CModalFooter>
-      </CModal>
-
-      {/* ── Modal: delete confirmation ── */}
-      <CModal visible={showDeleteModal} onClose={() => setShowDeleteModal(false)} alignment="center">
-        <CModalHeader>
-          <CModalTitle className="d-flex align-items-center"><CIcon icon={cilWarning} className="text-danger me-2" size="lg" />Confirmar eliminación</CModalTitle>
-        </CModalHeader>
-        <CModalBody>
-          <p className="mb-0">¿Estás seguro de que deseas eliminar <strong>"{deleteTarget.label}"</strong>?</p>
-        </CModalBody>
-        <CModalFooter>
-          <CButton color="secondary" onClick={() => setShowDeleteModal(false)}>Cancelar</CButton>
-          <CButton color="danger" onClick={executeDelete} style={{ color: 'white' }}><CIcon icon={cilTrash} className="me-2" />Eliminar</CButton>
-        </CModalFooter>
+      {/* ── Modal: delete Extrato Gastos entry (password step, then confirm step) ── */}
+      <CModal visible={showDeleteModal} onClose={handleDeletePasswordModalClose} alignment="center" backdrop="static" keyboard={false}>
+        {deleteStep === 'password' ? (
+          <>
+            <CModalHeader closeButton={false}>
+              <CModalTitle className="d-flex align-items-center"><CIcon icon={cilLockLocked} className="text-danger me-2" size="lg" />Autorización requerida</CModalTitle>
+            </CModalHeader>
+            <CModalBody>
+              <p className="mb-1">Ingresa la contraseña para eliminar <strong>"{deleteTarget.label}"</strong>:</p>
+              {deleteTarget.isAuto && <small className="text-warning d-block mb-2">⚠ Esta entrada fue generada automáticamente. Eliminarla también desbloqueará la fila correspondiente.</small>}
+              <CFormInput type="password" autoComplete="new-password" value={deletePasswordInput} autoFocus
+                onChange={e => { setDeletePasswordInput(e.target.value); setDeletePasswordError(''); }}
+                onKeyDown={e => { if (e.key === 'Enter') handleDeletePasswordSubmit(); }} invalid={!!deletePasswordError} />
+              {deletePasswordError && <div className="text-danger mt-2 small">{deletePasswordError}</div>}
+            </CModalBody>
+            <CModalFooter>
+              <CButton color="secondary" onClick={handleDeletePasswordModalClose}>Cancelar</CButton>
+              <CButton color="danger" onClick={handleDeletePasswordSubmit} style={{ color: 'white' }}><CIcon icon={cilTrash} className="me-2" />Continuar</CButton>
+            </CModalFooter>
+          </>
+        ) : (
+          <>
+            <CModalHeader closeButton={false}>
+              <CModalTitle className="d-flex align-items-center"><CIcon icon={cilWarning} className="text-danger me-2" size="lg" />Confirmar eliminación</CModalTitle>
+            </CModalHeader>
+            <CModalBody>
+              <p className="mb-0">¿Estás seguro de que deseas eliminar <strong>"{deleteTarget.label}"</strong>?</p>
+            </CModalBody>
+            <CModalFooter>
+              <CButton color="secondary" onClick={handleDeletePasswordModalClose}>Cancelar</CButton>
+              <CButton color="danger" onClick={executeDelete} style={{ color: 'white' }}><CIcon icon={cilTrash} className="me-2" />Eliminar</CButton>
+            </CModalFooter>
+          </>
+        )}
       </CModal>
 
       {/* ── Modal: row comment ── */}

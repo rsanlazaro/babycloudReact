@@ -17,6 +17,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useUser } from '../../../context/AuthContext';
 import { useBillsAuth } from '../../../context/BillsAuthContext';
+import usePermissions from '../../../hooks/usePermissions';
 import api from '../../../services/api';
 
 // ─── SDG order for "last paid stage" calculation ─────────────────────────────
@@ -97,6 +98,7 @@ const getStageIndex = (payment) => {
 
 const PaymentsGest = () => {
   const navigate = useNavigate();
+  const { payments: paymentsPerms } = usePermissions();
   const { user: currentUser } = useUser();
   const { authenticateBills } = useBillsAuth();
 
@@ -193,6 +195,7 @@ const PaymentsGest = () => {
 
   // ── Edit handlers ──────────────────────────────────────────────────────────
   const handleViewClick = (payment) => {
+    if (!paymentsPerms.edit.editable) return;
     navigate(`/progestor/payments-gest/form/${payment.id}`);
   };
 
@@ -200,6 +203,7 @@ const PaymentsGest = () => {
   const isTransitioningToConfirmation = React.useRef(false);
 
   const handleDeleteClick = (payment) => {
+    if (!paymentsPerms.delete.editable) return;
     setPaymentToDelete(payment);
     setDeletePasswordInput('');
     setDeletePasswordError('');
@@ -283,6 +287,20 @@ const PaymentsGest = () => {
     );
   }
 
+  if (!paymentsPerms.list.visible) {
+    return (
+      <CContainer className="d-flex justify-content-center align-items-center" style={{ minHeight: '400px' }}>
+        <CCard>
+          <CCardBody className="text-center">
+            <CIcon icon={cilWarning} size="3xl" className="text-danger mb-3" />
+            <h4>Acceso Denegado</h4>
+            <p className="text-muted">No tienes permiso para ver el listado de pagos.</p>
+          </CCardBody>
+        </CCard>
+      </CContainer>
+    );
+  }
+
   return (
     <CContainer fluid>
       {alert.show && (
@@ -295,9 +313,18 @@ const PaymentsGest = () => {
       <CCard className="mb-4 mx-5">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>Esquemas de Pago (Gestantes)</strong>
-          <CButton color="primary" className="app-button" onClick={() => navigate('/progestor/payments-gest/form')}>
-            <CIcon icon={cilPlus} className="me-2" />Nuevo esquema
-          </CButton>
+          {paymentsPerms.create.visible && (
+            <CButton
+              color="primary"
+              className="app-button"
+              onClick={() => paymentsPerms.create.editable && navigate('/progestor/payments-gest/form')}
+              disabled={!paymentsPerms.create.editable}
+              style={!paymentsPerms.create.editable ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
+              title={!paymentsPerms.create.editable ? 'Solo lectura - No puedes crear esquemas' : ''}
+            >
+              <CIcon icon={cilPlus} className="me-2" />Nuevo esquema
+            </CButton>
+          )}
         </CCardHeader>
         <CCardBody>
           {/* Search and filter */}
@@ -370,14 +397,24 @@ const PaymentsGest = () => {
                           : <span className="text-muted small">—</span>}
                       </CTableDataCell>
                       <CTableDataCell>
-                        <CButton color="primary" variant="ghost" size="sm" className="me-1"
-                          onClick={() => handleViewClick(payment)} title="Ver esquema">
-                          <CIcon icon={cilZoom} />
-                        </CButton>
-                        <CButton color="danger" variant="ghost" size="sm"
-                          onClick={() => handleDeleteClick(payment)} title="Eliminar esquema">
-                          <CIcon icon={cilTrash} />
-                        </CButton>
+                        {paymentsPerms.edit.visible && (
+                          <CButton color="primary" variant="ghost" size="sm" className="me-1"
+                            onClick={() => paymentsPerms.edit.editable && handleViewClick(payment)}
+                            disabled={!paymentsPerms.edit.editable}
+                            style={!paymentsPerms.edit.editable ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
+                            title={paymentsPerms.edit.editable ? 'Ver esquema' : 'Solo lectura'}>
+                            <CIcon icon={cilZoom} />
+                          </CButton>
+                        )}
+                        {paymentsPerms.delete.visible && (
+                          <CButton color="danger" variant="ghost" size="sm"
+                            onClick={() => paymentsPerms.delete.editable && handleDeleteClick(payment)}
+                            disabled={!paymentsPerms.delete.editable}
+                            style={!paymentsPerms.delete.editable ? { opacity: 0.6, cursor: 'not-allowed' } : {}}
+                            title={paymentsPerms.delete.editable ? 'Eliminar esquema' : 'Solo lectura'}>
+                            <CIcon icon={cilTrash} />
+                          </CButton>
+                        )}
                       </CTableDataCell>
                     </CTableRow>
                   );

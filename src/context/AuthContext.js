@@ -62,10 +62,14 @@ export const AuthProvider = ({ children }) => {
         setUserState(userData);
         localStorage.setItem('user', JSON.stringify(userData));
 
-        // Load permissions from localStorage
-        const storedPerms = localStorage.getItem('permissions');
-        if (storedPerms) {
-          setPermissions(JSON.parse(storedPerms));
+        // Always use the fresh permissions the backend just returned — an
+        // admin may have changed this user's role/access since their last
+        // login, so localStorage (last login's snapshot) must never be the
+        // source of truth once we have a live response.
+        if (res.data.access) {
+          const perms = processPermissions(res.data.access);
+          setPermissions(perms);
+          localStorage.setItem('permissions', JSON.stringify(perms));
         }
       } catch (error) {
         console.log('Session check failed:', error?.response?.status);
@@ -103,6 +107,55 @@ export const AuthProvider = ({ children }) => {
 
     checkSession();
   }, []);
+
+  /**
+   * Re-fetch the current user's permissions from the backend without
+   * showing the full-page loading spinner (used for refreshing permissions
+   * mid-session — e.g. on route changes, tab focus, or a manual trigger —
+   * so an admin changing someone's role takes effect without requiring
+   * that person to log out and back in).
+   */
+  const refreshPermissions = useCallback(async () => {
+    try {
+      const res = await api.get('/api/users/me');
+      if (res.data.access) {
+        const perms = processPermissions(res.data.access);
+        setPermissions(perms);
+        localStorage.setItem('permissions', JSON.stringify(perms));
+      }
+      const userData = res.data.user || res.data;
+      if (userData) {
+        setUserState(userData);
+        localStorage.setItem('user', JSON.stringify(userData));
+      }
+    } catch (error) {
+      // Session likely expired/invalid — don't clear state here, let the
+      // next protected API call / route guard handle redirecting to login.
+      console.log('Permission refresh failed:', error?.response?.status);
+    }
+  }, []);
+
+  // Refresh permissions whenever the tab/window regains focus, so switching
+  // back to this tab after an admin updated the person's role picks up the
+  // change without needing a manual reload.
+  useEffect(() => {
+    const handleFocus = () => {
+      if (user) refreshPermissions();
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [user, refreshPermissions]);
+
+  // Also refresh periodically while the tab stays open and in the
+  // foreground, so a long-running session (no reload, no tab switch) still
+  // picks up permission changes reasonably quickly.
+  useEffect(() => {
+    if (!user) return undefined;
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') refreshPermissions();
+    }, 2 * 60 * 1000); // every 2 minutes
+    return () => clearInterval(interval);
+  }, [user, refreshPermissions]);
 
   /**
    * Login function
@@ -250,6 +303,7 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user,
     login,
     logout,
+    refreshPermissions,
     // New permission methods (0/1/2)
     getPermissionLevel,
     canView,      // level >= 1
