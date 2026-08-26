@@ -1745,6 +1745,32 @@ const SortGes = () => {
     setConsentimientos(prev => ({ ...prev, [fieldName]: !prev[fieldName] }));
   };
 
+  // Regular / HIV / Gemelar / Full are mutually exclusive — selecting one
+  // clears the others. If another option was already locked (confirmed),
+  // the person must unlock it first rather than have it silently switched.
+  const SELECCION_FIELDS = ['regular', 'hiv', 'gemelar', 'full'];
+  const SELECCION_LABELS = { regular: 'Regular', hiv: 'HIV', gemelar: 'Gemelar', full: 'Full' };
+
+  const handleSeleccionChange = (fieldName) => {
+    const lockedOther = SELECCION_FIELDS.find(
+      f => f !== fieldName && consentimientos[f] && isFieldLocked('consentimientos', f)
+    );
+    if (lockedOther) {
+      showNotification(
+        'warning',
+        `Ya existe una selección confirmada (${SELECCION_LABELS[lockedOther]}). Desbloquéala primero para poder cambiarla.`
+      );
+      return;
+    }
+    setConsentimientos(prev => {
+      const next = { ...prev };
+      const willBeChecked = !prev[fieldName];
+      SELECCION_FIELDS.forEach(f => { next[f] = false; });
+      next[fieldName] = willBeChecked;
+      return next;
+    });
+  };
+
   // ─────────────────────────────────────────────────────────────
   // Render helpers
   // ─────────────────────────────────────────────────────────────
@@ -2386,7 +2412,7 @@ const SortGes = () => {
                             {renderLockableCheck(
                               'consentimientos', field,
                               consentimientos[field],
-                              () => handleConsentimientoChange(field),
+                              () => handleSeleccionChange(field),
                               label
                             )}
                           </div>

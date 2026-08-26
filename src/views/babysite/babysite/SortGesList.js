@@ -76,6 +76,24 @@ const getIMCInfo = (imc) => {
 const formatPHCAE = (c) =>
   `${c.partos||0}-${c.hijos||0}-${c.cesareas||0}-${c.abortos||0}-${c.embarazos||0}`;
 
+// Counts how many of the given Checklist values are actually filled in
+// (non-empty file URLs, for the "Docs" column)
+const countFilled = (...vals) => vals.filter(v => v !== null && v !== undefined && v !== '').length;
+
+// Counts how many of the given Checklist boolean flags are checked
+// (for the "Cons" column)
+const countTrue = (...vals) => vals.filter(v => v === 1 || v === true).length;
+
+// Which consent type was selected in Checklist > Consentimientos formados
+// (regular / hiv / gemelar / full_consent are mutually-exclusive flags)
+const getSeleccion = (c) => {
+  if (c.regular)      return 'Regular';
+  if (c.hiv)           return 'HIV';
+  if (c.gemelar)       return 'Gemelar';
+  if (c.full_consent)  return 'Full';
+  return '-';
+};
+
 // ─────────────────────────────────────────────────────────────
 // Reusable sub-components
 // ─────────────────────────────────────────────────────────────
@@ -133,12 +151,12 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
         <CTableHeaderCell style={{ width: 130 }}>IMC</CTableHeaderCell>
         <SortHeader label="P-H-C-A-E"    sortKey="partos"           sortConfig={sortConfig} onSort={onSort} style={{ width: 130 }} />
         <SortHeader label="(RH)"         sortKey="tipo_sangre"      sortConfig={sortConfig} onSort={onSort} style={{ width: 60 }} />
-        <SortHeader label=">ACO"         sortKey="metodo_aco"       sortConfig={sortConfig} onSort={onSort} />
-        <CTableHeaderCell>ADM</CTableHeaderCell>
-        <CTableHeaderCell>Select Progr</CTableHeaderCell>
+        <CTableHeaderCell title="Archivo de documentación (Checklist)">Docs</CTableHeaderCell>
+        <CTableHeaderCell title="Consentimientos formados (Checklist)">Cons</CTableHeaderCell>
+        <CTableHeaderCell title="Selección en Consentimientos formados (Checklist)">Selección</CTableHeaderCell>
         <CTableHeaderCell>Esquema</CTableHeaderCell>
-        <CTableHeaderCell>Programa</CTableHeaderCell>
-        <SortHeader label="Status"       sortKey="status"           sortConfig={sortConfig} onSort={onSort} style={{ width: 110 }} />
+        <CTableHeaderCell title="Pendiente de definir">Prog</CTableHeaderCell>
+        <CTableHeaderCell title="Pendiente de definir">Status General</CTableHeaderCell>
         <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
       </CTableRow>
     </CTableHead>
@@ -146,11 +164,19 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
       {rows.length === 0 ? <EmptyRow colSpan={13} searchTerm={searchTerm} /> : rows.map(c => {
         const imc     = calculateIMC(c.peso, c.altura);
         const imcInfo = getIMCInfo(imc);
-        const stInfo  = STATUS_OPTIONS[c.status] || { label: c.status, color: 'secondary' };
         // Nombre = first word only, Apellido = last word only (middle names, if any, are dropped)
         const parts   = (c.nombre_completo || '').trim().split(/\s+/).filter(Boolean);
         const nombre   = parts[0] || '-';
         const apellido = parts.length > 1 ? parts[parts.length - 1] : '-';
+        const docsCount = countFilled(
+          c.certificado_nacimiento_url, c.curp_url,
+          c.comprobante_domicilio_url, c.poliza_seguro_url
+        );
+        const consCount = countTrue(
+          c.consentimiento_informado, c.consentimiento_transferencia,
+          c.aviso_privacidad, c.informacion_personal
+        );
+        const seleccion = getSeleccion(c);
         return (
           <CTableRow key={c.id}>
             <CTableDataCell>
@@ -173,14 +199,20 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
               <span style={{ color: '#d97ea1', fontWeight: 600 }}>{formatPHCAE(c)}</span>
             </CTableDataCell>
             <CTableDataCell>{c.tipo_sangre || '-'}</CTableDataCell>
-            <CTableDataCell>{c.metodo_aco  || '-'}</CTableDataCell>
-            <CTableDataCell>—</CTableDataCell>
-            <CTableDataCell>—</CTableDataCell>
-            <CTableDataCell>{c.esquema_ofrecido || '-'}</CTableDataCell>
-            <CTableDataCell>—</CTableDataCell>
             <CTableDataCell>
-              <CBadge color={stInfo.color} style={{ fontSize: '0.75rem' }}>{stInfo.label}</CBadge>
+              <CBadge color={docsCount === 4 ? 'success' : docsCount === 0 ? 'secondary' : 'warning'}>
+                {docsCount}/4
+              </CBadge>
             </CTableDataCell>
+            <CTableDataCell>
+              <CBadge color={consCount === 4 ? 'success' : consCount === 0 ? 'secondary' : 'warning'}>
+                {consCount}/4
+              </CBadge>
+            </CTableDataCell>
+            <CTableDataCell>{seleccion}</CTableDataCell>
+            <CTableDataCell>{seleccion}</CTableDataCell>
+            <CTableDataCell>—</CTableDataCell>
+            <CTableDataCell>—</CTableDataCell>
             <CTableDataCell>
               <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
             </CTableDataCell>
