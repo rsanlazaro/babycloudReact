@@ -2077,7 +2077,51 @@ const PaymentsGestForm = () => {
         </CCol>
       </CRow>
 
-      <CAccordion activeItemKey={1} alwaysOpen className="mx-5">
+      {/* ─────────────────────────────────────────────────────────────────
+          Styles for this form's accordion, embedded here so this view is
+          self-contained (no changes to global scss files):
+          - Sections stay always expanded (headers become static titles)
+          - Pink header instead of gray, uppercase titles
+          - Colors pulled from the app palette (--app-primary-*), which are
+            already redefined per color-mode, so light/dark stay consistent
+      ────────────────────────────────────────────────────────────────── */}
+      <style>{`
+        .pagos-accordion .accordion-item {
+          border-color: var(--app-primary) !important;
+        }
+
+        .pagos-accordion .accordion-collapse {
+          display: block !important;
+          height: auto !important;
+          visibility: visible !important;
+        }
+
+        .pagos-accordion .accordion-button {
+          background-color: var(--app-primary-light) !important;
+          color: var(--app-primary-dark) !important;
+          box-shadow: none !important;
+          cursor: default !important;
+          pointer-events: none;
+        }
+
+        .pagos-accordion .accordion-button::after {
+          display: none !important;
+        }
+
+        .pagos-accordion .accordion-button strong {
+          color: var(--app-primary-dark) !important;
+          text-transform: uppercase;
+          letter-spacing: .03em;
+        }
+
+        .pagos-accordion .accordion-button small,
+        .pagos-accordion .accordion-button .text-muted {
+          color: var(--app-primary-dark) !important;
+          opacity: .75;
+        }
+      `}</style>
+
+      <CAccordion activeItemKey={1} alwaysOpen className="mx-5 pagos-accordion">
 
         {/* ═══ 1. Datos del esquema ════════════════════════════════════════ */}
         <CAccordionItem itemKey={1}>
