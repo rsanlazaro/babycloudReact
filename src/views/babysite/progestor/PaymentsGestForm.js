@@ -107,20 +107,76 @@ const LockedFormInput = ({ name, label, value, type = 'text', locked, disabled, 
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
 const FIXED_ROWS = [
-  { id: 'sco_gesta', concepto: 'SCO Gesta', importe: 2000, bonoTransporte: 1000, section: 2 },
-  { id: 'sdg8', concepto: '8 SDG', importe: 5000, bonoTransporte: 500, section: 2 },
-  { id: 'sdg10', concepto: '10 SDG', importe: 5000, bonoTransporte: 500, section: 2 },
-  { id: 'sdg12', concepto: '12 SDG', importe: 10000, bonoTransporte: 500, section: 3 },
-  { id: 'sdg16', concepto: '16 SDG', importe: 20000, bonoTransporte: 500, section: 3 },
-  { id: 'sdg20', concepto: '20 SDG', importe: 20000, bonoTransporte: 500, section: 3, triggersT1Bonus: true },
-  { id: 'sdg22', concepto: '22 SDG', importe: 20000, bonoTransporte: 500, section: 3 },
-  { id: 'sdg26', concepto: '26 SDG', importe: 20000, bonoTransporte: 500, section: 3 },
-  { id: 'sdg32', concepto: '32 SDG', importe: 24000, bonoTransporte: 500, section: 3 },
-  { id: 'sdg34', concepto: '34 SDG', importe: null, bonoTransporte: 500, section: 3 },
-  { id: 'sdg35', concepto: '35 SDG', importe: null, bonoTransporte: 500, section: 3 },
-  { id: 'sdg36', concepto: '36 SDG', importe: 24000, bonoTransporte: 500, section: 3, triggersSDG36Bonus: true },
-  { id: 'sdg37', concepto: '37 SDG', importe: null, bonoTransporte: 750, section: 3 },
-  { id: 'sdg38', concepto: '38 SDG', importe: null, bonoTransporte: 750, section: 3 },
+  {
+    id: 'sco_gesta', concepto: 'SCO Gesta', section: 2,
+    schemeImporte: { '375000': 2000, '400000': 2000, '450000': 5000, '475000': 5000 },
+    schemeBono:    { '375000': 1000, '400000': 1000, '450000': 500,  '475000': 500  },
+  },
+  {
+    id: 'sdg8', concepto: '8 SDG', section: 2,
+    schemeImporte: { '375000': 5000, '400000': 5000, '450000': 5000, '475000': 5000 },
+    schemeBono:    { '375000': 500,  '400000': 500,  '450000': 500,  '475000': 500  },
+  },
+  {
+    id: 'sdg10', concepto: '10 SDG', section: 2,
+    schemeImporte: { '375000': 5000, '400000': 5000, '450000': 10000, '475000': 10000 },
+    schemeBono:    { '375000': 500,  '400000': 500,  '450000': 500,   '475000': 500   },
+  },
+  {
+    id: 'sdg12', concepto: '12 SDG', section: 3,
+    schemeImporte: { '375000': 10000, '400000': 10000, '450000': 15000, '475000': 15000 },
+    schemeBono:    { '375000': 500,   '400000': 500,   '450000': 500,   '475000': 500   },
+  },
+  {
+    id: 'sdg16', concepto: '16 SDG', section: 3,
+    schemeImporte: { '375000': 20000, '400000': 15000, '450000': 22500, '475000': 22500 },
+    schemeBono:    { '375000': 500,   '400000': 500,   '450000': 500,   '475000': 500   },
+  },
+  {
+    id: 'sdg20', concepto: '20 SDG', section: 3, triggersT1Bonus: true,
+    schemeImporte: { '375000': 20000, '400000': 20000, '450000': 20000, '475000': 20000 },
+    schemeBono:    { '375000': 500,   '400000': 500,   '450000': 500,   '475000': 500   },
+  },
+  {
+    id: 'sdg22', concepto: '22 SDG', section: 3,
+    schemeImporte: { '375000': 20000, '400000': 20000, '450000': 25000, '475000': 25000 },
+    schemeBono:    { '375000': 500,   '400000': 500,   '450000': 500,   '475000': 500   },
+  },
+  {
+    id: 'sdg26', concepto: '26 SDG', section: 3,
+    schemeImporte: { '375000': 20000, '400000': 20000, '450000': 22500, '475000': 22500 },
+    schemeBono:    { '375000': 500,   '400000': 500,   '450000': 500,   '475000': 500   },
+  },
+  {
+    id: 'sdg32', concepto: '32 SDG', section: 3,
+    schemeImporte: { '375000': 24000, '400000': 24000, '450000': 25000, '475000': 25000 },
+    schemeBono:    { '375000': 500,   '400000': 500,   '450000': 500,   '475000': 500   },
+  },
+  {
+    id: 'sdg34', concepto: '34 SDG', section: 3,
+    schemeImporte: { '375000': null, '400000': null, '450000': 30000, '475000': 30000 },
+    schemeBono:    { '375000': 500,  '400000': 500,  '450000': 500,   '475000': 500   },
+  },
+  {
+    id: 'sdg35', concepto: '35 SDG', section: 3,
+    schemeImporte: { '375000': null, '400000': 24000, '450000': null, '475000': null },
+    schemeBono:    { '375000': 500,  '400000': 500,   '450000': 500,  '475000': 500  },
+  },
+  {
+    id: 'sdg36', concepto: '36 SDG', section: 3, triggersSDG36Bonus: true,
+    schemeImporte: { '375000': 24000, '400000': null, '450000': 25000, '475000': 25000 },
+    schemeBono:    { '375000': 650,   '400000': 650,  '450000': 500,   '475000': 500   },
+  },
+  {
+    id: 'sdg37', concepto: '37 SDG', section: 3,
+    schemeImporte: { '375000': null, '400000': null, '450000': null, '475000': null },
+    schemeBono:    { '375000': 800,  '400000': 850,  '450000': 500,  '475000': 500  },
+  },
+  {
+    id: 'sdg38', concepto: '38 SDG', section: 3,
+    schemeImporte: { '375000': null, '400000': null, '450000': null, '475000': null },
+    schemeBono:    { '375000': 1000, '400000': 1000, '450000': 1000, '475000': 1000 },
+  },
   { id: 'sdg39', concepto: '39 SDG', importe: 0, bonoTransporte: 0, section: 3 },
   { id: 'sdg40', concepto: '40 SDG', importe: 0, bonoTransporte: 0, section: 3 },
 ];
@@ -147,7 +203,10 @@ const EXTRATO_MOTIVOS = ['Reembolso', 'Bonificación', 'Pago extraordinario', 'A
 
 const UNLOCK_PASSWORD = '26213256';
 const SCHEME_PASSWORD = 'adm@bbcloud1';
-const ULTIMAS_FIRMAS = 20000;
+
+// NOTE: the "Puerperio 4" allocation base (formerly a flat ULTIMAS_FIRMAS
+// constant) and the Nacimiento/CDO-GESCA bases are now scheme-dependent —
+// see p1Base / ultimasFirmasBase / cdoGescaBase inside the component.
 
 const PARC_AMOUNTS = {
   1: [20000],
@@ -162,6 +221,11 @@ const SCHEME_OPTIONS = [
   { value: '475000', label: 'Esquema $475,000' },
 ];
 const getSchemeLabel = (v) => SCHEME_OPTIONS.find(o => o.value === v)?.label || 'Esquema $375,000';
+
+// Schemes $450,000 and $475,000 share the same "higher tier" bases for
+// Nacimiento / Puerperio 4 / +CDO-GESCA (verified against the provided
+// per-scheme tables — see p1Base / ultimasFirmasBase / cdoGescaBase below).
+const HIGH_TIER_SCHEMES = ['450000', '475000'];
 
 const FORM_FIELDS = ['gesca', 'ip', 'banco', 'clabe', 'fum', 'giro_semana'];
 const initLockedFields = (locked) => {
@@ -341,6 +405,13 @@ const PaymentsGestForm = () => {
   const sv = formData.scheme_value || '375000';
   const schemeValue = useMemo(() => parseFloat(formData.scheme_value) || 375000, [formData.scheme_value]);
 
+  // Scheme-dependent bases (verified against the 4 provided allocation
+  // tables): $450,000 and $475,000 share "higher tier" bases for Nacimiento,
+  // Puerperio 4, and +CDO-GESCA; $375,000 and $400,000 share the "base tier".
+  const p1Base = useMemo(() => HIGH_TIER_SCHEMES.includes(sv) ? 55000 : 50000, [sv]);
+  const ultimasFirmasBase = useMemo(() => HIGH_TIER_SCHEMES.includes(sv) ? 10000 : 30000, [sv]);
+  const cdoGescaBase = useMemo(() => HIGH_TIER_SCHEMES.includes(sv) ? 20000 : 0, [sv]);
+
   const blockedBirthRowIds = useMemo(() => {
     if (!semanaParto) return new Set();
     const idx = BIRTH_WEEK_ORDER.indexOf(semanaParto);
@@ -403,8 +474,8 @@ const PaymentsGestForm = () => {
   );
 
   const p1Amount = useMemo(
-    () => Math.max(0, 50000 - transferenciasPaid + (sdg36BonusApplied ? 5000 : 0) - t1NoSDG36Penalty),
-    [transferenciasPaid, sdg36BonusApplied, t1NoSDG36Penalty, sv]
+    () => Math.max(0, p1Base - transferenciasPaid + (sdg36BonusApplied ? 5000 : 0) - t1NoSDG36Penalty),
+    [p1Base, transferenciasPaid, sdg36BonusApplied, t1NoSDG36Penalty, sv]
   );
   // Base "planned" amount for Puerperio 2 (unaffected by the Transferencias 4/5/6 deduction —
   // used only for the Puerperio 3 residual formula, which must stay orthogonal to this deduction).
@@ -458,9 +529,16 @@ const PaymentsGestForm = () => {
     return t;
   }, [blockedBirthRowIds, sv]);
 
+  // Suggested +CDO-GESCA amount for the current scheme, using either the
+  // real entered value (once the row is completed) or the scheme's base.
+  const cdoGescaAmountNum = useMemo(
+    () => rVal(cdoGescaState.realImporte, cdoGescaBase),
+    [cdoGescaState.realImporte, cdoGescaBase]
+  );
+
   const p3BaseRaw = useMemo(
-    () => Math.max(0, schemeValue - fase2Total - fasesPagosTotal - 50000 - p2BasePlanned - ULTIMAS_FIRMAS),
-    [schemeValue, fase2Total, fasesPagosTotal, p2BasePlanned]
+    () => Math.max(0, schemeValue - fase2Total - fasesPagosTotal - p1Base - p2BasePlanned - ultimasFirmasBase - cdoGescaBase),
+    [schemeValue, fase2Total, fasesPagosTotal, p1Base, p2BasePlanned, ultimasFirmasBase, cdoGescaBase]
   );
   const ayudaAmountNum = useMemo(
     () => parseFloat(ayudaState.realImporte) || parseFloat(ayudaAmount) || 0,
@@ -491,13 +569,14 @@ const PaymentsGestForm = () => {
     () => Math.max(0,
       schemeValue
       - realFase2Total - realFasesPagosTotal
-      - (50000 - t1NoSDG36Penalty) - p2BasePlanned
+      - (p1Base - t1NoSDG36Penalty) - p2BasePlanned
       - trans23BonoDeduction
       - (ayudaState.completed ? ayudaAmountNum : 0)
       - blockedScheduleImporte
-      - ULTIMAS_FIRMAS
+      - ultimasFirmasBase
+      - cdoGescaBase
     ),
-    [schemeValue, realFase2Total, realFasesPagosTotal, t1NoSDG36Penalty, p2BasePlanned, trans23BonoDeduction, ayudaState, ayudaAmountNum, blockedScheduleImporte]
+    [schemeValue, realFase2Total, realFasesPagosTotal, p1Base, t1NoSDG36Penalty, p2BasePlanned, trans23BonoDeduction, ayudaState, ayudaAmountNum, blockedScheduleImporte, ultimasFirmasBase, cdoGescaBase]
   );
 
   const realP3Amount = useMemo(
@@ -506,8 +585,8 @@ const PaymentsGestForm = () => {
   );
 
   const p2Adjustment = useMemo(
-    () => (schemeValue - bgDeduction) - (realFase2Total + realFasesPagosTotal + 50000 + p2BasePlanned + p3BaseRaw + ULTIMAS_FIRMAS),
-    [schemeValue, bgDeduction, realFase2Total, realFasesPagosTotal, p2BasePlanned, p3BaseRaw]
+    () => (schemeValue - bgDeduction) - (realFase2Total + realFasesPagosTotal + p1Base + p2BasePlanned + p3BaseRaw + ultimasFirmasBase),
+    [schemeValue, bgDeduction, realFase2Total, realFasesPagosTotal, p1Base, p2BasePlanned, p3BaseRaw, ultimasFirmasBase]
   );
   const vihBonus = useMemo(() => bonoVIH ? 50000 : 0, [bonoVIH]);
   const gemelarBonus = useMemo(() => bonoGemelar ? 20000 : 0, [bonoGemelar]);
@@ -664,11 +743,12 @@ const PaymentsGestForm = () => {
     if (puerperioStates.puerperio2?.completed) t += rVal(puerperioStates.puerperio2.realImporte, p2AdjustedAmount) - (parseFloat(puerperioStates.puerperio2.penalizacion) || 0) + (parseFloat(puerperioStates.puerperio2.reembolso) || 0);
     if (ayudaState.completed) t += rVal(ayudaState.realImporte, ayudaAmountNum) - (parseFloat(ayudaState.penalizacion) || 0) + (parseFloat(ayudaState.reembolso) || 0);
     if (puerperioStates.puerperio3?.completed) t += rVal(puerperioStates.puerperio3.realImporte, p3Amount) - (parseFloat(puerperioStates.puerperio3.penalizacion) || 0) + (parseFloat(puerperioStates.puerperio3.reembolso) || 0);
+    if (cdoGescaState.completed) t += rVal(cdoGescaState.realImporte, cdoGescaBase) - (parseFloat(cdoGescaState.penalizacion) || 0) + (parseFloat(cdoGescaState.reembolso) || 0);
     return t;
-  }, [puerperioStates, p1Amount, p2AdjustedAmount, p3Amount, ayudaState, ayudaAmountNum, sdg36BonusApplied]);
+  }, [puerperioStates, p1Amount, p2AdjustedAmount, p3Amount, ayudaState, ayudaAmountNum, sdg36BonusApplied, cdoGescaState, cdoGescaBase]);
 
   const totalPagadoGeneral = useMemo(() => totalPagadoPrograma + totalPagadoPuerperio, [totalPagadoPrograma, totalPagadoPuerperio]);
-  const calculoPuerperio4 = useMemo(() => Math.max(0, ULTIMAS_FIRMAS - extraBonus), [extraBonus]);
+  const calculoPuerperio4 = useMemo(() => Math.max(0, ultimasFirmasBase - extraBonus), [ultimasFirmasBase, extraBonus]);
 
   const dynamicParcAmounts = useMemo(() => {
     const p4 = Math.max(0, Math.round(calculoPuerperio4));
@@ -693,10 +773,11 @@ const PaymentsGestForm = () => {
     if (puerperioStates.puerperio2?.completed) t += p2AdjustedAmount;
     if (puerperioStates.puerperio3?.completed) t += p3Amount;
     if (ayudaState.completed) t += ayudaAmountNum;
+    if (cdoGescaState.completed) t += cdoGescaBase;
     dynamicParcAmounts.forEach((amt, i) => { if (parcCompleted[i]) t += amt; });
     return t;
   }, [visibleTransferencias, rowStates, puerperioStates, bonoStates,
-    ayudaState, ayudaAmountNum, dynamicParcAmounts, parcCompleted, p1Amount, p2AdjustedAmount, p3Amount, sv, blockedBirthRowIds, ayudaAmountNum]);
+    ayudaState, ayudaAmountNum, dynamicParcAmounts, parcCompleted, p1Amount, p2AdjustedAmount, p3Amount, sv, blockedBirthRowIds, ayudaAmountNum, cdoGescaState, cdoGescaBase]);
 
   const bonoTransportePaid = useMemo(() => {
     let t = 0;
@@ -1105,6 +1186,10 @@ const PaymentsGestForm = () => {
     const semanaSnap = s.semanaParto || '';
     const idx = BIRTH_WEEK_ORDER.indexOf(semanaSnap);
     const blockedSnap = idx < 0 ? new Set() : new Set(BIRTH_WEEK_ROW_IDS.slice(idx + 1));
+    const isHighTierSnap = HIGH_TIER_SCHEMES.includes(svSnap);
+    const p1BaseSnap = isHighTierSnap ? 55000 : 50000;
+    const ultimasFirmasSnap = isHighTierSnap ? 10000 : 30000;
+    const cdoGescaBaseSnap = isHighTierSnap ? 20000 : 0;
 
     const transSnap = s.transferencias || [];
     const t1OkSnap = transSnap[0]?.successful === true;
@@ -1142,11 +1227,12 @@ const PaymentsGestForm = () => {
     return Math.max(0,
       schemeValueSnap
       - realFase2 - realFasesPagos
-      - (50000 - t1PenaltySnap) - p2BasePlannedSnap
+      - (p1BaseSnap - t1PenaltySnap) - p2BasePlannedSnap
       - trans23BonoSnap
       - (ayudaSnap.completed ? ayudaAmountNumSnap : 0)
       - blockedImporte
-      - ULTIMAS_FIRMAS
+      - ultimasFirmasSnap
+      - cdoGescaBaseSnap
     );
   };
 
@@ -1166,22 +1252,25 @@ const PaymentsGestForm = () => {
         // reading it directly here was always undefined.
         const stTransferencias = stateRef.current.transferencias || [];
         const stSemanaParto = stateRef.current.semanaParto || '';
+        const stSchemeValue = stateRef.current.formData?.scheme_value || '375000';
         const t1Ok = stTransferencias[0]?.successful === true;
         const sdgOk = ['36', '37', '38', '39', '40'].includes(stSemanaParto);
         const sdg36Applies = t1Ok && sdgOk;
         const t1Penalty = (t1Ok && stSemanaParto && !sdg36Applies) ? 5000 : 0;
+        const stP1Base = HIGH_TIER_SCHEMES.includes(stSchemeValue) ? 55000 : 50000;
 
         const transferenciasPaidNow = stTransferencias
           .filter(t => t.completed)
           .reduce((sum, t) => sum + rVal(t.realImporte, 1000) - (parseFloat(t.penalizacion) || 0), 0);
 
         // Planned amounts need current calculated values — use stateRef approximation.
-        // Nacimiento (puerperio1) = 50k − Prueba Beta payments + SDG36 bonus − T1 penalty,
-        // matching the same formula used for the live p1Amount elsewhere in this file.
+        // Nacimiento (puerperio1) = P1 base (scheme-dependent) − Prueba Beta
+        // payments + SDG36 bonus − T1 penalty, matching the same formula
+        // used for the live p1Amount elsewhere in this file.
         const approxPlanned = rid === 'puerperio2'
-          ? (stateRef.current.formData?.scheme_value !== '375000' ? 55000 : 50000)
+          ? (stSchemeValue !== '375000' ? 55000 : 50000)
           : rid === 'puerperio1'
-            ? Math.max(0, 50000 - transferenciasPaidNow + (sdg36Applies ? 5000 : 0) - t1Penalty)
+            ? Math.max(0, stP1Base - transferenciasPaidNow + (sdg36Applies ? 5000 : 0) - t1Penalty)
             : rid === 'puerperio3'
               ? computeP3FromSnapshot(stateRef.current)
               : 0;
@@ -1249,7 +1338,9 @@ const PaymentsGestForm = () => {
         const newRealImp = f === 'realImporte' ? v : prev.realImporte;
         const newPen = f === 'penalizacion' ? v : prev.penalizacion;
         const newReim = f === 'reembolso' ? v : prev.reembolso;
-        const realImp = rVal(newRealImp, 0);
+        const stSchemeValue = stateRef.current.formData?.scheme_value || '375000';
+        const baseSnap = HIGH_TIER_SCHEMES.includes(stSchemeValue) ? 20000 : 0;
+        const realImp = rVal(newRealImp, baseSnap);
         setTimeout(() => syncExtratoEntry('cdo_gesca_extra', {
           importeEsquema: realImp,
           importeBonoT1: 0,
@@ -2745,7 +2836,7 @@ const PaymentsGestForm = () => {
                             <strong>{row.concepto}</strong>
                             {row.id === 'puerperio1' && (
                               <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
-                                <span>$50,000</span>
+                                <span>{fmt(p1Base)}</span>
                                 {transferenciasPaid > 0 && <span className="text-danger"> − {fmt(transferenciasPaid)} <small>(transferencias)</small></span>}
                                 {sdg36BonusApplied && sv === '400000' && <span className="text-success"> + $5,000 <small>(bono SDG36 — 400k)</small></span>}
                                 {t1NoSDG36Penalty > 0 && <span className="text-danger"> − {fmt(t1NoSDG36Penalty)} <small>(sin SDG36 — penalización T1)</small></span>}
@@ -2770,6 +2861,7 @@ const PaymentsGestForm = () => {
                                   : <span>Base: {fmt(p3BaseRaw)}</span>}
                                 {ayudaAmountNum > 0 && ayudaState.completed && <span className="text-danger"> − {fmt(ayudaAmountNum)} <small>(ayuda maternidad)</small></span>}
                                 {ayudaAmountNum > 0 && !ayudaState.completed && <span className="text-muted"> − {fmt(ayudaAmountNum)} <small>(ayuda maternidad — pendiente de pago)</small></span>}
+                                {cdoGescaBase > 0 && <span className="text-danger"> − {fmt(cdoGescaBase)} <small>(+CDO-GESCA)</small></span>}
                                 <strong className="ms-1">= {fmt(plannedImp)}</strong>
                               </div>
                             )}
@@ -2815,17 +2907,17 @@ const PaymentsGestForm = () => {
                         {/* +CDO - GESCA row — below Puerperio 3 / Parto y registro */}
                         {row.id === 'puerperio3' && (() => {
                           const cdoLocked = cdoGescaState.completed;
-                          const cdoRealImp = rVal(cdoGescaState.realImporte, 0);
+                          const cdoRealImp = rVal(cdoGescaState.realImporte, cdoGescaBase);
                           return (
                             <CTableRow style={cdoLocked ? rowLocked : undefined}>
                               <CTableDataCell style={cs}>
                                 <strong>+CDO - GESCA</strong>
                                 <div className="mt-1" style={{ fontSize: '0.78rem', color: 'var(--cui-secondary-color)' }}>
-                                  <small className="text-muted">Monto sugerido: {fmt(0)}</small>
+                                  <small className="text-muted">Monto sugerido: {fmt(cdoGescaBase)}</small>
                                 </div>
                               </CTableDataCell>
                               <CTableDataCell style={cs}>
-                                <ImporteCell planned={0} realValue={cdoGescaState.realImporte ?? ''}
+                                <ImporteCell planned={cdoGescaBase} realValue={cdoGescaState.realImporte ?? ''}
                                   disabled={cdoLocked} onChange={e => updateCdoGescaState('realImporte', e.target.value)} />
                               </CTableDataCell>
                               <CTableDataCell style={cs}>
@@ -2856,7 +2948,7 @@ const PaymentsGestForm = () => {
               <div className="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
                 <div>
                   <h6 className="mb-0">Puerperio 4 — Parcialidades</h6>
-                  <small className="text-muted">Últimas firmas: {fmt(ULTIMAS_FIRMAS)}{extraBonus > 0 && <span className="text-danger"> − {fmt(extraBonus)} (bono extra) = <strong>{fmt(calculoPuerperio4)}</strong></span>}{extraBonus === 0 && <strong> = {fmt(calculoPuerperio4)}</strong>}</small>
+                  <small className="text-muted">Últimas firmas: {fmt(ultimasFirmasBase)}{extraBonus > 0 && <span className="text-danger"> − {fmt(extraBonus)} (bono extra) = <strong>{fmt(calculoPuerperio4)}</strong></span>}{extraBonus === 0 && <strong> = {fmt(calculoPuerperio4)}</strong>}</small>
                 </div>
                 <div className="d-flex align-items-center gap-2">
                   <CFormLabel className="mb-0">Parcialidades:</CFormLabel>
@@ -2978,7 +3070,7 @@ const PaymentsGestForm = () => {
                     <hr className="my-2" />
                     <div>
                       <small className="text-muted d-block" style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Cálculo para Puerperio 4 (Parcialidades)</small>
-                      <small className="text-muted d-block mb-1" style={{ fontSize: '0.72rem' }}>{ULTIMAS_FIRMAS.toLocaleString('es-MX')} firmas{extraBonus > 0 ? ` − ${fmt(extraBonus)} (bono extra)` : ''}</small>
+                      <small className="text-muted d-block mb-1" style={{ fontSize: '0.72rem' }}>{ultimasFirmasBase.toLocaleString('es-MX')} firmas{extraBonus > 0 ? ` − ${fmt(extraBonus)} (bono extra)` : ''}</small>
                       <h5 className="mb-0 fw-bold" style={{ color: 'var(--cui-success)' }}>{fmt(calculoPuerperio4)}</h5>
                     </div>
                   </div>
