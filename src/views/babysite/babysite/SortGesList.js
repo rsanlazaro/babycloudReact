@@ -28,6 +28,20 @@ const STATUS_OPTIONS = {
   pendiente:  { label: 'Pendiente',  color: 'secondary' },
 };
 
+// Programa al que se inscribe el candidato — 1° o 2° programa
+const PROGRAMA_OPTIONS = {
+  '1': { label: '1°', bg: '#0071b8' },
+  '2': { label: '2°', bg: '#8e44ad' },
+};
+
+// Catalog of statuses that can land in "Status General" / "Contra Status".
+// Today only "Posible descarte" exists (triggered from the "Indicar
+// posible descarte" button in each of the 5 tabs), but this stays a map
+// so future status types slot in without touching the render logic.
+const CANDIDATE_STATUS_OPTIONS = {
+  posible_descarte: { label: 'Posible descarte', bg: '#dc3545' },
+};
+
 const EMPTY_FORM = {
   nombre_completo:  '',
   fecha_nacimiento: '',
@@ -36,6 +50,7 @@ const EMPTY_FORM = {
   esquema_ofrecido: '$400,000.00',
   ip_responsable:   '',
   status:           'iniciales',
+  programa:         '1',
 };
 
 // Tab config — icon + label + color matching the image
@@ -99,10 +114,11 @@ const getSeleccion = (c) => {
 // ─────────────────────────────────────────────────────────────
 
 // Sortable column header
-const SortHeader = ({ label, sortKey, sortConfig, onSort, style = {} }) => (
+const SortHeader = ({ label, sortKey, sortConfig, onSort, style = {}, title }) => (
   <CTableHeaderCell
     style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', ...style }}
     onClick={() => onSort(sortKey)}
+    title={title}
   >
     <div className="d-flex align-items-center gap-1">
       {label}
@@ -126,6 +142,23 @@ const ActionButtons = ({ candidate, onEdit, onDelete }) => (
       <CIcon icon={cilTrash} />
     </CButton>
   </div>
+);
+
+// "Resp" column dropdown — shared by Admisiones, Att. Previa and Psicología.
+// Options come from the user list (System users, not Guests), excluding
+// AdminBabyCloud. Selecting a value persists immediately.
+const RespSelect = ({ candidate, users, onRespChange }) => (
+  <CFormSelect
+    size="sm"
+    value={candidate.ip_responsable || ''}
+    onChange={(e) => onRespChange(candidate.id, e.target.value)}
+    style={{ minWidth: '120px', fontSize: '0.8rem' }}
+  >
+    <option value="">— Sin asignar —</option>
+    {users.map((u) => (
+      <option key={u.id} value={u.username}>{u.username}</option>
+    ))}
+  </CFormSelect>
 );
 
 // Empty row
@@ -155,13 +188,14 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
         <CTableHeaderCell title="Consentimientos formados (Checklist)">Cons</CTableHeaderCell>
         <CTableHeaderCell title="Selección en Consentimientos formados (Checklist)">Selección</CTableHeaderCell>
         <CTableHeaderCell>Esquema</CTableHeaderCell>
-        <CTableHeaderCell title="Pendiente de definir">Prog</CTableHeaderCell>
-        <CTableHeaderCell title="Pendiente de definir">Status General</CTableHeaderCell>
+        <SortHeader label="Prog" sortKey="programa" sortConfig={sortConfig} onSort={onSort} style={{ width: 70 }} title="Programa (1° o 2°)" />
+        <CTableHeaderCell title="Primer status registrado (ej. Posible descarte)">Status General</CTableHeaderCell>
+        <CTableHeaderCell title="Segundo status registrado, si ya existía uno">Contra Status</CTableHeaderCell>
         <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
       </CTableRow>
     </CTableHead>
     <CTableBody>
-      {rows.length === 0 ? <EmptyRow colSpan={13} searchTerm={searchTerm} /> : rows.map(c => {
+      {rows.length === 0 ? <EmptyRow colSpan={14} searchTerm={searchTerm} /> : rows.map(c => {
         const imc     = calculateIMC(c.peso, c.altura);
         const imcInfo = getIMCInfo(imc);
         // Nombre = first word only, Apellido = last word only (middle names, if any, are dropped)
@@ -177,6 +211,9 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
           c.aviso_privacidad, c.informacion_personal
         );
         const seleccion = getSeleccion(c);
+        const progInfo = PROGRAMA_OPTIONS[c.programa];
+        const statusGeneralInfo = CANDIDATE_STATUS_OPTIONS[c.status_general];
+        const contraStatusInfo = CANDIDATE_STATUS_OPTIONS[c.contra_status];
         return (
           <CTableRow key={c.id}>
             <CTableDataCell>
@@ -211,8 +248,21 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
             </CTableDataCell>
             <CTableDataCell>{seleccion}</CTableDataCell>
             <CTableDataCell>{seleccion}</CTableDataCell>
-            <CTableDataCell>—</CTableDataCell>
-            <CTableDataCell>—</CTableDataCell>
+            <CTableDataCell>
+              {progInfo
+                ? <CBadge style={{ fontSize: '0.75rem', backgroundColor: progInfo.bg, color: '#fff' }}>{progInfo.label}</CBadge>
+                : <span className="text-muted">—</span>}
+            </CTableDataCell>
+            <CTableDataCell>
+              {statusGeneralInfo
+                ? <CBadge style={{ fontSize: '0.75rem', backgroundColor: statusGeneralInfo.bg, color: '#fff' }}>{statusGeneralInfo.label}</CBadge>
+                : <span className="text-muted">—</span>}
+            </CTableDataCell>
+            <CTableDataCell>
+              {contraStatusInfo
+                ? <CBadge style={{ fontSize: '0.75rem', backgroundColor: contraStatusInfo.bg, color: '#fff' }}>{contraStatusInfo.label}</CBadge>
+                : <span className="text-muted">—</span>}
+            </CTableDataCell>
             <CTableDataCell>
               <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
             </CTableDataCell>
@@ -223,11 +273,11 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
   </CTable>
 );
 
-const AdmisionesTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
+const AdmisionesTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm, users, onRespChange }) => (
   <CTable hover striped align="middle" responsive className="nowrap-table">
     <CTableHead color="light">
       <CTableRow>
-        <CTableHeaderCell style={{ width: 80 }}>RESP</CTableHeaderCell>
+        <CTableHeaderCell style={{ width: 140 }}>RESP</CTableHeaderCell>
         <CTableHeaderCell style={{ width: 60 }}>Qt (i)</CTableHeaderCell>
         <SortHeader label="Nombre"       sortKey="nombre_completo"  sortConfig={sortConfig} onSort={onSort} />
         <SortHeader label="Apellido"     sortKey="apellido"         sortConfig={sortConfig} onSort={onSort} />
@@ -253,7 +303,7 @@ const AdmisionesTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTer
         return (
           <CTableRow key={c.id}>
             <CTableDataCell>
-              <span className="text-muted small">{c.ip_responsable || '—'}</span>
+              <RespSelect candidate={c} users={users} onRespChange={onRespChange} />
             </CTableDataCell>
             <CTableDataCell className="text-center">—</CTableDataCell>
             <CTableDataCell>
@@ -273,11 +323,11 @@ const AdmisionesTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTer
   </CTable>
 );
 
-const AttPreviaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
+const AttPreviaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm, users, onRespChange }) => (
   <CTable hover striped align="middle" responsive className="nowrap-table">
     <CTableHead color="light">
       <CTableRow>
-        <CTableHeaderCell style={{ width: 80 }}>RESP</CTableHeaderCell>
+        <CTableHeaderCell style={{ width: 140 }}>RESP</CTableHeaderCell>
         <CTableHeaderCell style={{ width: 60 }}>Qt (i)</CTableHeaderCell>
         <SortHeader label="Nombre"       sortKey="nombre_completo"  sortConfig={sortConfig} onSort={onSort} />
         <SortHeader label="Apellido"     sortKey="apellido"         sortConfig={sortConfig} onSort={onSort} />
@@ -303,7 +353,7 @@ const AttPreviaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
         return (
           <CTableRow key={c.id}>
             <CTableDataCell>
-              <span className="text-muted small">{c.ip_responsable || '—'}</span>
+              <RespSelect candidate={c} users={users} onRespChange={onRespChange} />
             </CTableDataCell>
             <CTableDataCell className="text-center">—</CTableDataCell>
             <CTableDataCell>
@@ -322,11 +372,11 @@ const AttPreviaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
   </CTable>
 );
 
-const PsicologiaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm }) => (
+const PsicologiaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm, users, onRespChange }) => (
   <CTable hover striped align="middle" responsive className="nowrap-table">
     <CTableHead color="light">
       <CTableRow>
-        <CTableHeaderCell style={{ width: 80 }}>RESP</CTableHeaderCell>
+        <CTableHeaderCell style={{ width: 140 }}>RESP</CTableHeaderCell>
         <CTableHeaderCell style={{ width: 60 }}>Qt (i)</CTableHeaderCell>
         <SortHeader label="Nombre"       sortKey="nombre_completo"  sortConfig={sortConfig} onSort={onSort} />
         <SortHeader label="Apellido"     sortKey="apellido"         sortConfig={sortConfig} onSort={onSort} />
@@ -354,7 +404,7 @@ const PsicologiaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTer
         return (
           <CTableRow key={c.id}>
             <CTableDataCell>
-              <span className="text-muted small">{c.ip_responsable || '—'}</span>
+              <RespSelect candidate={c} users={users} onRespChange={onRespChange} />
             </CTableDataCell>
             <CTableDataCell className="text-center">—</CTableDataCell>
             <CTableDataCell>
@@ -426,11 +476,22 @@ const CandidateFormFields = ({ form, setForm }) => (
         </CFormSelect>
       </CCol>
     </CRow>
-    <div className="mb-3">
-      <CFormLabel>IP Responsable:</CFormLabel>
-      <CFormInput placeholder="Nombre del responsable" value={form.ip_responsable}
-        onChange={e => setForm(p => ({ ...p, ip_responsable: e.target.value }))} />
-    </div>
+    <CRow>
+      <CCol md={6} className="mb-3">
+        <CFormLabel>Programa:</CFormLabel>
+        <CFormSelect value={form.programa}
+          onChange={e => setForm(p => ({ ...p, programa: e.target.value }))}>
+          {Object.entries(PROGRAMA_OPTIONS).map(([val, { label }]) => (
+            <option key={val} value={val}>{label} Programa</option>
+          ))}
+        </CFormSelect>
+      </CCol>
+      <CCol md={6} className="mb-3">
+        <CFormLabel>IP Responsable:</CFormLabel>
+        <CFormInput placeholder="Nombre del responsable" value={form.ip_responsable}
+          onChange={e => setForm(p => ({ ...p, ip_responsable: e.target.value }))} />
+      </CCol>
+    </CRow>
   </>
 );
 
@@ -442,6 +503,7 @@ const SortGesList = () => {
 
   // ── Data ─────────────────────────────────────────────────────
   const [candidates, setCandidates] = useState([]);
+  const [users, setUsers]           = useState([]); // for the "Resp" dropdown (system users, not Guests)
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
   const [activeTab, setActiveTab]   = useState('data-gesca');
@@ -474,7 +536,7 @@ const SortGesList = () => {
   const [pwError, setPwError]         = useState('');
 
   // ── Lifecycle ─────────────────────────────────────────────────
-  useEffect(() => { fetchCandidates(); }, []);
+  useEffect(() => { fetchCandidates(); fetchUsers(); }, []);
 
   // ═══════════════════════════════════════════════════════════
   // API
@@ -494,6 +556,37 @@ const SortGesList = () => {
     }
   };
 
+  // Users list for the "Resp" dropdown (Admisiones / Att. Previa / Psicología
+  // tabs) — pulled from the system users list, excluding AdminBabyCloud.
+  const fetchUsers = async () => {
+    try {
+      const res = await api.get('/api/users', { withCredentials: true });
+      const filtered = (res.data || []).filter(
+        (u) => u.username?.toLowerCase() !== 'adminbabycloud'
+      );
+      setUsers(filtered);
+    } catch (err) {
+      console.error('Error fetching users:', err);
+    }
+  };
+
+  // Persist a "Resp" reassignment from any of the three dropdown tables
+  const handleRespChange = async (candidateId, newRespUsername) => {
+    try {
+      await api.put(
+        `/api/sort-ges/${candidateId}`,
+        { ip_responsable: newRespUsername || null },
+        { withCredentials: true }
+      );
+      setCandidates((prev) => prev.map((c) =>
+        c.id === candidateId ? { ...c, ip_responsable: newRespUsername } : c
+      ));
+    } catch (err) {
+      console.error('Error updating Resp:', err);
+      showNotification('danger', 'Error al asignar responsable');
+    }
+  };
+
   const handleCreate = async () => {
     if (!createForm.nombre_completo.trim()) {
       showNotification('warning', 'El nombre completo es obligatorio');
@@ -503,6 +596,7 @@ const SortGesList = () => {
       setCreating(true);
       const res = await api.post('/api/sort-ges', {
         status: createForm.status, ip_responsable: createForm.ip_responsable || null,
+        programa: createForm.programa || null,
       }, { withCredentials: true });
       const newId = res.data.id;
       await api.put(`/api/sort-ges/${newId}/alta-gesca`, {
@@ -532,6 +626,7 @@ const SortGesList = () => {
       setSaving(true);
       await api.put(`/api/sort-ges/${editingId}`, {
         status: editForm.status, ip_responsable: editForm.ip_responsable || null,
+        programa: editForm.programa || null,
       }, { withCredentials: true });
       await api.put(`/api/sort-ges/${editingId}/alta-gesca`, {
         nombre_completo:  editForm.nombre_completo,
@@ -550,6 +645,7 @@ const SortGesList = () => {
           esquema_ofrecido: editForm.esquema_ofrecido,
           ip_responsable:   editForm.ip_responsable,
           status:           editForm.status,
+          programa:         editForm.programa,
         } : c
       ));
       setShowEditModal(false);
@@ -623,6 +719,7 @@ const SortGesList = () => {
         esquema_ofrecido: candidate.esquema_ofrecido || '$400,000.00',
         ip_responsable:   candidate.ip_responsable   || '',
         status:           candidate.status           || 'iniciales',
+        programa:         candidate.programa         || '1',
       });
       setShowEditModal(true);
     } else {
@@ -670,6 +767,7 @@ const SortGesList = () => {
   const tableProps = {
     rows: filtered, sortConfig, onSort: handleSort,
         onEdit: openEdit, onDelete: openDelete, searchTerm,
+        users, onRespChange: handleRespChange,
   };
 
   // ── Shared form fields ────────────────────────────────────────

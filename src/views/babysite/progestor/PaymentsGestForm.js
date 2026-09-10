@@ -159,12 +159,12 @@ const FIXED_ROWS = [
   },
   {
     id: 'sdg35', concepto: '35 SDG', section: 3,
-    schemeImporte: { '375000': null, '400000': 24000, '450000': null, '475000': null },
+    schemeImporte: { '375000': null, '400000': null, '450000': null, '475000': null },
     schemeBono:    { '375000': 500,  '400000': 500,   '450000': 500,  '475000': 500  },
   },
   {
     id: 'sdg36', concepto: '36 SDG', section: 3, triggersSDG36Bonus: true,
-    schemeImporte: { '375000': 24000, '400000': null, '450000': 25000, '475000': 25000 },
+    schemeImporte: { '375000': 24000, '400000': 24000, '450000': 25000, '475000': 25000 },
     schemeBono:    { '375000': 650,   '400000': 650,  '450000': 500,   '475000': 500   },
   },
   {

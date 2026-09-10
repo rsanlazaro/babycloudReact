@@ -58,6 +58,7 @@ import {
   cilPlus,
   cilTrash,
   cilCamera,
+  cilWarning,
 } from '@coreui/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
@@ -70,6 +71,12 @@ const TAB_CONFIG = [
   { id: 'psico-social', label: 'PSICO SOCIAL', color: '#0098b3', icon: cilPeople  },
   { id: 'cita-previa', label: 'CITA PREVIA', color: '#a14567', icon: cilCalendar  },
 ];
+
+// Catalog of statuses that can land in candidate.status_general /
+// candidate.contra_status. Mirrors sortGesList.js's CANDIDATE_STATUS_OPTIONS.
+const CANDIDATE_STATUS_OPTIONS = {
+  posible_descarte: { label: 'Posible descarte', bg: '#dc3545' },
+};
 
 // Native <input type="date"> requires a strict "YYYY-MM-DD" value — but
 // MySQL DATE columns often come back through the API as full ISO datetime
@@ -92,6 +99,10 @@ const SortGes = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
+
+  // ── Posible descarte — Status General / Contra Status ────────
+  const [registeringDescarte, setRegisteringDescarte] = useState(false);
+  const [showDescarteModal, setShowDescarteModal] = useState(false);
 
   // ── Candidate photo upload ────────────────────────────────────
   const [fotoFile, setFotoFile]             = useState(null);
@@ -206,7 +217,6 @@ const SortGes = () => {
 
   const [savingSeguro, setSavingSeguro] = useState(false);
 
-  // ─────────────────────────────────────────────────────────────
   // ─────────────────────────────────────────────────────────────
   // PSICO SOCIAL state
   // ─────────────────────────────────────────────────────────────
@@ -651,6 +661,58 @@ const SortGes = () => {
     setAlert({ show: true, type, message });
     setTimeout(() => setAlert({ show: false, type: '', message: '' }), 5000);
   };
+
+  // ── Posible descarte — Status General / Contra Status ────────
+  // Registers "Posible descarte" against the candidate. The backend decides
+  // whether it lands in status_general (if empty) or contra_status (if
+  // status_general is already occupied) — the frontend just reflects
+  // whichever field the response says it wrote to.
+  const requestIndicarDescarte = () => {
+    setShowDescarteModal(true);
+  };
+
+  const confirmIndicarDescarte = async () => {
+    try {
+      setRegisteringDescarte(true);
+      const res = await api.put(
+        `/api/sort-ges/${id}/status`,
+        { status: 'posible_descarte' },
+        { withCredentials: true }
+      );
+      const { field, status } = res.data; // field: 'status_general' | 'contra_status'
+      setCandidate(prev => ({ ...prev, [field]: status }));
+      showNotification(
+        'success',
+        field === 'status_general'
+          ? 'Posible descarte registrado en Status General'
+          : 'Posible descarte registrado en Contra Status'
+      );
+    } catch (err) {
+      console.error('Error registering posible descarte:', err);
+      showNotification('danger', 'Error al registrar el status');
+    } finally {
+      setRegisteringDescarte(false);
+      setShowDescarteModal(false);
+    }
+  };
+
+  const cancelIndicarDescarte = () => {
+    setShowDescarteModal(false);
+  };
+
+  // Small reusable button — dropped into each of the 5 tabs
+  const IndicarDescarteButton = () => (
+    <div className="mb-3 d-flex justify-content-end">
+      <CButton
+        color="danger"
+        variant="outline"
+        size="sm"
+        onClick={requestIndicarDescarte}
+      >
+        <CIcon icon={cilWarning} className="me-1" />Indicar posible descarte
+      </CButton>
+    </div>
+  );
 
   // ── Candidate photo upload (mirrors Profile.js uploadToCloudinary) ──
   const uploadCandidateFoto = async () => {
@@ -1618,7 +1680,6 @@ const SortGes = () => {
   };
 
   // ─────────────────────────────────────────────────────────────
-  // ─────────────────────────────────────────────────────────────
   // Document (PDF) upload to Cloudinary
   // ─────────────────────────────────────────────────────────────
   const [docUploading, setDocUploading]   = useState({});  // { fieldName: true/false }
@@ -1812,6 +1873,8 @@ const SortGes = () => {
   }
 
   const statusInfo = getStatusBadge(candidate.status);
+  const statusGeneralInfo = CANDIDATE_STATUS_OPTIONS[candidate.status_general];
+  const contraStatusInfo = CANDIDATE_STATUS_OPTIONS[candidate.contra_status];
 
   // ═════════════════════════════════════════════════════════════
   // RENDER
@@ -1853,7 +1916,19 @@ const SortGes = () => {
                     {[candidate.postal, candidate.ciudad, candidate.estado].filter(Boolean).join(' - ')}
                   </p>
                   <p className="text-muted mb-1">{candidate.telefono}</p>
-                  <p className="mb-1">Status: <CBadge color={statusInfo.color}>{statusInfo.label}</CBadge></p>
+                  <p className="mb-1 d-flex align-items-center gap-2 flex-wrap">
+                    <span>Status: <CBadge color={statusInfo.color}>{statusInfo.label}</CBadge></span>
+                    {statusGeneralInfo && (
+                      <CBadge style={{ backgroundColor: statusGeneralInfo.bg, color: '#fff' }}>
+                        {statusGeneralInfo.label}
+                      </CBadge>
+                    )}
+                    {contraStatusInfo && (
+                      <CBadge style={{ backgroundColor: contraStatusInfo.bg, color: '#fff' }}>
+                        Contra: {contraStatusInfo.label}
+                      </CBadge>
+                    )}
+                  </p>
                   <p className="text-muted mb-0"><strong>IP:</strong> {candidate.ip_responsable}</p>
                 </div>
                 <div className="ms-3">
@@ -1978,6 +2053,7 @@ const SortGes = () => {
 
             {/* ── ALTA GESCA ─────────────────────────────────── */}
             <CTabPane visible={activeTab === 'alta-gesca'}>
+              <IndicarDescarteButton />
               <CAccordion activeItemKey={1} alwaysOpen>
                 <CAccordionItem itemKey={1}>
                   <CAccordionHeader><strong>Registro Inicial / Datos personales</strong></CAccordionHeader>
@@ -2224,6 +2300,7 @@ const SortGes = () => {
 
             {/* ── CHECK LIST ─────────────────────────────────── */}
             <CTabPane visible={activeTab === 'checklist'}>
+              <IndicarDescarteButton />
               <CAccordion alwaysOpen activeItemKey={1}>
                 <CAccordionItem itemKey={1}>
                   <CAccordionHeader><strong>Archivado de documentación</strong></CAccordionHeader>
@@ -2428,6 +2505,7 @@ const SortGes = () => {
                 SEGURO MED TAB
             ══════════════════════════════════════════════════ */}
             <CTabPane visible={activeTab === 'seguro-med'}>
+              <IndicarDescarteButton />
               <CAccordion alwaysOpen activeItemKey={1}>
 
                 {/* ────────────────────────────────────────────
@@ -2992,6 +3070,7 @@ const SortGes = () => {
 
             {/* ── PSICO SOCIAL ───────────────────────────────── */}
             <CTabPane visible={activeTab === 'psico-social'}>
+              <IndicarDescarteButton />
               <CAccordion alwaysOpen activeItemKey={1}>
 
                 {/* ════════════════════════════════════════════
@@ -3285,6 +3364,7 @@ const SortGes = () => {
 
             {/* ── CITA PREVIA ────────────────────────────────── */}
             <CTabPane visible={activeTab === 'cita-previa'}>
+              <IndicarDescarteButton />
               <CAccordion alwaysOpen>
                 <CAccordionItem itemKey={1}>
                   <CAccordionHeader><strong>Historial de Citas</strong></CAccordionHeader>
@@ -3922,6 +4002,34 @@ const SortGes = () => {
           <CButton color="secondary" onClick={cancelHistorialUnlock}>Cancelar</CButton>
           <CButton color="warning" onClick={confirmHistorialUnlock} disabled={!historialPassword}>
             <CIcon icon={cilLockUnlocked} className="me-1" />Desbloquear
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: Confirmar "Indicar posible descarte" ───── */}
+      <CModal visible={showDescarteModal} onClose={cancelIndicarDescarte}>
+        <CModalHeader>
+          <CModalTitle>
+            <CIcon icon={cilWarning} className="me-2 text-danger" />
+            Indicar posible descarte
+          </CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          <p>
+            ¿Confirma que desea registrar <strong>"Posible descarte"</strong> para esta gestante?
+          </p>
+          <p className="text-muted small mb-0">
+            {candidate.status_general
+              ? 'Ya existe un Status General registrado, por lo que este se guardará en Contra Status.'
+              : 'Se guardará en Status General, ya que aún no hay ningún status registrado.'}
+          </p>
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" onClick={cancelIndicarDescarte}>Cancelar</CButton>
+          <CButton color="danger" onClick={confirmIndicarDescarte} disabled={registeringDescarte}>
+            {registeringDescarte
+              ? <><CSpinner size="sm" className="me-1" />Registrando...</>
+              : 'Confirmar'}
           </CButton>
         </CModalFooter>
       </CModal>

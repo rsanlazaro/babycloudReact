@@ -95,7 +95,7 @@ const _nav = [
     items: [
       {
         component: CNavItem,
-        name: 'Listado Sort_GES',
+        name: 'Sort_GES List',
         to: '/babysite/sortGes',
         className: 'sidebar-component',
         state: 'enabled',
@@ -103,7 +103,7 @@ const _nav = [
       },
       {
         component: CNavItem,
-        name: 'Listado Sort_IPS',
+        name: 'Sort_IPS List',
         to: '/babysite/ips',
         className: 'sidebar-component',
         state: 'disabled',
@@ -111,7 +111,7 @@ const _nav = [
       },
       {
         component: CNavItem,
-        name: 'Listado Sort_DON',
+        name: 'Sort_DON List',
         to: '/babysite/donant',
         className: 'sidebar-component',
         state: 'disabled',

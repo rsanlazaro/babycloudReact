@@ -84,6 +84,9 @@ const Guests = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'username', direction: 'asc' });
 
+  // Profile filter state
+  const [profileFilter, setProfileFilter] = useState('all'); // 'all' | 'ip' | 'agency' | 'recluta'
+
   // Edit state
   const [editingCell, setEditingCell] = useState({ id: null, field: null });
   const [editValue, setEditValue] = useState('');
@@ -221,9 +224,18 @@ const Guests = () => {
     return sortConfig.direction === 'asc' ? cilArrowTop : cilArrowBottom;
   };
 
+  // Profile filter tabs (includes an explicit "Todos" tab)
+  const profileFilterTabs = [{ value: 'all', label: 'Todos' }, ...profileOptions];
+
   // Filter and sort guests
   const filteredAndSortedGuests = useMemo(() => {
     let result = [...guests];
+
+    // Filter by profile
+    if (profileFilter !== 'all') {
+      result = result.filter((guest) => guest.profile === profileFilter);
+    }
+
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter((guest) =>
@@ -247,7 +259,7 @@ const Guests = () => {
       return 0;
     });
     return result;
-  }, [guests, searchTerm, sortConfig]);
+  }, [guests, searchTerm, sortConfig, profileFilter]);
 
   // Selection handlers
   const handleSelectAll = () => {
@@ -624,6 +636,22 @@ const Guests = () => {
           </div>
         </CCardHeader>
         <CCardBody>
+          {/* Profile filter tabs (Chrome-style) */}
+          <div className="chrome-tabs" role="tablist" aria-label="Filtrar por perfil">
+            {profileFilterTabs.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                role="tab"
+                aria-selected={profileFilter === opt.value}
+                className={`chrome-tab${profileFilter === opt.value ? ' active' : ''}`}
+                onClick={() => setProfileFilter(opt.value)}
+              >
+                <span>{opt.label}</span>
+              </button>
+            ))}
+          </div>
+
           {/* Search and bulk actions */}
           <CRow className="mb-3">
             <CCol md={6}>
@@ -884,6 +912,46 @@ const Guests = () => {
         .nowrap-table td {
           white-space: nowrap;
           vertical-align: middle;
+        }
+
+        /* Chrome-browser-style filter tabs */
+        .chrome-tabs {
+          display: flex;
+          align-items: flex-end;
+          margin: 0 0 1rem -4px;
+        }
+        .chrome-tab {
+          position: relative;
+          appearance: none;
+          border: none;
+          outline: none;
+          cursor: pointer;
+          padding: 10px 22px;
+          margin-right: 4px;
+          min-width: 110px;
+          font-size: 0.85rem;
+          font-weight: 500;
+          font-family: inherit;
+          color: #5f6368;
+          background: #dfe3e8;
+          border-radius: 10px 10px 0 0;
+          transition: background 0.15s ease, color 0.15s ease;
+        }
+        .chrome-tab:hover:not(.active) {
+          background: #e9ecf0;
+        }
+        .chrome-tab span {
+          position: relative;
+        }
+        .chrome-tab.active {
+          color: #1a73e8;
+          font-weight: 600;
+          background: #ffffff;
+          box-shadow: 0 -1px 4px rgba(0, 0, 0, 0.08);
+          z-index: 5;
+        }
+        .chrome-tab:first-child {
+          margin-left: 0;
         }
       `}</style>
     </CContainer>
