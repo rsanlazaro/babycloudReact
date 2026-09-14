@@ -12,10 +12,6 @@ import {
   CNavLink,
   CTabContent,
   CTabPane,
-  CAccordion,
-  CAccordionItem,
-  CAccordionHeader,
-  CAccordionBody,
   CFormInput,
   CFormSelect,
   CFormCheck,
@@ -70,6 +66,16 @@ const TAB_CONFIG = [
   { id: 'seguro-med', label: 'SEGURO MED',   color: '#899973', icon: cilShieldAlt },
   { id: 'psico-social', label: 'PSICO SOCIAL', color: '#0098b3', icon: cilPeople  },
   { id: 'cita-previa', label: 'CITA PREVIA', color: '#a14567', icon: cilCalendar  },
+];
+
+// Sub-tabs inside CITA PREVIA — each holds its own independent list of
+// "citas" (see citasPorTab state in the component).
+const CITA_PREVIA_TABS = [
+  { id: 'iniciales',           label: 'Iniciales'           },
+  { id: 'tratamiento_previo',  label: 'Tratamiento previo'  },
+  { id: 'prepa_transfer',      label: 'Prepa/Transfer'      },
+  { id: 'pre_natal',           label: 'Pre Natal'           },
+  { id: 'materno_fetal',       label: 'Materno Fetal'       },
 ];
 
 // Catalog of statuses that can land in candidate.status_general /
@@ -259,6 +265,27 @@ const SortGes = () => {
   const [seguimientoOpen, setSeguimientoOpen] = useState([]);
 
   // ─────────────────────────────────────────────────────────────
+  // CITA PREVIA state
+  // Each "cita" is local-only for now (no backend endpoint exists yet for
+  // this — TODO: wire up real persistence, mirroring how seguimientos does
+  // it, once the API supports it). Grouped by sub-tab id (see
+  // CITA_PREVIA_TABS), each an independent list.
+  // ─────────────────────────────────────────────────────────────
+  const CITA_EMPTY = {
+    motivo: '',
+    dr_tratante: '',
+    inicio_tratamiento: '',
+    fecha_cita: '',
+    final: '',
+    entrega_resultados: '',
+    status: '',
+  };
+  const [citaPreviaActiveTab, setCitaPreviaActiveTab] = useState(CITA_PREVIA_TABS[0].id);
+  const [citasPorTab, setCitasPorTab] = useState(
+    CITA_PREVIA_TABS.reduce((acc, tab) => ({ ...acc, [tab.id]: [] }), {})
+  );
+
+  // ─────────────────────────────────────────────────────────────
   // Select options
   // ─────────────────────────────────────────────────────────────
   const esquemaOptions = [
@@ -297,13 +324,36 @@ const SortGes = () => {
     { value: 'agendado',   label: 'Agendado'   },
     { value: 'programar',  label: 'Programar'  },
   ];
-  const recomendacionOpts = [
+  // Recomendación / condición options for the Psico Inicial rows — these
+  // vary by etapa (stage), not a single shared catalog:
+  //   - Entrevista admisión, Estudios Socio Económicos, HIM 1-4 →
+  //     Recomendable (Re) / Con reservas (CR) / No recomendable (NR) /
+  //     Sin datos (s/d)
+  //   - Psicométrico → Apta (A) / Con reservas (CR) / No recomendable (NR) /
+  //     Sin datos (s/d)
+  const RECOMENDACION_RE_CR_NR = [
     { value: '', label: 'Seleccionar...' },
-    { value: 'apta',             label: 'Apta'             },
-    { value: 'recomendable',     label: 'Recomendable'     },
-    { value: 'con_reservas',     label: 'Con reservas'     },
-    { value: 'no_recomendable',  label: 'No recomendable'  },
+    { value: 'recomendable',    label: 'Recomendable (Re)'    },
+    { value: 'con_reservas',    label: 'Con reservas (CR)'    },
+    { value: 'no_recomendable', label: 'No recomendable (NR)' },
+    { value: 'sin_datos',       label: 'Sin datos (s/d)'      },
   ];
+  const RECOMENDACION_APTA_CR_NR = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'apta',             label: 'Apta (A)'             },
+    { value: 'con_reservas',     label: 'Con reservas (CR)'    },
+    { value: 'no_recomendable',  label: 'No recomendable (NR)' },
+    { value: 'sin_datos',        label: 'Sin datos (s/d)'      },
+  ];
+  const RECOMENDACION_OPTS_BY_ETAPA = {
+    'Entrevista admisión':       RECOMENDACION_RE_CR_NR,
+    'Psicométrico':              RECOMENDACION_APTA_CR_NR,
+    'Estudios Socio Económicos': RECOMENDACION_RE_CR_NR,
+    'HIM 1':                     RECOMENDACION_RE_CR_NR,
+    'HIM 2':                     RECOMENDACION_RE_CR_NR,
+    'HIM 3':                     RECOMENDACION_RE_CR_NR,
+    'HIM 4':                     RECOMENDACION_RE_CR_NR,
+  };
   // ── Seguimiento Psicológico selects ─────────────────────────
   const motivoOpts = [
     { value: '', label: 'Seleccionar...' },
@@ -358,6 +408,29 @@ const SortGes = () => {
     { value: 'administrativa',      label: 'Administrativa'      },
     { value: 'inconformidad',       label: 'Inconformidad'       },
   ];
+
+  // ── Cita Previa selects ──────────────────────────────────────
+  const citaMotivoOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'cita_inicial',         label: 'Cita inicial'         },
+    { value: 'seg_sdg',              label: 'Seg SDG'              },
+    { value: 'tratamiento_previo',   label: 'Tratamiento previo'   },
+    { value: 'nutricion',            label: 'Nutrición'            },
+    { value: 'cultivos_laboratorio', label: 'Cultivos/Laboratorio' },
+    { value: 'materno_fetal',        label: 'Materno Fetal'        },
+    { value: 'otro',                 label: 'Otro'                 },
+  ];
+  const citaStatusOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'informar_resolucion', label: 'Informar resolución'  },
+    { value: 'agendar',             label: 'Agendar'               },
+    { value: 'programado',          label: 'Programado'            },
+    { value: 'confirmado',          label: 'Confirmado'            },
+    { value: 'remarcar',            label: 'Remarcar'              },
+    { value: 'no_acudio',           label: 'No acudió / revisar'   },
+    { value: 'completado',          label: 'Completado'            },
+  ];
+
   // Vida status derived from vencimiento date
   const getVidaStatus = (vencimiento) => {
     if (!vencimiento) return { label: 'Sin datos', color: 'secondary' };
@@ -711,6 +784,22 @@ const SortGes = () => {
       >
         <CIcon icon={cilWarning} className="me-1" />Indicar posible descarte
       </CButton>
+    </div>
+  );
+
+  // "Accordion" sections across every tab are permanently expanded now (no
+  // collapse toggle) per product requirement — this replaces CoreUI's
+  // collapsible CAccordion/CAccordionItem/CAccordionHeader/CAccordionBody
+  // with a static equivalent that keeps the same visual style but can't be
+  // closed by the user.
+  const StaticSection = ({ title, children }) => (
+    <div className="border rounded mb-3 overflow-hidden">
+      <div className="px-3 py-2" style={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}>
+        <strong>{title}</strong>
+      </div>
+      <div className="p-3">
+        {children}
+      </div>
     </div>
   );
 
@@ -1186,6 +1275,31 @@ const SortGes = () => {
     return 'programada';
   };
 
+  // ── Cita Previa handlers ─────────────────────────────────────
+  // Local-only for now — no backend endpoint exists yet for citas (see the
+  // TODO on citasPorTab's declaration above).
+  const addCita = (tabId) => {
+    const newId = Date.now() + Math.random();
+    setCitasPorTab(prev => ({
+      ...prev,
+      [tabId]: [...prev[tabId], { id: newId, ...CITA_EMPTY }],
+    }));
+  };
+
+  const updateCita = (tabId, citaId, field, value) => {
+    setCitasPorTab(prev => ({
+      ...prev,
+      [tabId]: prev[tabId].map(c => c.id === citaId ? { ...c, [field]: value } : c),
+    }));
+  };
+
+  const deleteCita = (tabId, citaId) => {
+    setCitasPorTab(prev => ({
+      ...prev,
+      [tabId]: prev[tabId].filter(c => c.id !== citaId),
+    }));
+  };
+
   // ── Historial gate handlers ──────────────────────────────────
   const requestHistorialUnlock = (segId) => {
     setHistorialTargetId(segId);
@@ -1512,6 +1626,76 @@ const SortGes = () => {
     const locked = isFieldLocked(section, field);
     const handleChange = locked ? undefined : (e) => {
       updateSeguimiento(segId, field, e.target.value);
+      const cv = e.target.value;
+      const init = activeEditingFieldRef.current.initialValue;
+      if (cv && cv !== '' && cv !== init) {
+        setPendingFieldLock({ section, field, value: cv });
+        setShowConfirmModal(true);
+        activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+      }
+    };
+    return (
+      <CInputGroup size="sm">
+        <CFormSelect
+          size="sm"
+          value={value || ''}
+          onChange={handleChange}
+          onFocus={locked ? undefined : () => handleFieldFocus(section, field, value)}
+          onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
+          disabled={locked}
+          style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
+        >
+          {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </CFormSelect>
+        {locked
+          ? <LockBtn section={section} field={field} />
+          : value
+            ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
+                <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
+              </CInputGroupText>
+            : null
+        }
+      </CInputGroup>
+    );
+  };
+
+  // ── Cita Previa input (scoped by tabId + citaId) ─────────────
+  const renderCitaInput = (tabId, citaId, field, value, type = 'text', placeholder = '') => {
+    const section = `cita_${tabId}_${citaId}`;
+    const locked = isFieldLocked(section, field);
+    return (
+      <CInputGroup size="sm">
+        <CFormInput
+          type={type}
+          size="sm"
+          value={value || ''}
+          placeholder={placeholder}
+          onChange={locked ? undefined : e => updateCita(tabId, citaId, field, e.target.value)}
+          onFocus={locked ? undefined : () => handleFieldFocus(section, field, value)}
+          onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
+          onKeyDown={locked ? undefined : (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
+          disabled={locked}
+          readOnly={locked}
+          style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
+        />
+        {locked
+          ? <LockBtn section={section} field={field} />
+          : value
+            ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
+                <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
+              </CInputGroupText>
+            : null
+        }
+      </CInputGroup>
+    );
+  };
+
+  // ── Cita Previa select (scoped by tabId + citaId) ────────────
+  const renderCitaSelect = (tabId, citaId, field, value, options) => {
+    const section = `cita_${tabId}_${citaId}`;
+    const locked = isFieldLocked(section, field);
+    const handleChange = locked ? undefined : (e) => {
+      updateCita(tabId, citaId, field, e.target.value);
       const cv = e.target.value;
       const init = activeEditingFieldRef.current.initialValue;
       if (cv && cv !== '' && cv !== init) {
@@ -2054,10 +2238,8 @@ const SortGes = () => {
             {/* ── ALTA GESCA ─────────────────────────────────── */}
             <CTabPane visible={activeTab === 'alta-gesca'}>
               <IndicarDescarteButton />
-              <CAccordion activeItemKey={1} alwaysOpen>
-                <CAccordionItem itemKey={1}>
-                  <CAccordionHeader><strong>Registro Inicial / Datos personales</strong></CAccordionHeader>
-                  <CAccordionBody>
+              <>
+                <StaticSection title="Registro Inicial / Datos personales">
                     <CRow>
                       <CCol md={4}>
                         {[
@@ -2153,12 +2335,9 @@ const SortGes = () => {
                         </div>
                       </CCol>
                     </CRow>
-                  </CAccordionBody>
-                </CAccordionItem>
+                </StaticSection>
 
-                <CAccordionItem itemKey={2}>
-                  <CAccordionHeader><strong>Datos de Salud Iniciales de Requisitos al Programa</strong></CAccordionHeader>
-                  <CAccordionBody>
+                <StaticSection title="Datos de Salud Iniciales de Requisitos al Programa">
                     <CRow>
                       <CCol md={6}>
                         <CRow>
@@ -2293,18 +2472,15 @@ const SortGes = () => {
                         </CRow>
                       </CCol>
                     </CRow>
-                  </CAccordionBody>
-                </CAccordionItem>
-              </CAccordion>
+                </StaticSection>
+              </>
             </CTabPane>
 
             {/* ── CHECK LIST ─────────────────────────────────── */}
             <CTabPane visible={activeTab === 'checklist'}>
               <IndicarDescarteButton />
-              <CAccordion alwaysOpen activeItemKey={1}>
-                <CAccordionItem itemKey={1}>
-                  <CAccordionHeader><strong>Archivado de documentación</strong></CAccordionHeader>
-                  <CAccordionBody>
+              <>
+                <StaticSection title="Archivado de documentación">
                     <CRow>
                       <CCol md={6}>
                         {[
@@ -2427,12 +2603,9 @@ const SortGes = () => {
                         </div>
                       </CCol>
                     </CRow>
-                  </CAccordionBody>
-                </CAccordionItem>
+                </StaticSection>
 
-                <CAccordionItem itemKey={2}>
-                  <CAccordionHeader><strong>Consentimientos firmados</strong></CAccordionHeader>
-                  <CAccordionBody>
+                <StaticSection title="Consentimientos firmados">
                     <CRow className="mb-4">
                       <CCol md={6}>
                         <div className="mb-3">
@@ -2496,9 +2669,8 @@ const SortGes = () => {
                         ))}
                       </CCol>
                     </CRow>
-                  </CAccordionBody>
-                </CAccordionItem>
-              </CAccordion>
+                </StaticSection>
+              </>
             </CTabPane>
 
             {/* ══════════════════════════════════════════════════
@@ -2506,14 +2678,12 @@ const SortGes = () => {
             ══════════════════════════════════════════════════ */}
             <CTabPane visible={activeTab === 'seguro-med'}>
               <IndicarDescarteButton />
-              <CAccordion alwaysOpen activeItemKey={1}>
+              <>
 
                 {/* ────────────────────────────────────────────
                     SEGURO DE VIDA
                 ──────────────────────────────────────────── */}
-                <CAccordionItem itemKey={1}>
-                  <CAccordionHeader><strong>Seguro de Vida</strong></CAccordionHeader>
-                  <CAccordionBody>
+                <StaticSection title="Seguro de Vida">
 
                     {/* ── Cards — each with its own inline detail panel ── */}
                     {segurosVida.length > 0 && (
@@ -2825,15 +2995,12 @@ const SortGes = () => {
                     >
                       <CIcon icon={cilPlus} className="me-1" />Nuevo seguro
                     </CButton>
-                  </CAccordionBody>
-                </CAccordionItem>
+                </StaticSection>
 
                 {/* ────────────────────────────────────────────
                     SEGURO DE MATERNIDAD
                 ──────────────────────────────────────────── */}
-                <CAccordionItem itemKey={2}>
-                  <CAccordionHeader><strong>Seguro de Maternidad</strong></CAccordionHeader>
-                  <CAccordionBody>
+                <StaticSection title="Seguro de Maternidad">
 
                     {/* Polizas list */}
                     {segurosMat.map((poliza) => (
@@ -3063,22 +3230,20 @@ const SortGes = () => {
                         <CIcon icon={cilPlus} className="me-1" />Nuevo seguro
                       </CButton>
                     </div>
-                  </CAccordionBody>
-                </CAccordionItem>
-              </CAccordion>
+                </StaticSection>
+              </>
             </CTabPane>
 
             {/* ── PSICO SOCIAL ───────────────────────────────── */}
             <CTabPane visible={activeTab === 'psico-social'}>
               <IndicarDescarteButton />
-              <CAccordion alwaysOpen activeItemKey={1}>
+              <>
 
                 {/* ════════════════════════════════════════════
                     PSICO INICIAL
                 ════════════════════════════════════════════ */}
-                <CAccordionItem itemKey={1}>
-                  <CAccordionHeader><strong>Psico Inicial</strong></CAccordionHeader>
-                  <CAccordionBody style={{ padding: '4px 0' }}>
+                <StaticSection title="Psico Inicial">
+                  <div style={{ padding: '4px 0' }}>
                     <div style={{ display: 'inline-block', minWidth: '580px' }}>
                       {psicoInicial.map((row, idx) => {
                         const sec      = `psico_row_${row.id}`;
@@ -3086,6 +3251,9 @@ const SortGes = () => {
                         const hasEstado = !!row.estado;
                         const hasRec   = !!row.recomendacion;
                         const anyFilled = hasFecha || hasEstado || hasRec;
+                        // Recomendación options depend on the etapa — some
+                        // etapas (Estudios Socio Económicos) don't have one at all.
+                        const recomendacionOptsForEtapa = RECOMENDACION_OPTS_BY_ETAPA[row.etapa];
                         return (
                           <div
                             key={row.id}
@@ -3143,36 +3311,39 @@ const SortGes = () => {
                               </div>
                             </div>
 
-                            {/* Recomendación */}
+                            {/* Recomendación / condición — the option set varies by
+                                etapa (Psicométrico uses "Apta" instead of "Recomendable") */}
                             <div
                               className="psico-field"
                               style={{ width: '175px', flexShrink: 0 }}
                             >
-                              <div style={hasRec ? {
-                                borderBottom: '2px solid #0098b3',
-                                backgroundColor: 'rgba(0,152,179,0.06)',
-                                borderRadius: '3px 3px 0 0',
-                              } : {}}>
-                                {renderTableSelect(
-                                  sec, 'recomendacion', row.recomendacion,
-                                  e => handlePsicoInicialChange(row.id, 'recomendacion', e.target.value),
-                                  recomendacionOpts
-                                )}
-                              </div>
+                              {recomendacionOptsForEtapa ? (
+                                <div style={hasRec ? {
+                                  borderBottom: '2px solid #0098b3',
+                                  backgroundColor: 'rgba(0,152,179,0.06)',
+                                  borderRadius: '3px 3px 0 0',
+                                } : {}}>
+                                  {renderTableSelect(
+                                    sec, 'recomendacion', row.recomendacion,
+                                    e => handlePsicoInicialChange(row.id, 'recomendacion', e.target.value),
+                                    recomendacionOptsForEtapa
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-muted small">—</span>
+                              )}
                             </div>
                           </div>
                         );
                       })}
                     </div>
-                  </CAccordionBody>
-                </CAccordionItem>
+                  </div>
+                </StaticSection>
 
                 {/* ════════════════════════════════════════════
                     SEGUIMIENTO PSICOLÓGICO
                 ════════════════════════════════════════════ */}
-                <CAccordionItem itemKey={2}>
-                  <CAccordionHeader><strong>Seguimiento Psicológico</strong></CAccordionHeader>
-                  <CAccordionBody>
+                <StaticSection title="Seguimiento Psicológico">
 
                     {/* "Nuevo seguimiento" button */}
                     <div className="mb-3">
@@ -3357,24 +3528,147 @@ const SortGes = () => {
                         </div>
                       );
                     })}
-                  </CAccordionBody>
-                </CAccordionItem>
-              </CAccordion>
+                </StaticSection>
+              </>
             </CTabPane>
 
             {/* ── CITA PREVIA ────────────────────────────────── */}
             <CTabPane visible={activeTab === 'cita-previa'}>
               <IndicarDescarteButton />
-              <CAccordion alwaysOpen>
-                <CAccordionItem itemKey={1}>
-                  <CAccordionHeader><strong>Historial de Citas</strong></CAccordionHeader>
-                  <CAccordionBody><p className="text-muted">Contenido del historial de citas…</p></CAccordionBody>
-                </CAccordionItem>
-                <CAccordionItem itemKey={2}>
-                  <CAccordionHeader><strong>Programar Nueva Cita</strong></CAccordionHeader>
-                  <CAccordionBody><p className="text-muted">Contenido para programar citas…</p></CAccordionBody>
-                </CAccordionItem>
-              </CAccordion>
+
+              {/* Sub-tabs — each holds its own independent list of citas */}
+              <CNav variant="tabs" className="mb-3" style={{ borderBottom: 'none' }}>
+                {CITA_PREVIA_TABS.map((tab) => (
+                  <CNavItem key={tab.id}>
+                    <CNavLink
+                      active={citaPreviaActiveTab === tab.id}
+                      onClick={() => setCitaPreviaActiveTab(tab.id)}
+                      style={{
+                        cursor: 'pointer',
+                        color: citaPreviaActiveTab === tab.id ? '#a14567' : '#6c757d',
+                        fontWeight: citaPreviaActiveTab === tab.id ? 700 : 400,
+                        background: 'none',
+                        border: 'none',
+                        borderBottom: citaPreviaActiveTab === tab.id
+                          ? '3px solid #a14567' : '3px solid transparent',
+                        paddingBottom: '8px',
+                      }}
+                    >
+                      {tab.label}
+                    </CNavLink>
+                  </CNavItem>
+                ))}
+              </CNav>
+
+              <CTabContent>
+                {CITA_PREVIA_TABS.map((tab) => (
+                  <CTabPane key={tab.id} visible={citaPreviaActiveTab === tab.id}>
+                    {(citasPorTab[tab.id] || []).length === 0 && (
+                      <p className="text-muted small mb-3">No hay citas registradas.</p>
+                    )}
+
+                    {(citasPorTab[tab.id] || []).map((cita) => {
+                      const section = `cita_${tab.id}_${cita.id}`;
+                      const drLocked = isFieldLocked(section, 'dr_tratante');
+                      const motivoLabel = citaMotivoOpts.find(o => o.value === cita.motivo)?.label;
+                      const statusLabel = citaStatusOpts.find(o => o.value === cita.status)?.label;
+
+                      return (
+                        <div key={cita.id} className="border rounded mb-3 overflow-hidden">
+                          {/* Header — permanently visible summary, no collapse toggle */}
+                          <div
+                            className="d-flex align-items-center gap-4 flex-wrap px-3 py-2"
+                            style={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}
+                          >
+                            <div>
+                              <span className="text-muted small">Cita</span>{' '}
+                              <span className="fw-semibold" style={{ fontStyle: 'italic', color: '#a14567' }}>
+                                {motivoLabel || '—'}
+                              </span>
+                            </div>
+                            <div className="d-flex align-items-center gap-1">
+                              {drLocked && <CIcon icon={cilLockLocked} size="sm" className="text-muted" />}
+                              <span className="text-muted small">Dr. Tratante</span>{' '}
+                              <span className="fw-semibold" style={{ fontStyle: 'italic' }}>
+                                {cita.dr_tratante || '—'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-muted small">Prox Cita</span>{' '}
+                              <strong>{cita.fecha_cita || '—'}</strong>
+                            </div>
+                            <div>
+                              <span className="text-muted small">Final</span>{' '}
+                              <strong>{cita.final || '—'}</strong>
+                            </div>
+                            <div className="ms-auto d-flex align-items-center gap-2">
+                              <span className="text-muted small">Status</span>
+                              <span className="fw-semibold" style={{ fontStyle: 'italic' }}>
+                                {statusLabel || '—'}
+                              </span>
+                              <CButton
+                                size="sm" color="danger" variant="ghost"
+                                onClick={() => deleteCita(tab.id, cita.id)}
+                                title="Eliminar cita"
+                              >
+                                <CIcon icon={cilTrash} />
+                              </CButton>
+                            </div>
+                          </div>
+
+                          {/* Body — permanently visible, no toggle */}
+                          <div className="p-3">
+                            <CRow>
+                              <CCol md={4} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Motivo de la cita:</CFormLabel>
+                                {renderCitaSelect(tab.id, cita.id, 'motivo', cita.motivo, citaMotivoOpts)}
+                              </CCol>
+                              <CCol md={4} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Dr. Tratante:</CFormLabel>
+                                {renderCitaInput(tab.id, cita.id, 'dr_tratante', cita.dr_tratante, 'text', 'Nombre del doctor')}
+                              </CCol>
+                              <CCol md={4} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Status:</CFormLabel>
+                                {renderCitaSelect(tab.id, cita.id, 'status', cita.status, citaStatusOpts)}
+                              </CCol>
+                              <CCol md={3} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Inicio Tratamiento:</CFormLabel>
+                                {renderCitaInput(tab.id, cita.id, 'inicio_tratamiento', cita.inicio_tratamiento, 'date')}
+                              </CCol>
+                              <CCol md={3} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Fecha Cita:</CFormLabel>
+                                {renderCitaInput(tab.id, cita.id, 'fecha_cita', cita.fecha_cita, 'date')}
+                              </CCol>
+                              <CCol md={3} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Final:</CFormLabel>
+                                {renderCitaInput(tab.id, cita.id, 'final', cita.final, 'date')}
+                              </CCol>
+                              <CCol md={3} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Entrega resultados:</CFormLabel>
+                                {renderCitaInput(tab.id, cita.id, 'entrega_resultados', cita.entrega_resultados, 'date')}
+                              </CCol>
+                            </CRow>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* "+" button — add a new cita to this sub-tab */}
+                    <div className="d-flex justify-content-end">
+                      <CButton
+                        onClick={() => addCita(tab.id)}
+                        style={{
+                          backgroundColor: '#a14567', borderColor: '#a14567', color: '#fff',
+                          borderRadius: '50%', width: '36px', height: '36px', padding: 0,
+                        }}
+                        title="Nueva cita"
+                      >
+                        <CIcon icon={cilPlus} />
+                      </CButton>
+                    </div>
+                  </CTabPane>
+                ))}
+              </CTabContent>
             </CTabPane>
 
           </CTabContent>

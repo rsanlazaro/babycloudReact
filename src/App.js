@@ -52,8 +52,13 @@ const LoadingFallback = () => (
 const PermissionsRefresher = () => {
   const location = useLocation();
   const { isAuthenticated, refreshPermissions } = useUser();
+  const isFirstRender = React.useRef(true);
 
   useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return; // checkSession() in AuthProvider already fetched fresh data for this load
+    }
     if (isAuthenticated) {
       refreshPermissions();
     }

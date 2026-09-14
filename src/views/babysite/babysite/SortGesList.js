@@ -13,6 +13,7 @@ import {
   cilSearch, cilPlus, cilArrowTop, cilArrowBottom,
   cilFile, cilPencil, cilTrash, cilWarning,
   cilUser, cilClipboard, cilCalendar, cilPeople,
+  cilSend, cilClock, cilCheck, cilLockLocked, cilLockUnlocked,
 } from '@coreui/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
@@ -33,6 +34,85 @@ const PROGRAMA_OPTIONS = {
   '1': { label: '1°', bg: '#0071b8' },
   '2': { label: '2°', bg: '#8e44ad' },
 };
+
+// Placeholder work groups for the RESP dropdown in Admisiones / Att. Previa /
+// Psicología. Real group membership isn't wired up yet — once it is, this
+// hardcoded list should be replaced with whatever the groups API returns.
+// TODO: replace with real group rosters once group management is implemented.
+const GRUPOS_TRABAJO = ['Psicología', 'admisiones', 'seguros'];
+
+// ── Admisiones tab — field option catalogs ──────────────────────
+// NOTE: none of these columns are backed by DB columns yet — selections
+// are kept in local UI state (see admisionesFields / handleAdmisionesFieldChange
+// in SortGesList) until the corresponding backend fields exist.
+const VINCULO_OPTIONS = ['Babyboom', 'Kiromedic', 'Nora']; // also reused for Att. Previa's "Dr. Tratante" — same catalog
+const PSICO_ENT_OPTIONS  = ['RE', 's/d', 'CR', 'NR'];
+const PSICO_PSIC_OPTIONS = ['A', 's/d', 'CR', 'NR'];
+const HIM_OPTIONS = ['RE', 's/d', 'CR', 'NR'];
+
+// Looks up a value from the candidate's nested psico_inicial rows (etapa,
+// fecha, estado, recomendacion — same shape as GET /api/sort-ges/:id/psico-inicial).
+// This is how the Admisiones tab's Psicología > Ent/Psic/HIM columns are
+// linked to the candidate's own record instead of being edited locally.
+// candidate.psico_inicial is populated by fetchPsicoInicialForCandidates in
+// SortGesList (a separate per-candidate fetch, since the list endpoint
+// itself doesn't return this) — falls back to '—' before that resolves.
+const getPsicoInicialValue = (candidate, etapa, field) => {
+  const rows = candidate?.psico_inicial;
+  if (!Array.isArray(rows)) return '';
+  const row = rows.find(r => r.etapa === etapa);
+  return row?.[field] || '';
+};
+
+// Short labels for the recomendación values shown as read-only in
+// SortGesList (SortGes.js's own selects show the full label + abbreviation).
+const RECOMENDACION_SHORT_LABELS = {
+  apta: 'A', recomendable: 'Re', con_reservas: 'CR',
+  no_recomendable: 'NR', sin_datos: 's/d',
+};
+
+// Psico Inicial's HIM etapas are numbered 1-4. Admisiones' "HIM" column
+// shows whichever is the most recent one with data — checked HIM 4 down to
+// HIM 1, returning the first that has a recomendación set.
+const HIM_ETAPAS_DESC = ['HIM 4', 'HIM 3', 'HIM 2', 'HIM 1'];
+const getLastHimValue = (candidate) => {
+  for (const etapa of HIM_ETAPAS_DESC) {
+    const val = getPsicoInicialValue(candidate, etapa, 'recomendacion');
+    if (val) return val;
+  }
+  return '';
+};
+
+const CONSULTA_LABS_STATES = {
+  programar:  { label: 'Programar'  },
+  revisar:    { label: 'Revisar'    },
+  programado: { label: 'Programado' },
+};
+
+const TRAT_PREVIO_STATES = {
+  concluido: { label: 'Concluido' },
+  en_curso:  { label: 'En curso'  },
+};
+
+// "Alta seguro" — a 5-state cyclical control. Clicking the badge advances
+// to the next state; each state has its own icon + circular background
+// color, per the design brief. Icon choices (cilSend for "send", cilClock
+// standing in for the hourglass/waiting icon) are the closest equivalents
+// in the CoreUI free icon set — swap them here if exact glyphs are needed.
+const ALTA_SEGURO_STATES = [
+  { key: 'nada',             label: '—',                  icon: cilSend,  bg: '#000000' },
+  { key: 'espera_poliza',    label: 'Espera póliza',       icon: cilClock, bg: '#dc3545' },
+  // TODO: once tracked in DB, show the actual assignment date here instead of this label
+  { key: 'fecha_asignacion', label: 'Fecha de asignación', icon: cilCheck, bg: '#ffc107' },
+  { key: 'liberada',         label: 'Liberada',            icon: cilCheck, bg: '#198754' },
+  { key: 'asignada',         label: 'Asignada',            icon: cilCheck, bg: '#6f42c1' },
+];
+
+// Psicología tab — SDG week checkpoints tracked from week 12 through week 40.
+// The first checkpoint (week 12) is combined with HIM per the spec
+// ("SDG12 / HIM"); every week uses the same RE/s-d/CR/NR catalog as
+// HIM_OPTIONS/PSICO_ENT_OPTIONS above.
+const PSICOLOGIA_SDG_WEEKS = ['12', '16', '20', '22', '26', '32', '34', '35', '36', '37', '38', '39', '40'];
 
 // Catalog of statuses that can land in "Status General" / "Contra Status".
 // Today only "Posible descarte" exists (triggered from the "Indicar
@@ -114,11 +194,12 @@ const getSeleccion = (c) => {
 // ─────────────────────────────────────────────────────────────
 
 // Sortable column header
-const SortHeader = ({ label, sortKey, sortConfig, onSort, style = {}, title }) => (
+const SortHeader = ({ label, sortKey, sortConfig, onSort, style = {}, title, rowSpan }) => (
   <CTableHeaderCell
     style={{ cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap', ...style }}
     onClick={() => onSort(sortKey)}
     title={title}
+    rowSpan={rowSpan}
   >
     <div className="d-flex align-items-center gap-1">
       {label}
@@ -145,20 +226,109 @@ const ActionButtons = ({ candidate, onEdit, onDelete }) => (
 );
 
 // "Resp" column dropdown — shared by Admisiones, Att. Previa and Psicología.
-// Options come from the user list (System users, not Guests), excluding
-// AdminBabyCloud. Selecting a value persists immediately.
-const RespSelect = ({ candidate, users, onRespChange }) => (
+// Options come from GRUPOS_TRABAJO — a hardcoded placeholder list, since
+// real work-group membership isn't wired up yet (see TODO above). Each tab
+// keeps its own selection independent of the others: `respByTab` is keyed
+// by `${tabId}_${candidateId}`, so picking a group in "Admisiones" doesn't
+// affect what "Psicología" shows for the same candidate. Selecting a value
+// persists immediately (currently still written to the shared
+// ip_responsable column on the backend — see handleRespChange).
+const RespSelect = ({ candidate, tabId, respByTab, onRespChange }) => {
+  const key = `${tabId}_${candidate.id}`;
+  // Falls back to the shared DB value only if this tab hasn't overridden it locally
+  const value = respByTab[key] !== undefined ? respByTab[key] : (candidate.ip_responsable || '');
+  return (
+    <CFormSelect
+      size="sm"
+      value={value}
+      onChange={(e) => onRespChange(tabId, candidate.id, e.target.value)}
+      style={{ minWidth: '120px', fontSize: '0.8rem' }}
+    >
+      <option value="">— Sin asignar —</option>
+      {GRUPOS_TRABAJO.map((g) => (
+        <option key={g} value={g}>{g}</option>
+      ))}
+    </CFormSelect>
+  );
+};
+
+// Plain option-list select — used for Vínculo, Ent/Psic and HIM columns
+// in Admisiones. `options` is a flat array of strings used as both value
+// and label.
+const AdmisionesSelect = ({ value, onChange, options, blankLabel = '—' }) => (
   <CFormSelect
     size="sm"
-    value={candidate.ip_responsable || ''}
-    onChange={(e) => onRespChange(candidate.id, e.target.value)}
-    style={{ minWidth: '120px', fontSize: '0.8rem' }}
+    value={value || ''}
+    onChange={(e) => onChange(e.target.value)}
+    style={{ minWidth: '90px', fontSize: '0.8rem' }}
   >
-    <option value="">— Sin asignar —</option>
-    {users.map((u) => (
-      <option key={u.id} value={u.username}>{u.username}</option>
+    <option value="">{blankLabel}</option>
+    {options.map((opt) => (
+      <option key={opt} value={opt}>{opt}</option>
     ))}
   </CFormSelect>
+);
+
+// Labeled-state select — used for 1° Consulta, Labs and Trat previo
+// columns in Admisiones. `states` is an object of { key: { label } }.
+const AdmisionesStatusSelect = ({ value, onChange, states, blankLabel = '—' }) => (
+  <CFormSelect
+    size="sm"
+    value={value || ''}
+    onChange={(e) => onChange(e.target.value)}
+    style={{ minWidth: '115px', fontSize: '0.8rem' }}
+  >
+    <option value="">{blankLabel}</option>
+    {Object.entries(states).map(([key, { label }]) => (
+      <option key={key} value={key}>{label}</option>
+    ))}
+  </CFormSelect>
+);
+
+// "Alta seguro" cyclical status badge — click advances to the next of the
+// 5 states in ALTA_SEGURO_STATES, rendering that state's icon, circle
+// background color and label.
+const AltaSeguroBadge = ({ value, onClick }) => {
+  const idx = Math.max(0, ALTA_SEGURO_STATES.findIndex((s) => s.key === value));
+  const state = ALTA_SEGURO_STATES[idx] || ALTA_SEGURO_STATES[0];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={state.label}
+      style={{
+        display: 'flex', alignItems: 'center', gap: '6px',
+        border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
+      }}
+    >
+      <span
+        style={{
+          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          width: '26px', height: '26px', borderRadius: '50%',
+          backgroundColor: state.bg, flexShrink: 0,
+        }}
+      >
+        <CIcon icon={state.icon} style={{ color: '#fff', width: 14, height: 14 }} />
+      </span>
+      <span style={{ fontSize: '0.78rem', color: '#333', whiteSpace: 'nowrap' }}>{state.label}</span>
+    </button>
+  );
+};
+
+// Simple lock/unlock toggle — used in Att. Previa's "Bloqueo" column.
+// Local-only for now (no backend field yet); click flips between locked
+// (closed padlock) and unlocked (open padlock).
+const LockToggle = ({ locked, onClick }) => (
+  <CButton
+    type="button"
+    color={locked ? 'warning' : 'secondary'}
+    variant="ghost"
+    size="sm"
+    onClick={onClick}
+    title={locked ? 'Bloqueado — clic para desbloquear' : 'Desbloqueado — clic para bloquear'}
+  >
+    <CIcon icon={locked ? cilLockLocked : cilLockUnlocked} />
+  </CButton>
 );
 
 // Empty row
@@ -273,159 +443,372 @@ const DataGescaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm
   </CTable>
 );
 
-const AdmisionesTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm, users, onRespChange }) => (
-  <CTable hover striped align="middle" responsive className="nowrap-table">
-    <CTableHead color="light">
-      <CTableRow>
-        <CTableHeaderCell style={{ width: 140 }}>RESP</CTableHeaderCell>
-        <CTableHeaderCell style={{ width: 60 }}>Qt (i)</CTableHeaderCell>
-        <SortHeader label="Nombre"       sortKey="nombre_completo"  sortConfig={sortConfig} onSort={onSort} />
-        <SortHeader label="Apellido"     sortKey="apellido"         sortConfig={sortConfig} onSort={onSort} />
-        <CTableHeaderCell>Att. Agencia</CTableHeaderCell>
-        <CTableHeaderCell>Prox. Act</CTableHeaderCell>
-        <CTableHeaderCell>Seguro</CTableHeaderCell>
-        <CTableHeaderCell>Psicol</CTableHeaderCell>
-        <CTableHeaderCell>Metria</CTableHeaderCell>
-        <CTableHeaderCell>Cita 1</CTableHeaderCell>
-        <CTableHeaderCell>Labs</CTableHeaderCell>
-        <CTableHeaderCell>HIM</CTableHeaderCell>
-        <CTableHeaderCell>Att. Previa</CTableHeaderCell>
-        <CTableHeaderCell>ACO</CTableHeaderCell>
-        <CTableHeaderCell>Asignar</CTableHeaderCell>
-        <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
-      </CTableRow>
-    </CTableHead>
-    <CTableBody>
-      {rows.length === 0 ? <EmptyRow colSpan={16} searchTerm={searchTerm} /> : rows.map(c => {
-        const parts   = (c.nombre_completo || '').trim().split(' ');
-        const apellido = parts.length > 1 ? parts.slice(-1)[0] : '-';
-        const nombre   = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '-';
-        return (
-          <CTableRow key={c.id}>
-            <CTableDataCell>
-              <RespSelect candidate={c} users={users} onRespChange={onRespChange} />
-            </CTableDataCell>
-            <CTableDataCell className="text-center">—</CTableDataCell>
-            <CTableDataCell>
-              <Link to={`/babysite/sortGes/${c.id}`} className="text-decoration-none"
-                style={{ color: '#5856d6', fontWeight: 500 }}>{nombre}</Link>
-            </CTableDataCell>
-            <CTableDataCell>{apellido}</CTableDataCell>
-            {/* Operational columns — populated from sortGes detail once available */}
-            {Array(11).fill(null).map((_, i) => <CTableDataCell key={i}>—</CTableDataCell>)}
-            <CTableDataCell>
-              <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
-            </CTableDataCell>
-          </CTableRow>
-        );
-      })}
-    </CTableBody>
-  </CTable>
-);
+const AdmisionesTable = ({
+  rows, sortConfig, onSort, onEdit, onDelete, searchTerm,
+  tabId, respByTab, onRespChange,
+  fieldValues, onFieldChange,
+}) => {
+  const getField = (candidateId, field) => fieldValues[`${candidateId}_${field}`] || '';
 
-const AttPreviaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm, users, onRespChange }) => (
-  <CTable hover striped align="middle" responsive className="nowrap-table">
-    <CTableHead color="light">
-      <CTableRow>
-        <CTableHeaderCell style={{ width: 140 }}>RESP</CTableHeaderCell>
-        <CTableHeaderCell style={{ width: 60 }}>Qt (i)</CTableHeaderCell>
-        <SortHeader label="Nombre"       sortKey="nombre_completo"  sortConfig={sortConfig} onSort={onSort} />
-        <SortHeader label="Apellido"     sortKey="apellido"         sortConfig={sortConfig} onSort={onSort} />
-        <CTableHeaderCell>Att. Agencia</CTableHeaderCell>
-        <CTableHeaderCell>Prox. Act</CTableHeaderCell>
-        <CTableHeaderCell>Seguro</CTableHeaderCell>
-        <CTableHeaderCell>Psicol</CTableHeaderCell>
-        <CTableHeaderCell>Metria</CTableHeaderCell>
-        <CTableHeaderCell>Cita 1</CTableHeaderCell>
-        <CTableHeaderCell>Labs</CTableHeaderCell>
-        <CTableHeaderCell>HIM</CTableHeaderCell>
-        <CTableHeaderCell>Att. Previa</CTableHeaderCell>
-        <CTableHeaderCell>ACO</CTableHeaderCell>
-        <CTableHeaderCell>Asignar</CTableHeaderCell>
-        <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
-      </CTableRow>
-    </CTableHead>
-    <CTableBody>
-      {rows.length === 0 ? <EmptyRow colSpan={16} searchTerm={searchTerm} /> : rows.map(c => {
-        const parts   = (c.nombre_completo || '').trim().split(' ');
-        const apellido = parts.length > 1 ? parts.slice(-1)[0] : '-';
-        const nombre   = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '-';
-        return (
-          <CTableRow key={c.id}>
-            <CTableDataCell>
-              <RespSelect candidate={c} users={users} onRespChange={onRespChange} />
-            </CTableDataCell>
-            <CTableDataCell className="text-center">—</CTableDataCell>
-            <CTableDataCell>
-              <Link to={`/babysite/sortGes/${c.id}`} className="text-decoration-none"
-                style={{ color: '#5856d6', fontWeight: 500 }}>{nombre}</Link>
-            </CTableDataCell>
-            <CTableDataCell>{apellido}</CTableDataCell>
-            {Array(11).fill(null).map((_, i) => <CTableDataCell key={i}>—</CTableDataCell>)}
-            <CTableDataCell>
-              <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
-            </CTableDataCell>
-          </CTableRow>
-        );
-      })}
-    </CTableBody>
-  </CTable>
-);
+  return (
+    <CTable hover striped align="middle" responsive className="nowrap-table">
+      <CTableHead color="light">
+        <CTableRow>
+          <CTableHeaderCell style={{ width: 140 }} rowSpan={2}>RESP</CTableHeaderCell>
+          <CTableHeaderCell style={{ width: 60 }} rowSpan={2}>Qt (i)</CTableHeaderCell>
+          <SortHeader label="Nombre"   sortKey="nombre_completo" sortConfig={sortConfig} onSort={onSort} rowSpan={2} />
+          <SortHeader label="Apellido" sortKey="apellido"        sortConfig={sortConfig} onSort={onSort} rowSpan={2} />
+          <CTableHeaderCell rowSpan={2}>Vínculo</CTableHeaderCell>
+          <CTableHeaderCell rowSpan={2} style={{ width: 130 }}>Próxima Act</CTableHeaderCell>
+          <CTableHeaderCell colSpan={2} className="text-center">Psicología</CTableHeaderCell>
+          <CTableHeaderCell rowSpan={2}>1° Consulta</CTableHeaderCell>
+          <CTableHeaderCell rowSpan={2}>Labs</CTableHeaderCell>
+          <CTableHeaderCell rowSpan={2}>HIM</CTableHeaderCell>
+          <CTableHeaderCell rowSpan={2}>Trat previo</CTableHeaderCell>
+          <CTableHeaderCell rowSpan={2} style={{ width: 130 }}>ACO</CTableHeaderCell>
+          <CTableHeaderCell rowSpan={2}>Alta seguro</CTableHeaderCell>
+          <CTableHeaderCell style={{ width: 80 }} rowSpan={2}>Acciones</CTableHeaderCell>
+        </CTableRow>
+        <CTableRow>
+          <CTableHeaderCell style={{ width: 70 }} title="Entrevista">Ent</CTableHeaderCell>
+          <CTableHeaderCell style={{ width: 70 }} title="Psicométrico">Psic</CTableHeaderCell>
+        </CTableRow>
+      </CTableHead>
+      <CTableBody>
+        {rows.length === 0 ? <EmptyRow colSpan={15} searchTerm={searchTerm} /> : rows.map(c => {
+          const parts    = (c.nombre_completo || '').trim().split(' ');
+          const apellido = parts.length > 1 ? parts.slice(-1)[0] : '-';
+          const nombre   = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '-';
+          const altaSeguroValue = getField(c.id, 'alta_seguro') || 'nada';
 
-const PsicologiaTable = ({ rows, sortConfig, onSort, onEdit, onDelete, searchTerm, users, onRespChange }) => (
-  <CTable hover striped align="middle" responsive className="nowrap-table">
-    <CTableHead color="light">
-      <CTableRow>
-        <CTableHeaderCell style={{ width: 140 }}>RESP</CTableHeaderCell>
-        <CTableHeaderCell style={{ width: 60 }}>Qt (i)</CTableHeaderCell>
-        <SortHeader label="Nombre"       sortKey="nombre_completo"  sortConfig={sortConfig} onSort={onSort} />
-        <SortHeader label="Apellido"     sortKey="apellido"         sortConfig={sortConfig} onSort={onSort} />
-        <SortHeader label="Status"       sortKey="status"           sortConfig={sortConfig} onSort={onSort} style={{ width: 110 }} />
-        <CTableHeaderCell>Psicométrico</CTableHeaderCell>
-        <CTableHeaderCell>Entrevista</CTableHeaderCell>
-        <CTableHeaderCell>SDG 12</CTableHeaderCell>
-        <CTableHeaderCell>SDG 16</CTableHeaderCell>
-        <CTableHeaderCell>SDG 20</CTableHeaderCell>
-        <CTableHeaderCell>SDG 22</CTableHeaderCell>
-        <CTableHeaderCell>SDG 26</CTableHeaderCell>
-        <CTableHeaderCell>SDG 32</CTableHeaderCell>
-        <CTableHeaderCell>SDG 34</CTableHeaderCell>
-        <CTableHeaderCell>SDG 35</CTableHeaderCell>
-        <CTableHeaderCell>SDG 36</CTableHeaderCell>
-        <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
-      </CTableRow>
-    </CTableHead>
-    <CTableBody>
-      {rows.length === 0 ? <EmptyRow colSpan={17} searchTerm={searchTerm} /> : rows.map(c => {
-        const stInfo  = STATUS_OPTIONS[c.status] || { label: c.status, color: 'secondary' };
-        const parts   = (c.nombre_completo || '').trim().split(' ');
-        const apellido = parts.length > 1 ? parts.slice(-1)[0] : '-';
-        const nombre   = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '-';
-        return (
-          <CTableRow key={c.id}>
-            <CTableDataCell>
-              <RespSelect candidate={c} users={users} onRespChange={onRespChange} />
-            </CTableDataCell>
-            <CTableDataCell className="text-center">—</CTableDataCell>
-            <CTableDataCell>
-              <Link to={`/babysite/sortGes/${c.id}`} className="text-decoration-none"
-                style={{ color: '#5856d6', fontWeight: 500 }}>{nombre}</Link>
-            </CTableDataCell>
-            <CTableDataCell>{apellido}</CTableDataCell>
-            <CTableDataCell>
-              <CBadge color={stInfo.color} style={{ fontSize: '0.75rem' }}>{stInfo.label}</CBadge>
-            </CTableDataCell>
-            {/* SDG columns — populated from psico_inicial data once wired */}
-            {Array(11).fill(null).map((_, i) => <CTableDataCell key={i}>—</CTableDataCell>)}
-            <CTableDataCell>
-              <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
-            </CTableDataCell>
-          </CTableRow>
-        );
-      })}
-    </CTableBody>
-  </CTable>
-);
+          return (
+            <CTableRow key={c.id}>
+              <CTableDataCell>
+                <RespSelect candidate={c} tabId={tabId} respByTab={respByTab} onRespChange={onRespChange} />
+              </CTableDataCell>
+              <CTableDataCell className="text-center">—</CTableDataCell>
+              <CTableDataCell>
+                <Link to={`/babysite/sortGes/${c.id}`} className="text-decoration-none"
+                  style={{ color: '#5856d6', fontWeight: 500 }}>{nombre}</Link>
+              </CTableDataCell>
+              <CTableDataCell>{apellido}</CTableDataCell>
+
+              {/* Vínculo */}
+              <CTableDataCell>
+                <AdmisionesSelect
+                  value={getField(c.id, 'vinculo')}
+                  onChange={(v) => onFieldChange(c.id, 'vinculo', v)}
+                  options={VINCULO_OPTIONS}
+                />
+              </CTableDataCell>
+
+              {/* Próxima Act */}
+              <CTableDataCell>
+                <CFormInput
+                  type="date" size="sm"
+                  value={getField(c.id, 'proxima_act')}
+                  onChange={(e) => onFieldChange(c.id, 'proxima_act', e.target.value)}
+                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
+                />
+              </CTableDataCell>
+
+              {/* Psicología > Ent — read-only, linked to the candidate's own
+                  "Entrevista admisión" row in Psico Inicial (SortGes.js) */}
+              <CTableDataCell className="text-center">
+                {RECOMENDACION_SHORT_LABELS[getPsicoInicialValue(c, 'Entrevista admisión', 'recomendacion')] || '—'}
+              </CTableDataCell>
+
+              {/* Psicología > Psic — read-only, linked to the candidate's own
+                  "Psicométrico" row in Psico Inicial (SortGes.js) */}
+              <CTableDataCell className="text-center">
+                {RECOMENDACION_SHORT_LABELS[getPsicoInicialValue(c, 'Psicométrico', 'recomendacion')] || '—'}
+              </CTableDataCell>
+
+              {/* 1° Consulta */}
+              <CTableDataCell>
+                <AdmisionesStatusSelect
+                  value={getField(c.id, 'primera_consulta')}
+                  onChange={(v) => onFieldChange(c.id, 'primera_consulta', v)}
+                  states={CONSULTA_LABS_STATES}
+                />
+              </CTableDataCell>
+
+              {/* Labs */}
+              <CTableDataCell>
+                <AdmisionesStatusSelect
+                  value={getField(c.id, 'labs')}
+                  onChange={(v) => onFieldChange(c.id, 'labs', v)}
+                  states={CONSULTA_LABS_STATES}
+                />
+              </CTableDataCell>
+
+              {/* HIM — read-only, linked to the candidate's most recent
+                  HIM row (1-4) in Psico Inicial (SortGes.js) */}
+              <CTableDataCell className="text-center">
+                {RECOMENDACION_SHORT_LABELS[getLastHimValue(c)] || '—'}
+              </CTableDataCell>
+
+              {/* Trat previo */}
+              <CTableDataCell>
+                <AdmisionesStatusSelect
+                  value={getField(c.id, 'trat_previo')}
+                  onChange={(v) => onFieldChange(c.id, 'trat_previo', v)}
+                  states={TRAT_PREVIO_STATES}
+                  blankLabel="Nada"
+                />
+              </CTableDataCell>
+
+              {/* ACO */}
+              <CTableDataCell>
+                <CFormInput
+                  type="date" size="sm"
+                  value={getField(c.id, 'aco')}
+                  onChange={(e) => onFieldChange(c.id, 'aco', e.target.value)}
+                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
+                />
+              </CTableDataCell>
+
+              {/* Alta seguro — 5-state cyclical badge */}
+              <CTableDataCell>
+                <AltaSeguroBadge
+                  value={altaSeguroValue}
+                  onClick={() => {
+                    const idx = ALTA_SEGURO_STATES.findIndex(s => s.key === altaSeguroValue);
+                    const next = ALTA_SEGURO_STATES[(idx + 1) % ALTA_SEGURO_STATES.length].key;
+                    onFieldChange(c.id, 'alta_seguro', next);
+                  }}
+                />
+              </CTableDataCell>
+
+              <CTableDataCell>
+                <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
+              </CTableDataCell>
+            </CTableRow>
+          );
+        })}
+      </CTableBody>
+    </CTable>
+  );
+};
+
+const AttPreviaTable = ({
+  rows, sortConfig, onSort, onEdit, onDelete, searchTerm,
+  tabId, respByTab, onRespChange,
+  fieldValues, onFieldChange,
+}) => {
+  const getField = (candidateId, field) => fieldValues[`${candidateId}_${field}`] || '';
+
+  return (
+    <CTable hover striped align="middle" responsive className="nowrap-table">
+      <CTableHead color="light">
+        <CTableRow>
+          <CTableHeaderCell style={{ width: 140 }}>RESP</CTableHeaderCell>
+          <CTableHeaderCell style={{ width: 60 }}>Qt (i)</CTableHeaderCell>
+          <SortHeader label="Nombre"   sortKey="nombre_completo" sortConfig={sortConfig} onSort={onSort} />
+          <SortHeader label="Apellido" sortKey="apellido"        sortConfig={sortConfig} onSort={onSort} />
+          <CTableHeaderCell>Dr. Tratante</CTableHeaderCell>
+          <CTableHeaderCell style={{ width: 130 }}>Próxima Cita</CTableHeaderCell>
+          <CTableHeaderCell>Status cita</CTableHeaderCell>
+          <CTableHeaderCell style={{ width: 130 }}>Fecha de inicio</CTableHeaderCell>
+          <CTableHeaderCell style={{ width: 130 }}>Fecha final</CTableHeaderCell>
+          <CTableHeaderCell className="text-center" style={{ width: 60 }}>Bloqueo</CTableHeaderCell>
+          <SortHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={onSort} style={{ width: 110 }} />
+          <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
+        </CTableRow>
+      </CTableHead>
+      <CTableBody>
+        {rows.length === 0 ? <EmptyRow colSpan={12} searchTerm={searchTerm} /> : rows.map(c => {
+          const parts    = (c.nombre_completo || '').trim().split(' ');
+          const apellido = parts.length > 1 ? parts.slice(-1)[0] : '-';
+          const nombre   = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '-';
+          const locked   = getField(c.id, 'bloqueo') === 'true';
+          const stInfo   = STATUS_OPTIONS[c.status] || { label: c.status, color: 'secondary' };
+
+          return (
+            <CTableRow key={c.id}>
+              <CTableDataCell>
+                <RespSelect candidate={c} tabId={tabId} respByTab={respByTab} onRespChange={onRespChange} />
+              </CTableDataCell>
+              <CTableDataCell className="text-center">—</CTableDataCell>
+              <CTableDataCell>
+                <Link to={`/babysite/sortGes/${c.id}`} className="text-decoration-none"
+                  style={{ color: '#5856d6', fontWeight: 500 }}>{nombre}</Link>
+              </CTableDataCell>
+              <CTableDataCell>{apellido}</CTableDataCell>
+
+              {/* Dr. Tratante — reuses the same Babyboom/Kiromedic/Nora catalog as Vínculo */}
+              <CTableDataCell>
+                <AdmisionesSelect
+                  value={getField(c.id, 'dr_tratante')}
+                  onChange={(v) => onFieldChange(c.id, 'dr_tratante', v)}
+                  options={VINCULO_OPTIONS}
+                />
+              </CTableDataCell>
+
+              {/* Próxima Cita */}
+              <CTableDataCell>
+                <CFormInput
+                  type="date" size="sm"
+                  value={getField(c.id, 'proxima_cita')}
+                  onChange={(e) => onFieldChange(c.id, 'proxima_cita', e.target.value)}
+                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
+                />
+              </CTableDataCell>
+
+              {/* Status cita — reuses the Programar/Revisar/Programado catalog from Admisiones */}
+              <CTableDataCell>
+                <AdmisionesStatusSelect
+                  value={getField(c.id, 'status_cita')}
+                  onChange={(v) => onFieldChange(c.id, 'status_cita', v)}
+                  states={CONSULTA_LABS_STATES}
+                />
+              </CTableDataCell>
+
+              {/* Fecha de inicio */}
+              <CTableDataCell>
+                <CFormInput
+                  type="date" size="sm"
+                  value={getField(c.id, 'fecha_inicio')}
+                  onChange={(e) => onFieldChange(c.id, 'fecha_inicio', e.target.value)}
+                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
+                />
+              </CTableDataCell>
+
+              {/* Fecha final */}
+              <CTableDataCell>
+                <CFormInput
+                  type="date" size="sm"
+                  value={getField(c.id, 'fecha_final')}
+                  onChange={(e) => onFieldChange(c.id, 'fecha_final', e.target.value)}
+                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
+                />
+              </CTableDataCell>
+
+              {/* Bloqueo — lock/unlock toggle */}
+              <CTableDataCell className="text-center">
+                <LockToggle
+                  locked={locked}
+                  onClick={() => onFieldChange(c.id, 'bloqueo', locked ? 'false' : 'true')}
+                />
+              </CTableDataCell>
+
+              {/* Status — the candidate's existing (backend-backed) status */}
+              <CTableDataCell>
+                <CBadge color={stInfo.color} style={{ fontSize: '0.75rem' }}>{stInfo.label}</CBadge>
+              </CTableDataCell>
+
+              <CTableDataCell>
+                <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
+              </CTableDataCell>
+            </CTableRow>
+          );
+        })}
+      </CTableBody>
+    </CTable>
+  );
+};
+
+const PsicologiaTable = ({
+  rows, sortConfig, onSort, onEdit, onDelete, searchTerm,
+  tabId, respByTab, onRespChange,
+  fieldValues, onFieldChange,
+}) => {
+  const getField = (candidateId, field) => fieldValues[`${candidateId}_${field}`] || '';
+  const emptyColSpan = 9 + PSICOLOGIA_SDG_WEEKS.length; // RESP,Qt,Nombre,Apellido,Status,Fecha,Estado,Entrevista,Acciones + SDG weeks
+
+  return (
+    <CTable hover striped align="middle" responsive className="nowrap-table">
+      <CTableHead color="light">
+        <CTableRow>
+          <CTableHeaderCell style={{ width: 140 }} rowSpan={2}>RESP</CTableHeaderCell>
+          <CTableHeaderCell style={{ width: 60 }} rowSpan={2}>Qt (i)</CTableHeaderCell>
+          <SortHeader label="Nombre"   sortKey="nombre_completo" sortConfig={sortConfig} onSort={onSort} rowSpan={2} />
+          <SortHeader label="Apellido" sortKey="apellido"        sortConfig={sortConfig} onSort={onSort} rowSpan={2} />
+          <SortHeader label="Status"   sortKey="status"          sortConfig={sortConfig} onSort={onSort} rowSpan={2} style={{ width: 110 }} />
+          <CTableHeaderCell colSpan={2} className="text-center">Psicométrico</CTableHeaderCell>
+          <CTableHeaderCell rowSpan={2}>Entrevista</CTableHeaderCell>
+          {PSICOLOGIA_SDG_WEEKS.map((week, i) => (
+            <CTableHeaderCell key={week} rowSpan={2} style={{ width: 90 }}>
+              {i === 0 ? 'SDG12 / HIM' : `SDG ${week}`}
+            </CTableHeaderCell>
+          ))}
+          <CTableHeaderCell style={{ width: 80 }} rowSpan={2}>Acciones</CTableHeaderCell>
+        </CTableRow>
+        <CTableRow>
+          <CTableHeaderCell style={{ width: 125 }}>Fecha</CTableHeaderCell>
+          <CTableHeaderCell style={{ width: 115 }}>Estado</CTableHeaderCell>
+        </CTableRow>
+      </CTableHead>
+      <CTableBody>
+        {rows.length === 0 ? <EmptyRow colSpan={emptyColSpan} searchTerm={searchTerm} /> : rows.map(c => {
+          const stInfo   = STATUS_OPTIONS[c.status] || { label: c.status, color: 'secondary' };
+          const parts    = (c.nombre_completo || '').trim().split(' ');
+          const apellido = parts.length > 1 ? parts.slice(-1)[0] : '-';
+          const nombre   = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '-';
+          return (
+            <CTableRow key={c.id}>
+              <CTableDataCell>
+                <RespSelect candidate={c} tabId={tabId} respByTab={respByTab} onRespChange={onRespChange} />
+              </CTableDataCell>
+              <CTableDataCell className="text-center">—</CTableDataCell>
+              <CTableDataCell>
+                <Link to={`/babysite/sortGes/${c.id}`} className="text-decoration-none"
+                  style={{ color: '#5856d6', fontWeight: 500 }}>{nombre}</Link>
+              </CTableDataCell>
+              <CTableDataCell>{apellido}</CTableDataCell>
+              <CTableDataCell>
+                <CBadge color={stInfo.color} style={{ fontSize: '0.75rem' }}>{stInfo.label}</CBadge>
+              </CTableDataCell>
+
+              {/* Psicométrico > Fecha */}
+              <CTableDataCell>
+                <CFormInput
+                  type="date" size="sm"
+                  value={getField(c.id, 'psicometrico_fecha')}
+                  onChange={(e) => onFieldChange(c.id, 'psicometrico_fecha', e.target.value)}
+                  style={{ minWidth: '120px', fontSize: '0.8rem' }}
+                />
+              </CTableDataCell>
+
+              {/* Psicométrico > Estado — reuses the Programar/Revisar/Programado catalog */}
+              <CTableDataCell>
+                <AdmisionesStatusSelect
+                  value={getField(c.id, 'psicometrico_estado')}
+                  onChange={(v) => onFieldChange(c.id, 'psicometrico_estado', v)}
+                  states={CONSULTA_LABS_STATES}
+                />
+              </CTableDataCell>
+
+              {/* Entrevista — reuses the RE/s-d/CR/NR catalog from Admisiones' "Ent" column */}
+              <CTableDataCell>
+                <AdmisionesSelect
+                  value={getField(c.id, 'entrevista')}
+                  onChange={(v) => onFieldChange(c.id, 'entrevista', v)}
+                  options={PSICO_ENT_OPTIONS}
+                />
+              </CTableDataCell>
+
+              {/* SDG week checkpoints — each a RE/s-d/CR/NR select */}
+              {PSICOLOGIA_SDG_WEEKS.map((week) => (
+                <CTableDataCell key={week}>
+                  <AdmisionesSelect
+                    value={getField(c.id, `sdg_${week}`)}
+                    onChange={(v) => onFieldChange(c.id, `sdg_${week}`, v)}
+                    options={HIM_OPTIONS}
+                  />
+                </CTableDataCell>
+              ))}
+
+              <CTableDataCell>
+                <ActionButtons candidate={c} onEdit={onEdit} onDelete={onDelete} />
+              </CTableDataCell>
+            </CTableRow>
+          );
+        })}
+      </CTableBody>
+    </CTable>
+  );
+};
 
 // Shared form fields for the create/edit candidate modals — defined at
 // module scope (NOT inside SortGesList) so it keeps a stable identity
@@ -503,13 +886,38 @@ const SortGesList = () => {
 
   // ── Data ─────────────────────────────────────────────────────
   const [candidates, setCandidates] = useState([]);
-  const [users, setUsers]           = useState([]); // for the "Resp" dropdown (system users, not Guests)
+  const [users, setUsers]           = useState([]); // kept for now — currently unused by the RESP dropdowns (see GRUPOS_TRABAJO); reintroduce if a future feature needs the raw system-user list
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState(null);
   const [activeTab, setActiveTab]   = useState('data-gesca');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState({ key: 'nombre_completo', direction: 'asc' });
   const [alert, setAlert]           = useState({ show: false, type: '', message: '' });
+
+  // Per-tab RESP selections — keyed by `${tabId}_${candidateId}`. Lets
+  // Admisiones / Att. Previa / Psicología each show an independent RESP
+  // value for the same candidate, even though the backend still only has
+  // one shared ip_responsable column (see handleRespChange / RespSelect).
+  const [respByTab, setRespByTab] = useState({});
+
+  // Admisiones tab — local UI state for the Vínculo / Próxima Act / Psicología
+  // (Ent, Psic) / 1° Consulta / Labs / HIM / Trat previo / ACO / Alta seguro
+  // columns. None of these have backend columns yet, so values live only in
+  // this session until the corresponding fields exist on the API — keyed by
+  // `${candidateId}_${field}`.
+  const [admisionesFields, setAdmisionesFields] = useState({});
+
+  // Att. Previa tab — local UI state for the Dr. Tratante / Próxima Cita /
+  // Status cita / Fecha de inicio / Fecha final / Bloqueo columns. Same
+  // caveat as admisionesFields: no backend columns yet, session-only,
+  // keyed by `${candidateId}_${field}`.
+  const [attPreviaFields, setAttPreviaFields] = useState({});
+
+  // Psicología tab — local UI state for Psicométrico (fecha/estado),
+  // Entrevista and the SDG-week checkpoint columns. Same caveat as the
+  // other tabs' field state: session-only until backed by real DB columns,
+  // keyed by `${candidateId}_${field}`.
+  const [psicologiaFields, setPsicologiaFields] = useState({});
 
   // ── Create modal ─────────────────────────────────────────────
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -546,8 +954,15 @@ const SortGesList = () => {
     try {
       setLoading(true);
       const res = await api.get('/api/sort-ges', { withCredentials: true });
-      setCandidates(res.data || []);
+      const list = res.data || [];
+      setCandidates(list);
       setError(null);
+      // GET /api/sort-ges doesn't include each candidate's psico_inicial
+      // rows, so fetch them individually and merge them in. This is what
+      // the Admisiones tab's read-only Ent/Psic/HIM columns read from
+      // (see getPsicoInicialValue / getLastHimValue). Runs in the
+      // background — doesn't block the main table from rendering.
+      fetchPsicoInicialForCandidates(list);
     } catch (err) {
       console.error(err);
       setError('Error al cargar los candidatos');
@@ -556,8 +971,35 @@ const SortGesList = () => {
     }
   };
 
-  // Users list for the "Resp" dropdown (Admisiones / Att. Previa / Psicología
-  // tabs) — pulled from the system users list, excluding AdminBabyCloud.
+  // TODO: this is one request per candidate (N+1) — fine for now, but if
+  // GET /api/sort-ges is ever updated to return psico_inicial nested per
+  // candidate, this whole function (and the call to it above) can be
+  // deleted and getPsicoInicialValue will just read candidate.psico_inicial
+  // directly from the list response instead.
+  const fetchPsicoInicialForCandidates = async (candidateList) => {
+    try {
+      const results = await Promise.all(
+        candidateList.map((c) =>
+          api.get(`/api/sort-ges/${c.id}/psico-inicial`, { withCredentials: true })
+            .then((res) => ({ id: c.id, psico_inicial: res.data || [] }))
+            .catch((err) => {
+              console.error(`Error fetching psico-inicial for candidate ${c.id}:`, err);
+              return { id: c.id, psico_inicial: [] };
+            })
+        )
+      );
+      setCandidates((prev) => prev.map((c) => {
+        const match = results.find((r) => r.id === c.id);
+        return match ? { ...c, psico_inicial: match.psico_inicial } : c;
+      }));
+    } catch (err) {
+      console.error('Error fetching psico inicial for candidates:', err);
+    }
+  };
+
+  // System users list — currently unused by the RESP dropdowns (they use
+  // the hardcoded GRUPOS_TRABAJO instead, see the TODO near the top of this
+  // file), but fetched still in case another feature needs it soon.
   const fetchUsers = async () => {
     try {
       const res = await api.get('/api/users', { withCredentials: true });
@@ -570,21 +1012,55 @@ const SortGesList = () => {
     }
   };
 
-  // Persist a "Resp" reassignment from any of the three dropdown tables
-  const handleRespChange = async (candidateId, newRespUsername) => {
+  // Persist a "Resp" reassignment from any of the three dropdown tables.
+  // Each tab keeps its own local value in respByTab (so the three tabs
+  // don't overwrite each other's selection on screen), but the write still
+  // goes to the single shared ip_responsable column on the backend until
+  // there are real per-tab/group columns to store it in.
+  const handleRespChange = async (tabId, candidateId, newRespValue) => {
+    const key = `${tabId}_${candidateId}`;
+    setRespByTab((prev) => ({ ...prev, [key]: newRespValue })); // optimistic, tab-local
+
     try {
       await api.put(
         `/api/sort-ges/${candidateId}`,
-        { ip_responsable: newRespUsername || null },
+        { ip_responsable: newRespValue || null },
         { withCredentials: true }
       );
       setCandidates((prev) => prev.map((c) =>
-        c.id === candidateId ? { ...c, ip_responsable: newRespUsername } : c
+        c.id === candidateId ? { ...c, ip_responsable: newRespValue } : c
       ));
     } catch (err) {
       console.error('Error updating Resp:', err);
       showNotification('danger', 'Error al asignar responsable');
+      // Roll back the optimistic local change for this tab
+      setRespByTab((prev) => {
+        const n = { ...prev };
+        delete n[key];
+        return n;
+      });
     }
+  };
+
+  // Local-only update for the Admisiones tab's not-yet-backed-by-DB fields.
+  // TODO: once these fields have real backend columns, persist here the
+  // same way handleRespChange does for ip_responsable.
+  const handleAdmisionesFieldChange = (candidateId, field, value) => {
+    setAdmisionesFields((prev) => ({ ...prev, [`${candidateId}_${field}`]: value }));
+  };
+
+  // Local-only update for the Att. Previa tab's not-yet-backed-by-DB fields.
+  // TODO: once these fields have real backend columns, persist here the
+  // same way handleRespChange does for ip_responsable.
+  const handleAttPreviaFieldChange = (candidateId, field, value) => {
+    setAttPreviaFields((prev) => ({ ...prev, [`${candidateId}_${field}`]: value }));
+  };
+
+  // Local-only update for the Psicología tab's not-yet-backed-by-DB fields.
+  // TODO: once these fields have real backend columns, persist here the
+  // same way handleRespChange does for ip_responsable.
+  const handlePsicologiaFieldChange = (candidateId, field, value) => {
+    setPsicologiaFields((prev) => ({ ...prev, [`${candidateId}_${field}`]: value }));
   };
 
   const handleCreate = async () => {
@@ -763,11 +1239,12 @@ const SortGesList = () => {
     return r;
   }, [candidates, searchTerm, sortConfig]);
 
-  // Shared table props
+  // Shared table props — tabId is added per-tab at the CTabPane call sites below,
+  // since it must differ between Admisiones / Att. Previa / Psicología.
   const tableProps = {
     rows: filtered, sortConfig, onSort: handleSort,
-        onEdit: openEdit, onDelete: openDelete, searchTerm,
-        users, onRespChange: handleRespChange,
+    onEdit: openEdit, onDelete: openDelete, searchTerm,
+    respByTab, onRespChange: handleRespChange,
   };
 
   // ── Shared form fields ────────────────────────────────────────
@@ -864,13 +1341,28 @@ const SortGesList = () => {
               <DataGescaTable   {...tableProps} />
             </CTabPane>
             <CTabPane visible={activeTab === 'admisiones'}>
-              <AdmisionesTable  {...tableProps} />
+              <AdmisionesTable
+                {...tableProps}
+                tabId="admisiones"
+                fieldValues={admisionesFields}
+                onFieldChange={handleAdmisionesFieldChange}
+              />
             </CTabPane>
             <CTabPane visible={activeTab === 'att-previa'}>
-              <AttPreviaTable   {...tableProps} />
+              <AttPreviaTable
+                {...tableProps}
+                tabId="att-previa"
+                fieldValues={attPreviaFields}
+                onFieldChange={handleAttPreviaFieldChange}
+              />
             </CTabPane>
             <CTabPane visible={activeTab === 'psicologia'}>
-              <PsicologiaTable  {...tableProps} />
+              <PsicologiaTable
+                {...tableProps}
+                tabId="psicologia"
+                fieldValues={psicologiaFields}
+                onFieldChange={handlePsicologiaFieldChange}
+              />
             </CTabPane>
           </CTabContent>
         </CCardBody>
