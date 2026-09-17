@@ -45,7 +45,10 @@ const GRUPOS_TRABAJO = ['Psicología', 'admisiones', 'seguros'];
 // NOTE: none of these columns are backed by DB columns yet — selections
 // are kept in local UI state (see admisionesFields / handleAdmisionesFieldChange
 // in SortGesList) until the corresponding backend fields exist.
-const VINCULO_OPTIONS = ['Babyboom', 'Kiromedic', 'Nora']; // also reused for Att. Previa's "Dr. Tratante" — same catalog
+// Vínculo is set once, at candidate creation (like Programa/Status/IP
+// Responsable) — it lives on the candidate record itself, not as a
+// per-tab local field. See CandidateFormFields / handleCreate / handleEdit.
+const VINCULO_OPTIONS = ['Babyboom', 'Reclutadora', 'Agencia'];
 const PSICO_ENT_OPTIONS  = ['RE', 's/d', 'CR', 'NR'];
 const PSICO_PSIC_OPTIONS = ['A', 's/d', 'CR', 'NR'];
 const HIM_OPTIONS = ['RE', 's/d', 'CR', 'NR'];
@@ -71,27 +74,221 @@ const RECOMENDACION_SHORT_LABELS = {
   no_recomendable: 'NR', sin_datos: 's/d',
 };
 
-// Psico Inicial's HIM etapas are numbered 1-4. Admisiones' "HIM" column
-// shows whichever is the most recent one with data — checked HIM 4 down to
-// HIM 1, returning the first that has a recomendación set.
-const HIM_ETAPAS_DESC = ['HIM 4', 'HIM 3', 'HIM 2', 'HIM 1'];
-const getLastHimValue = (candidate) => {
-  for (const etapa of HIM_ETAPAS_DESC) {
-    const val = getPsicoInicialValue(candidate, etapa, 'recomendacion');
-    if (val) return val;
-  }
-  return '';
-};
+// Admisiones' "HIM" column shows only HIM 1's recomendación — not the most
+// recent of HIM 1-4.
+const getHim1Value = (candidate) => getPsicoInicialValue(candidate, 'HIM 1', 'recomendacion');
 
 const CONSULTA_LABS_STATES = {
   programar:  { label: 'Programar'  },
   revisar:    { label: 'Revisar'    },
   programado: { label: 'Programado' },
+  completado: { label: 'Completado' },
 };
 
+// "1° Consulta" (Admisiones) is derived from the candidate's FIRST "cita" in
+// Cita Previa's "Iniciales" sub-tab — no longer independently editable.
+// Rules (per product spec), checked in this order:
+//   - "Status cita" (status) AND "Status" (status_resultados) both
+//     'completado'                                            → 'completado'
+//   - no fecha_cita on that cita                                → 'programar'
+//   - has fecha_cita, and "final" date has already passed       → 'revisar'
+//   - has fecha_cita, "final" not set or not yet passed          → 'programado'
+//     ("programada" in the spec — same CONSULTA_LABS_STATES value, just
+//     matching "cita"'s grammatical gender)
+// candidate.cita_previa is populated by fetchCitaPreviaForCandidates in
+// SortGesList (a separate per-candidate fetch, like psico_inicial) — returns
+// '' (→ '—' in the cell) before that resolves or if there's no Iniciales cita yet.
+const getPrimeraConsultaStatus = (candidate) => {
+  const rows = candidate?.cita_previa;
+  if (!Array.isArray(rows)) return '';
+  const inicialesCitas = rows.filter(r => r.sub_tab === 'iniciales');
+  if (inicialesCitas.length === 0) return '';
+  const first = inicialesCitas[0]; // backend orders by created_at ASC — this is the first-created cita
+  const bothCompletado = first.status === 'completado' && first.status_resultados === 'completado';
+  if (bothCompletado) return 'completado';
+  if (!first.fecha_cita) return 'programar';
+  if (first.final) {
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const finalDate = new Date(first.final);
+    if (finalDate < hoy) return 'revisar';
+  }
+  return 'programado';
+};
+
+// "Labs" (Admisiones) is derived the same way, but from that same first
+// "cita"'s Entrega resultados date and its "Status" (status_resultados) —
+// the field grouped right next to Entrega resultados in the cita form.
+// Rules (per product spec):
+//   - no entrega_resultados                          → 'programar'
+//   - entrega_resultados has passed AND status_resultados !== 'completado' → 'revisar'
+//   - entrega_resultados not set to pass yet, OR already 'completado'      → 'programado'
+const getLabsStatus = (candidate) => {
+  const rows = candidate?.cita_previa;
+  if (!Array.isArray(rows)) return '';
+  const inicialesCitas = rows.filter(r => r.sub_tab === 'iniciales');
+  if (inicialesCitas.length === 0) return '';
+  const first = inicialesCitas[0];
+  if (!first.entrega_resultados) return 'programar';
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const entregaDate = new Date(first.entrega_resultados);
+  const passed = entregaDate < hoy;
+  if (passed && first.status_resultados !== 'completado') return 'revisar';
+  return 'programado';
+};
+
+// "Trat previo" (Admisiones) is derived from the candidate's FIRST "cita" in
+// Cita Previa's "Tratamiento previo" sub-tab — no longer independently editable.
+// Rules (per product spec):
+//   - no citas registered in that sub-tab                          → nothing (→ '—')
+//   - "Status cita" (status) AND "Status" (status_resultados) both
+//     'completado'                                                 → 'completado' (checked first)
+//   - otherwise, "final" date has already passed                   → 'revisar'
+//   - otherwise (final not set, or not yet passed)                 → 'en_curso'
 const TRAT_PREVIO_STATES = {
-  concluido: { label: 'Concluido' },
-  en_curso:  { label: 'En curso'  },
+  revisar:    { label: 'Revisar'    },
+  en_curso:   { label: 'En curso'   },
+  completado: { label: 'Completado' },
+};
+const getTratPrevioStatus = (candidate) => {
+  const rows = candidate?.cita_previa;
+  if (!Array.isArray(rows)) return '';
+  const tratCitas = rows.filter(r => r.sub_tab === 'tratamiento_previo');
+  if (tratCitas.length === 0) return '';
+  const first = tratCitas[0]; // backend orders by created_at ASC — this is the first-created cita
+  const bothCompletado = first.status === 'completado' && first.status_resultados === 'completado';
+  if (bothCompletado) return 'completado';
+  if (first.final) {
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const finalDate = new Date(first.final);
+    if (finalDate < hoy) return 'revisar';
+  }
+  return 'en_curso';
+};
+
+// Att. Previa's Dr. Tratante / Próxima Cita / Status cita / Fecha de inicio /
+// Fecha final / Status columns are all read-only, sourced from the
+// candidate's LAST (most recently created) "cita" across ALL Cita Previa
+// sub-tabs — unlike the Admisiones derivations above, this isn't scoped to
+// one sub-tab.
+const getLastCitaPrevia = (candidate) => {
+  const rows = candidate?.cita_previa;
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  return rows[rows.length - 1]; // backend orders by created_at ASC
+};
+
+// Admisiones' "ACO" date is color-coded by proximity to today:
+//   - already passed          → red
+//   - within the next 10 days → orange
+//   - more than 10 days away  → black (default text color)
+const getAcoDateColor = (dateStr) => {
+  if (!dateStr) return null;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const target = new Date(String(dateStr).split('T')[0]);
+  const diffDays = Math.ceil((target - hoy) / 86400000);
+  if (diffDays < 0) return '#dc3545';
+  if (diffDays <= 10) return '#fd7e14';
+  return '#000000';
+};
+
+// Cita Previa sub-tab ids → display labels (mirrors SortGes.js's
+// CITA_PREVIA_TABS, which isn't available in this file), used by
+// getProximaActInfo below to name which sub-tab a cita-derived date came from.
+const CITA_PREVIA_SUBTAB_LABELS = {
+  iniciales:          'Iniciales',
+  tratamiento_previo: 'Tratamiento previo',
+  prepa_transfer:     'Prepa/Transfer',
+  pre_natal:          'Pre Natal',
+  materno_fetal:      'Materno Fetal',
+};
+
+// Admisiones' "Próxima Act" is the CLOSEST UPCOMING date (today or later)
+// across every dated field on the candidate's record:
+//   - Checklist: "Programar cita para entrega" / "...para firma"
+//   - Psico Inicial: each row's Fecha
+//   - Seguimiento Psicológico: each entry's Programar date
+//   - Seguro de Vida: Fecha de alta, Vencimiento (per policy)
+//   - Seguro de Maternidad: Fecha solicitud/alta/liberación/vencimiento,
+//     plus each cuota's vencimiento (per policy)
+//   - Cita Previa: Fecha cita, Inicio Tratamiento, Final, Entrega resultados
+//     (per cita, across all 5 sub-tabs)
+// Returns { date: Date, label: string } for the nearest one, or null if the
+// candidate has no upcoming dates at all (or the relevant data hasn't
+// finished loading yet — see the six fetch*ForCandidates functions above).
+// Past dates are never shown here — "Próxima Act" means next/upcoming.
+const getProximaActInfo = (candidate) => {
+  const found = [];
+  const consider = (rawDate, label) => {
+    if (!rawDate) return;
+    const d = new Date(String(rawDate).split('T')[0]);
+    if (isNaN(d.getTime())) return;
+    found.push({ date: d, label });
+  };
+
+  const cl = candidate?.checklist;
+  if (cl) {
+    consider(cl.cita_entrega, 'Cita entrega de documentos');
+    consider(cl.cita_firma, 'Cita firma de consentimientos');
+  }
+
+  (candidate?.psico_inicial || []).forEach((row) => {
+    consider(row.fecha, `Psico Inicial: ${row.etapa}`);
+  });
+
+  (candidate?.seguimiento || []).forEach((seg, i) => {
+    consider(seg.programar, `Seguimiento Psicológico${seg.etapa ? `: ${seg.etapa}` : ` ${i + 1}`}`);
+  });
+
+  (candidate?.seguro_vida || []).forEach((v) => {
+    consider(v.fecha_alta, 'Seguro de Vida: fecha de alta');
+    consider(v.vencimiento, 'Seguro de Vida: vencimiento');
+  });
+
+  (candidate?.seguro_mat || []).forEach((p) => {
+    consider(p.fecha_solicitud, 'Seguro de Maternidad: fecha de solicitud');
+    consider(p.fecha_alta, 'Seguro de Maternidad: fecha de alta');
+    consider(p.fecha_liberacion, 'Seguro de Maternidad: fecha de liberación');
+    consider(p.fecha_vencimiento, 'Seguro de Maternidad: fecha de vencimiento');
+    (p.pagos || []).forEach((cuota) => {
+      consider(cuota.vencimiento, `Seguro de Maternidad: cuota ${cuota.cuota_num}`);
+    });
+  });
+
+  (candidate?.cita_previa || []).forEach((cp) => {
+    const subLabel = CITA_PREVIA_SUBTAB_LABELS[cp.sub_tab] || cp.sub_tab;
+    consider(cp.fecha_cita, `Cita Previa (${subLabel}): fecha cita`);
+    consider(cp.inicio_tratamiento, `Cita Previa (${subLabel}): inicio tratamiento`);
+    consider(cp.final, `Cita Previa (${subLabel}): final`);
+    consider(cp.entrega_resultados, `Cita Previa (${subLabel}): entrega resultados`);
+  });
+
+  if (found.length === 0) return null;
+
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const upcoming = found.filter((f) => f.date >= hoy);
+  if (upcoming.length === 0) return null;
+
+  upcoming.sort((a, b) => a.date - b.date);
+  return upcoming[0];
+};
+
+// Mirrors SortGes.js's citaStatusOpts — used to render "Status cita" labels
+// read-only here in Att. Previa.
+const CITA_STATUS_LABELS = {
+  informar_resolucion: 'Informar resolución',
+  agendar:              'Agendar',
+  programado:           'Programado',
+  confirmado:           'Confirmado',
+  remarcar:              'Remarcar',
+  no_acudio:             'No acudió / revisar',
+  completado:            'Completado',
+};
+
+// Mirrors SortGes.js's citaStatusResultadosOpts — used to render Att.
+// Previa's "Status" column (the second, distinct "status" field on a cita).
+const CITA_STATUS_RESULTADOS_LABELS = {
+  en_curso:   'En curso',
+  repeticion: 'Repetición',
+  completado: 'Completado',
 };
 
 // "Alta seguro" — a 5-state cyclical control. Clicking the badge advances
@@ -131,6 +328,7 @@ const EMPTY_FORM = {
   ip_responsable:   '',
   status:           'iniciales',
   programa:         '1',
+  vinculo:          '',
 };
 
 // Tab config — icon + label + color matching the image
@@ -225,18 +423,30 @@ const ActionButtons = ({ candidate, onEdit, onDelete }) => (
   </div>
 );
 
+// Maps each tab to its own dedicated backend column for RESP — Admisiones,
+// Att. Previa and Psicología each persist independently now (separate DB
+// columns on sort_ges_candidates), not the shared ip_responsable column
+// anymore (that one stays reserved for the free-text "IP Responsable" field
+// set at candidate creation/edit time — see CandidateFormFields).
+const RESP_FIELD_BY_TAB = {
+  admisiones:   'resp_admisiones',
+  'att-previa': 'resp_att_previa',
+  psicologia:   'resp_psicologia',
+};
+
 // "Resp" column dropdown — shared by Admisiones, Att. Previa and Psicología.
 // Options come from GRUPOS_TRABAJO — a hardcoded placeholder list, since
 // real work-group membership isn't wired up yet (see TODO above). Each tab
-// keeps its own selection independent of the others: `respByTab` is keyed
-// by `${tabId}_${candidateId}`, so picking a group in "Admisiones" doesn't
-// affect what "Psicología" shows for the same candidate. Selecting a value
-// persists immediately (currently still written to the shared
-// ip_responsable column on the backend — see handleRespChange).
+// keeps its own selection independent of the others, persisted to its own
+// backend column (see RESP_FIELD_BY_TAB) — `respByTab` is only an
+// optimistic local overlay on top of that (keyed by `${tabId}_${candidateId}`)
+// until the PUT in handleRespChange resolves.
 const RespSelect = ({ candidate, tabId, respByTab, onRespChange }) => {
   const key = `${tabId}_${candidate.id}`;
-  // Falls back to the shared DB value only if this tab hasn't overridden it locally
-  const value = respByTab[key] !== undefined ? respByTab[key] : (candidate.ip_responsable || '');
+  const dbField = RESP_FIELD_BY_TAB[tabId];
+  // Falls back to this tab's own persisted DB column only if this session
+  // hasn't already overridden it locally.
+  const value = respByTab[key] !== undefined ? respByTab[key] : (candidate[dbField] || '');
   return (
     <CFormSelect
       size="sm"
@@ -459,7 +669,7 @@ const AdmisionesTable = ({
           <SortHeader label="Nombre"   sortKey="nombre_completo" sortConfig={sortConfig} onSort={onSort} rowSpan={2} />
           <SortHeader label="Apellido" sortKey="apellido"        sortConfig={sortConfig} onSort={onSort} rowSpan={2} />
           <CTableHeaderCell rowSpan={2}>Vínculo</CTableHeaderCell>
-          <CTableHeaderCell rowSpan={2} style={{ width: 130 }}>Próxima Act</CTableHeaderCell>
+          <CTableHeaderCell rowSpan={2} style={{ width: 190 }}>Próxima Act</CTableHeaderCell>
           <CTableHeaderCell colSpan={2} className="text-center">Psicología</CTableHeaderCell>
           <CTableHeaderCell rowSpan={2}>1° Consulta</CTableHeaderCell>
           <CTableHeaderCell rowSpan={2}>Labs</CTableHeaderCell>
@@ -493,23 +703,23 @@ const AdmisionesTable = ({
               </CTableDataCell>
               <CTableDataCell>{apellido}</CTableDataCell>
 
-              {/* Vínculo */}
-              <CTableDataCell>
-                <AdmisionesSelect
-                  value={getField(c.id, 'vinculo')}
-                  onChange={(v) => onFieldChange(c.id, 'vinculo', v)}
-                  options={VINCULO_OPTIONS}
-                />
-              </CTableDataCell>
+              {/* Vínculo — read-only; set at candidate creation/edit time, not per-tab */}
+              <CTableDataCell>{c.vinculo || '—'}</CTableDataCell>
 
-              {/* Próxima Act */}
+              {/* Próxima Act — read-only, the closest upcoming date across
+                  Checklist, Psico Social, Seguro Med and Cita Previa,
+                  labeled with the event it came from (see getProximaActInfo) */}
               <CTableDataCell>
-                <CFormInput
-                  type="date" size="sm"
-                  value={getField(c.id, 'proxima_act')}
-                  onChange={(e) => onFieldChange(c.id, 'proxima_act', e.target.value)}
-                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
-                />
+                {(() => {
+                  const info = getProximaActInfo(c);
+                  if (!info) return '—';
+                  return (
+                    <div style={{ lineHeight: 1.25 }}>
+                      <div style={{ fontWeight: 600 }}>{info.date.toISOString().split('T')[0]}</div>
+                      <div className="text-muted" style={{ fontSize: '0.7rem' }}>{info.label}</div>
+                    </div>
+                  );
+                })()}
               </CTableDataCell>
 
               {/* Psicología > Ent — read-only, linked to the candidate's own
@@ -524,48 +734,39 @@ const AdmisionesTable = ({
                 {RECOMENDACION_SHORT_LABELS[getPsicoInicialValue(c, 'Psicométrico', 'recomendacion')] || '—'}
               </CTableDataCell>
 
-              {/* 1° Consulta */}
+              {/* 1° Consulta — read-only, derived from the candidate's first
+                  "cita" in Cita Previa > Iniciales (see getPrimeraConsultaStatus) */}
               <CTableDataCell>
-                <AdmisionesStatusSelect
-                  value={getField(c.id, 'primera_consulta')}
-                  onChange={(v) => onFieldChange(c.id, 'primera_consulta', v)}
-                  states={CONSULTA_LABS_STATES}
-                />
+                {CONSULTA_LABS_STATES[getPrimeraConsultaStatus(c)]?.label || '—'}
               </CTableDataCell>
 
-              {/* Labs */}
+              {/* Labs — read-only, derived from the same first "cita"'s
+                  Entrega resultados date + Status (see getLabsStatus) */}
               <CTableDataCell>
-                <AdmisionesStatusSelect
-                  value={getField(c.id, 'labs')}
-                  onChange={(v) => onFieldChange(c.id, 'labs', v)}
-                  states={CONSULTA_LABS_STATES}
-                />
+                {CONSULTA_LABS_STATES[getLabsStatus(c)]?.label || '—'}
               </CTableDataCell>
 
               {/* HIM — read-only, linked to the candidate's most recent
                   HIM row (1-4) in Psico Inicial (SortGes.js) */}
               <CTableDataCell className="text-center">
-                {RECOMENDACION_SHORT_LABELS[getLastHimValue(c)] || '—'}
+                {RECOMENDACION_SHORT_LABELS[getHim1Value(c)] || '—'}
               </CTableDataCell>
 
-              {/* Trat previo */}
+              {/* Trat previo — read-only, derived from the candidate's first
+                  "cita" in Cita Previa > Tratamiento previo (see getTratPrevioStatus) */}
               <CTableDataCell>
-                <AdmisionesStatusSelect
-                  value={getField(c.id, 'trat_previo')}
-                  onChange={(v) => onFieldChange(c.id, 'trat_previo', v)}
-                  states={TRAT_PREVIO_STATES}
-                  blankLabel="Nada"
-                />
+                {TRAT_PREVIO_STATES[getTratPrevioStatus(c)]?.label || '—'}
               </CTableDataCell>
 
-              {/* ACO */}
+              {/* ACO — read-only, sourced from "Fecha inicio ACO" in Alta Gesca
+                  (candidate.tiempo_metodo_aco); colored by proximity to today
+                  (red = passed, orange = within 10 days, black = further out) */}
               <CTableDataCell>
-                <CFormInput
-                  type="date" size="sm"
-                  value={getField(c.id, 'aco')}
-                  onChange={(e) => onFieldChange(c.id, 'aco', e.target.value)}
-                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
-                />
+                {c.tiempo_metodo_aco ? (
+                  <span style={{ color: getAcoDateColor(c.tiempo_metodo_aco), fontWeight: 600 }}>
+                    {String(c.tiempo_metodo_aco).split('T')[0]}
+                  </span>
+                ) : '—'}
               </CTableDataCell>
 
               {/* Alta seguro — 5-state cyclical badge */}
@@ -612,7 +813,7 @@ const AttPreviaTable = ({
           <CTableHeaderCell style={{ width: 130 }}>Fecha de inicio</CTableHeaderCell>
           <CTableHeaderCell style={{ width: 130 }}>Fecha final</CTableHeaderCell>
           <CTableHeaderCell className="text-center" style={{ width: 60 }}>Bloqueo</CTableHeaderCell>
-          <SortHeader label="Status" sortKey="status" sortConfig={sortConfig} onSort={onSort} style={{ width: 110 }} />
+          <CTableHeaderCell style={{ width: 130 }}>Status</CTableHeaderCell>
           <CTableHeaderCell style={{ width: 80 }}>Acciones</CTableHeaderCell>
         </CTableRow>
       </CTableHead>
@@ -622,7 +823,7 @@ const AttPreviaTable = ({
           const apellido = parts.length > 1 ? parts.slice(-1)[0] : '-';
           const nombre   = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '-';
           const locked   = getField(c.id, 'bloqueo') === 'true';
-          const stInfo   = STATUS_OPTIONS[c.status] || { label: c.status, color: 'secondary' };
+          const lastCita = getLastCitaPrevia(c);
 
           return (
             <CTableRow key={c.id}>
@@ -636,52 +837,28 @@ const AttPreviaTable = ({
               </CTableDataCell>
               <CTableDataCell>{apellido}</CTableDataCell>
 
-              {/* Dr. Tratante — reuses the same Babyboom/Kiromedic/Nora catalog as Vínculo */}
+              {/* Dr. Tratante — read-only, sourced from the candidate's last
+                  Cita Previa register (Médico Tratante) */}
+              <CTableDataCell>{lastCita?.dr_tratante || '—'}</CTableDataCell>
+
+              {/* Próxima Cita — read-only, sourced from the last cita's Fecha Cita */}
               <CTableDataCell>
-                <AdmisionesSelect
-                  value={getField(c.id, 'dr_tratante')}
-                  onChange={(v) => onFieldChange(c.id, 'dr_tratante', v)}
-                  options={VINCULO_OPTIONS}
-                />
+                {lastCita?.fecha_cita ? String(lastCita.fecha_cita).split('T')[0] : '—'}
               </CTableDataCell>
 
-              {/* Próxima Cita */}
+              {/* Status cita — read-only, sourced from the last cita's Status cita */}
               <CTableDataCell>
-                <CFormInput
-                  type="date" size="sm"
-                  value={getField(c.id, 'proxima_cita')}
-                  onChange={(e) => onFieldChange(c.id, 'proxima_cita', e.target.value)}
-                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
-                />
+                {lastCita?.status ? (CITA_STATUS_LABELS[lastCita.status] || lastCita.status) : '—'}
               </CTableDataCell>
 
-              {/* Status cita — reuses the Programar/Revisar/Programado catalog from Admisiones */}
+              {/* Fecha de inicio — read-only, sourced from the last cita's Inicio Tratamiento */}
               <CTableDataCell>
-                <AdmisionesStatusSelect
-                  value={getField(c.id, 'status_cita')}
-                  onChange={(v) => onFieldChange(c.id, 'status_cita', v)}
-                  states={CONSULTA_LABS_STATES}
-                />
+                {lastCita?.inicio_tratamiento ? String(lastCita.inicio_tratamiento).split('T')[0] : '—'}
               </CTableDataCell>
 
-              {/* Fecha de inicio */}
+              {/* Fecha final — read-only, sourced from the last cita's Final */}
               <CTableDataCell>
-                <CFormInput
-                  type="date" size="sm"
-                  value={getField(c.id, 'fecha_inicio')}
-                  onChange={(e) => onFieldChange(c.id, 'fecha_inicio', e.target.value)}
-                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
-                />
-              </CTableDataCell>
-
-              {/* Fecha final */}
-              <CTableDataCell>
-                <CFormInput
-                  type="date" size="sm"
-                  value={getField(c.id, 'fecha_final')}
-                  onChange={(e) => onFieldChange(c.id, 'fecha_final', e.target.value)}
-                  style={{ minWidth: '135px', fontSize: '0.8rem' }}
-                />
+                {lastCita?.final ? String(lastCita.final).split('T')[0] : '—'}
               </CTableDataCell>
 
               {/* Bloqueo — lock/unlock toggle */}
@@ -692,9 +869,13 @@ const AttPreviaTable = ({
                 />
               </CTableDataCell>
 
-              {/* Status — the candidate's existing (backend-backed) status */}
+              {/* Status — read-only, sourced from the last cita's second
+                  Status field (status_resultados) — NOT the candidate's own
+                  status anymore */}
               <CTableDataCell>
-                <CBadge color={stInfo.color} style={{ fontSize: '0.75rem' }}>{stInfo.label}</CBadge>
+                {lastCita?.status_resultados
+                  ? (CITA_STATUS_RESULTADOS_LABELS[lastCita.status_resultados] || lastCita.status_resultados)
+                  : '—'}
               </CTableDataCell>
 
               <CTableDataCell>
@@ -760,32 +941,33 @@ const PsicologiaTable = ({
                 <CBadge color={stInfo.color} style={{ fontSize: '0.75rem' }}>{stInfo.label}</CBadge>
               </CTableDataCell>
 
-              {/* Psicométrico > Fecha */}
+              {/* Psicométrico > Fecha — read-only, linked to the candidate's
+                  own "Psicométrico" row in Psico Inicial (SortGes.js) */}
               <CTableDataCell>
-                <CFormInput
-                  type="date" size="sm"
-                  value={getField(c.id, 'psicometrico_fecha')}
-                  onChange={(e) => onFieldChange(c.id, 'psicometrico_fecha', e.target.value)}
-                  style={{ minWidth: '120px', fontSize: '0.8rem' }}
-                />
+                {(() => {
+                  const fecha = getPsicoInicialValue(c, 'Psicométrico', 'fecha');
+                  return fecha ? String(fecha).split('T')[0] : '—';
+                })()}
               </CTableDataCell>
 
-              {/* Psicométrico > Estado — reuses the Programar/Revisar/Programado catalog */}
+              {/* Psicométrico > Estado — despite the column header, this reads
+                  the THIRD field on that Psico Inicial row (Recomendación),
+                  not the "Estado" field — matching how Admisiones' "Psic"
+                  column already links to the same data */}
               <CTableDataCell>
-                <AdmisionesStatusSelect
-                  value={getField(c.id, 'psicometrico_estado')}
-                  onChange={(v) => onFieldChange(c.id, 'psicometrico_estado', v)}
-                  states={CONSULTA_LABS_STATES}
-                />
+                {RECOMENDACION_SHORT_LABELS[getPsicoInicialValue(c, 'Psicométrico', 'recomendacion')] || '—'}
               </CTableDataCell>
 
-              {/* Entrevista — reuses the RE/s-d/CR/NR catalog from Admisiones' "Ent" column */}
+              {/* Entrevista — read-only, shows both date and result (recomendación)
+                  from the candidate's "Entrevista admisión" row in Psico Inicial */}
               <CTableDataCell>
-                <AdmisionesSelect
-                  value={getField(c.id, 'entrevista')}
-                  onChange={(v) => onFieldChange(c.id, 'entrevista', v)}
-                  options={PSICO_ENT_OPTIONS}
-                />
+                {(() => {
+                  const fecha = getPsicoInicialValue(c, 'Entrevista admisión', 'fecha');
+                  const fechaStr = fecha ? String(fecha).split('T')[0] : null;
+                  const resultado = RECOMENDACION_SHORT_LABELS[getPsicoInicialValue(c, 'Entrevista admisión', 'recomendacion')];
+                  if (!fechaStr && !resultado) return '—';
+                  return [fechaStr, resultado].filter(Boolean).join(' — ');
+                })()}
               </CTableDataCell>
 
               {/* SDG week checkpoints — each a RE/s-d/CR/NR select */}
@@ -875,6 +1057,18 @@ const CandidateFormFields = ({ form, setForm }) => (
           onChange={e => setForm(p => ({ ...p, ip_responsable: e.target.value }))} />
       </CCol>
     </CRow>
+    <CRow>
+      <CCol md={6} className="mb-3">
+        <CFormLabel>Vínculo:</CFormLabel>
+        <CFormSelect value={form.vinculo}
+          onChange={e => setForm(p => ({ ...p, vinculo: e.target.value }))}>
+          <option value="">— Seleccionar —</option>
+          {VINCULO_OPTIONS.map((opt) => (
+            <option key={opt} value={opt}>{opt}</option>
+          ))}
+        </CFormSelect>
+      </CCol>
+    </CRow>
   </>
 );
 
@@ -894,29 +1088,39 @@ const SortGesList = () => {
   const [sortConfig, setSortConfig] = useState({ key: 'nombre_completo', direction: 'asc' });
   const [alert, setAlert]           = useState({ show: false, type: '', message: '' });
 
-  // Per-tab RESP selections — keyed by `${tabId}_${candidateId}`. Lets
-  // Admisiones / Att. Previa / Psicología each show an independent RESP
-  // value for the same candidate, even though the backend still only has
-  // one shared ip_responsable column (see handleRespChange / RespSelect).
+  // Per-tab RESP selections — keyed by `${tabId}_${candidateId}`. This is
+  // just an optimistic local overlay now; the actual independence between
+  // Admisiones / Att. Previa / Psicología comes from each persisting to its
+  // own DB column (see RESP_FIELD_BY_TAB / handleRespChange / RespSelect).
   const [respByTab, setRespByTab] = useState({});
 
-  // Admisiones tab — local UI state for the Vínculo / Próxima Act / Psicología
-  // (Ent, Psic) / 1° Consulta / Labs / HIM / Trat previo / ACO / Alta seguro
-  // columns. None of these have backend columns yet, so values live only in
-  // this session until the corresponding fields exist on the API — keyed by
-  // `${candidateId}_${field}`.
+  // Admisiones tab — local UI state for the Alta seguro column (the only
+  // one left still edited directly here). Everything else that used to live
+  // in this state is now read-only/derived from real data:
+  // Ent/Psic/HIM ← Psico Inicial (getPsicoInicialValue/getHim1Value),
+  // 1° Consulta/Labs/Trat previo ← Cita Previa (getPrimeraConsultaStatus/
+  // getLabsStatus/getTratPrevioStatus), ACO ← Alta Gesca's tiempo_metodo_aco,
+  // Próxima Act ← everything (see getProximaActInfo).
+  // Alta seguro has no backend column yet, so its value lives only in this
+  // session — keyed by `${candidateId}_${field}`.
+  // (Vínculo is NOT here either — it's a real
+  // candidate-record field set at creation/edit time, see VINCULO_OPTIONS.)
   const [admisionesFields, setAdmisionesFields] = useState({});
 
-  // Att. Previa tab — local UI state for the Dr. Tratante / Próxima Cita /
-  // Status cita / Fecha de inicio / Fecha final / Bloqueo columns. Same
-  // caveat as admisionesFields: no backend columns yet, session-only,
-  // keyed by `${candidateId}_${field}`.
+  // Att. Previa tab — local UI state for the Bloqueo column only (the sole
+  // field still edited directly here). Dr. Tratante / Próxima Cita / Status
+  // cita / Fecha de inicio / Fecha final / Status are all now read-only,
+  // derived from the candidate's last Cita Previa register (see
+  // getLastCitaPrevia). No backend column for Bloqueo yet, so it's
+  // session-only — keyed by `${candidateId}_${field}`.
   const [attPreviaFields, setAttPreviaFields] = useState({});
 
-  // Psicología tab — local UI state for Psicométrico (fecha/estado),
-  // Entrevista and the SDG-week checkpoint columns. Same caveat as the
-  // other tabs' field state: session-only until backed by real DB columns,
-  // keyed by `${candidateId}_${field}`.
+  // Psicología tab — local UI state for the SDG-week checkpoint columns only
+  // (the ones still edited directly here). Psicométrico (Fecha + the
+  // Recomendación-based "Estado") and Entrevista are now read-only, linked
+  // to the candidate's own Psico Inicial record (see getPsicoInicialValue).
+  // The SDG-week fields have no backend columns yet, so they're
+  // session-only — keyed by `${candidateId}_${field}`.
   const [psicologiaFields, setPsicologiaFields] = useState({});
 
   // ── Create modal ─────────────────────────────────────────────
@@ -957,12 +1161,19 @@ const SortGesList = () => {
       const list = res.data || [];
       setCandidates(list);
       setError(null);
-      // GET /api/sort-ges doesn't include each candidate's psico_inicial
-      // rows, so fetch them individually and merge them in. This is what
-      // the Admisiones tab's read-only Ent/Psic/HIM columns read from
-      // (see getPsicoInicialValue / getLastHimValue). Runs in the
-      // background — doesn't block the main table from rendering.
+      // GET /api/sort-ges doesn't include any of a candidate's per-tab data
+      // (psico_inicial, cita_previa, checklist, seguro_vida, seguro_mat,
+      // seguimiento) — each is fetched individually per candidate and
+      // merged in below. Together these power every derived/read-only
+      // column in Admisiones and Att. Previa (Ent/Psic/HIM, 1° Consulta,
+      // Labs, Trat previo, Próxima Act, and the Att. Previa columns).
+      // Runs in the background — doesn't block the main table from rendering.
       fetchPsicoInicialForCandidates(list);
+      fetchCitaPreviaForCandidates(list);
+      fetchChecklistForCandidates(list);
+      fetchSeguroVidaForCandidates(list);
+      fetchSeguroMatForCandidates(list);
+      fetchSeguimientoForCandidates(list);
     } catch (err) {
       console.error(err);
       setError('Error al cargar los candidatos');
@@ -971,31 +1182,59 @@ const SortGesList = () => {
     }
   };
 
-  // TODO: this is one request per candidate (N+1) — fine for now, but if
-  // GET /api/sort-ges is ever updated to return psico_inicial nested per
-  // candidate, this whole function (and the call to it above) can be
-  // deleted and getPsicoInicialValue will just read candidate.psico_inicial
-  // directly from the list response instead.
-  const fetchPsicoInicialForCandidates = async (candidateList) => {
+  // Shared by all the per-candidate background fetches below: hits
+  // `${basePath}` for every candidate in parallel, and merges the result
+  // into `candidate[stateKey]`. `extract` picks the right piece out of each
+  // response (defaults to the whole response body, e.g. for list-shaped
+  // endpoints like /checklist that return a single object rather than an array).
+  //
+  // TODO: this is N+1 per source (6 sources × N candidates on every list
+  // load) — fine for a small list, but if this ever gets slow, the real
+  // fix is a backend endpoint that returns all of this nested per candidate
+  // in the GET /api/sort-ges response itself, so none of these six
+  // functions (or their calls above) are needed at all.
+  const fetchPerCandidate = async (candidateList, basePath, stateKey, extract = (res) => res.data) => {
     try {
       const results = await Promise.all(
         candidateList.map((c) =>
-          api.get(`/api/sort-ges/${c.id}/psico-inicial`, { withCredentials: true })
-            .then((res) => ({ id: c.id, psico_inicial: res.data || [] }))
+          api.get(`/api/sort-ges/${c.id}${basePath}`, { withCredentials: true })
+            .then((res) => ({ id: c.id, value: extract(res) }))
             .catch((err) => {
-              console.error(`Error fetching psico-inicial for candidate ${c.id}:`, err);
-              return { id: c.id, psico_inicial: [] };
+              console.error(`Error fetching ${basePath} for candidate ${c.id}:`, err);
+              return { id: c.id, value: extract({ data: null }) };
             })
         )
       );
       setCandidates((prev) => prev.map((c) => {
         const match = results.find((r) => r.id === c.id);
-        return match ? { ...c, psico_inicial: match.psico_inicial } : c;
+        return match ? { ...c, [stateKey]: match.value } : c;
       }));
     } catch (err) {
-      console.error('Error fetching psico inicial for candidates:', err);
+      console.error(`Error fetching ${basePath} for candidates:`, err);
     }
   };
+
+  const fetchPsicoInicialForCandidates = (candidateList) =>
+    fetchPerCandidate(candidateList, '/psico-inicial', 'psico_inicial', (res) => res.data || []);
+
+  const fetchCitaPreviaForCandidates = (candidateList) =>
+    fetchPerCandidate(candidateList, '/cita-previa', 'cita_previa', (res) => res.data || []);
+
+  // Powers Próxima Act's "Programar cita para entrega" / "...para firma" dates
+  const fetchChecklistForCandidates = (candidateList) =>
+    fetchPerCandidate(candidateList, '/checklist', 'checklist', (res) => res.data || null);
+
+  // Powers Próxima Act's Seguro de Vida dates
+  const fetchSeguroVidaForCandidates = (candidateList) =>
+    fetchPerCandidate(candidateList, '/seguro-vida', 'seguro_vida', (res) => res.data || []);
+
+  // Powers Próxima Act's Seguro de Maternidad dates (including per-cuota vencimientos)
+  const fetchSeguroMatForCandidates = (candidateList) =>
+    fetchPerCandidate(candidateList, '/seguro-mat', 'seguro_mat', (res) => res.data || []);
+
+  // Powers Próxima Act's Seguimiento Psicológico "programar" dates
+  const fetchSeguimientoForCandidates = (candidateList) =>
+    fetchPerCandidate(candidateList, '/seguimiento', 'seguimiento', (res) => res.data || []);
 
   // System users list — currently unused by the RESP dropdowns (they use
   // the hardcoded GRUPOS_TRABAJO instead, see the TODO near the top of this
@@ -1017,18 +1256,23 @@ const SortGesList = () => {
   // don't overwrite each other's selection on screen), but the write still
   // goes to the single shared ip_responsable column on the backend until
   // there are real per-tab/group columns to store it in.
+  // Persists a RESP change to this tab's OWN dedicated column (see
+  // RESP_FIELD_BY_TAB) — Admisiones/Att. Previa/Psicología no longer share
+  // ip_responsable, so setting one doesn't affect the others, even after a
+  // page reload.
   const handleRespChange = async (tabId, candidateId, newRespValue) => {
     const key = `${tabId}_${candidateId}`;
     setRespByTab((prev) => ({ ...prev, [key]: newRespValue })); // optimistic, tab-local
+    const dbField = RESP_FIELD_BY_TAB[tabId];
 
     try {
       await api.put(
         `/api/sort-ges/${candidateId}`,
-        { ip_responsable: newRespValue || null },
+        { [dbField]: newRespValue || null },
         { withCredentials: true }
       );
       setCandidates((prev) => prev.map((c) =>
-        c.id === candidateId ? { ...c, ip_responsable: newRespValue } : c
+        c.id === candidateId ? { ...c, [dbField]: newRespValue } : c
       ));
     } catch (err) {
       console.error('Error updating Resp:', err);
@@ -1072,7 +1316,7 @@ const SortGesList = () => {
       setCreating(true);
       const res = await api.post('/api/sort-ges', {
         status: createForm.status, ip_responsable: createForm.ip_responsable || null,
-        programa: createForm.programa || null,
+        programa: createForm.programa || null, vinculo: createForm.vinculo || null,
       }, { withCredentials: true });
       const newId = res.data.id;
       await api.put(`/api/sort-ges/${newId}/alta-gesca`, {
@@ -1102,7 +1346,7 @@ const SortGesList = () => {
       setSaving(true);
       await api.put(`/api/sort-ges/${editingId}`, {
         status: editForm.status, ip_responsable: editForm.ip_responsable || null,
-        programa: editForm.programa || null,
+        programa: editForm.programa || null, vinculo: editForm.vinculo || null,
       }, { withCredentials: true });
       await api.put(`/api/sort-ges/${editingId}/alta-gesca`, {
         nombre_completo:  editForm.nombre_completo,
@@ -1119,6 +1363,7 @@ const SortGesList = () => {
           telefono:         editForm.tel_1,
           email:            editForm.email,
           esquema_ofrecido: editForm.esquema_ofrecido,
+          vinculo:          editForm.vinculo,
           ip_responsable:   editForm.ip_responsable,
           status:           editForm.status,
           programa:         editForm.programa,
@@ -1196,6 +1441,7 @@ const SortGesList = () => {
         ip_responsable:   candidate.ip_responsable   || '',
         status:           candidate.status           || 'iniciales',
         programa:         candidate.programa         || '1',
+        vinculo:          candidate.vinculo          || '',
       });
       setShowEditModal(true);
     } else {

@@ -55,6 +55,7 @@ import {
   cilTrash,
   cilCamera,
   cilWarning,
+  cilFolder,
 } from '@coreui/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
@@ -266,19 +267,28 @@ const SortGes = () => {
 
   // ─────────────────────────────────────────────────────────────
   // CITA PREVIA state
-  // Each "cita" is local-only for now (no backend endpoint exists yet for
-  // this — TODO: wire up real persistence, mirroring how seguimientos does
-  // it, once the API supports it). Grouped by sub-tab id (see
-  // CITA_PREVIA_TABS), each an independent list.
+  // Persisted via /api/sort-ges/:id/cita-previa (see fetchCandidate,
+  // addCita, updateCita, deleteCita). Grouped by sub-tab id (see
+  // CITA_PREVIA_TABS) client-side — the backend returns one flat list per
+  // candidate, tagged with sub_tab.
   // ─────────────────────────────────────────────────────────────
   const CITA_EMPTY = {
     motivo: '',
-    dr_tratante: '',
+    sdg: '',
     inicio_tratamiento: '',
-    fecha_cita: '',
     final: '',
+    diagnostico: '',
+    fecha_cita: '',
+    dr_tratante: '',
+    status: '',              // "Status cita" in the UI — the appointment's own status
+    comentario_solicitud: '',
     entrega_resultados: '',
-    status: '',
+    reportes: '',
+    // Second, distinct "status" field (between Entrega resultados/Reportes
+    // and Observaciones) — not the same as "Status cita" above. Uses its
+    // own catalog, citaStatusResultadosOpts (En curso / Repetición / Completado).
+    status_resultados: '',
+    observaciones: '',
   };
   const [citaPreviaActiveTab, setCitaPreviaActiveTab] = useState(CITA_PREVIA_TABS[0].id);
   const [citasPorTab, setCitasPorTab] = useState(
@@ -430,6 +440,19 @@ const SortGes = () => {
     { value: 'no_acudio',           label: 'No acudió / revisar'   },
     { value: 'completado',          label: 'Completado'            },
   ];
+  const CITA_SDG_WEEKS = ['6', '8', '10', '12', '16', '20', '22', '26', '32', '34', '35', '36', '37', '38', '39', '40'];
+  const citaSdgOpts = [
+    { value: '', label: 'Seleccionar...' },
+    ...CITA_SDG_WEEKS.map((week) => ({ value: week, label: week })),
+  ];
+  // The second "Status" field (next to Entrega resultados/Reportes) has its
+  // own, smaller catalog — distinct from citaStatusOpts used by "Status cita".
+  const citaStatusResultadosOpts = [
+    { value: '', label: 'Seleccionar...' },
+    { value: 'en_curso',   label: 'En curso'   },
+    { value: 'repeticion', label: 'Repetición' },
+    { value: 'completado', label: 'Completado' },
+  ];
 
   // Vida status derived from vencimiento date
   const getVidaStatus = (vencimiento) => {
@@ -528,16 +551,18 @@ const SortGes = () => {
   }, [registroInicial.fecha_nacimiento]);
 
   useEffect(() => {
-    if (getDocumentosStatus().label === 'Completado') {
+    if (getDocumentosStatus().label === 'Completado' && !documentos.cita_entrega) {
       const today = new Date().toISOString().split('T')[0];
       setDocumentos(prev => ({ ...prev, cita_entrega: today }));
+      saveChecklistField('cita_entrega', today);
     }
   }, [documentos.certificado_nacimiento, documentos.curp, documentos.comprobante_domicilio, documentos.poliza_seguro]);
 
   useEffect(() => {
-    if (getConsentimientosStatus().label === 'Completado') {
+    if (getConsentimientosStatus().label === 'Completado' && !consentimientos.cita_firma) {
       const today = new Date().toISOString().split('T')[0];
       setConsentimientos(prev => ({ ...prev, cita_firma: today }));
+      saveChecklistField('cita_firma', today);
     }
   }, [
     consentimientos.consentimiento_informado, consentimientos.consentimiento_transferencia,
@@ -553,7 +578,7 @@ const SortGes = () => {
       setLoading(true);
 
       // Load candidate + all tabs in parallel
-      const [candidateRes, altaRes, checklistRes, vidaRes, matRes, psicoRes, segRes] =
+      const [candidateRes, altaRes, checklistRes, vidaRes, matRes, psicoRes, segRes, citaPreviaRes] =
         await Promise.all([
           api.get(`/api/sort-ges/${id}`,               { withCredentials: true }),
           api.get(`/api/sort-ges/${id}/alta-gesca`,    { withCredentials: true }),
@@ -562,6 +587,7 @@ const SortGes = () => {
           api.get(`/api/sort-ges/${id}/seguro-mat`,    { withCredentials: true }),
           api.get(`/api/sort-ges/${id}/psico-inicial`, { withCredentials: true }),
           api.get(`/api/sort-ges/${id}/seguimiento`,   { withCredentials: true }),
+          api.get(`/api/sort-ges/${id}/cita-previa`,   { withCredentials: true }),
         ]);
 
       // ── Candidate master ─────────────────────────────────────
@@ -717,6 +743,32 @@ const SortGes = () => {
         incidencia:  s.incidencia   || '',
         historial:   s.historial    || '',
       })));
+
+      // ── Cita Previa ──────────────────────────────────────────
+      // One flat list from the backend, grouped here into citasPorTab by
+      // each row's sub_tab (iniciales / tratamiento_previo / prepa_transfer /
+      // pre_natal / materno_fetal).
+      const grouped = CITA_PREVIA_TABS.reduce((acc, tab) => ({ ...acc, [tab.id]: [] }), {});
+      (citaPreviaRes.data || []).forEach((c) => {
+        const bucket = grouped[c.sub_tab] ? c.sub_tab : CITA_PREVIA_TABS[0].id;
+        grouped[bucket].push({
+          id:                    c.id,
+          motivo:                c.motivo                || '',
+          sdg:                   c.sdg                   || '',
+          inicio_tratamiento:    toDateInputValue(c.inicio_tratamiento),
+          final:                 toDateInputValue(c.final),
+          diagnostico:           c.diagnostico ? 'true' : 'false',
+          fecha_cita:            toDateInputValue(c.fecha_cita),
+          dr_tratante:           c.dr_tratante           || '',
+          status:                c.status                || '',
+          comentario_solicitud:  c.comentario_solicitud  || '',
+          entrega_resultados:    toDateInputValue(c.entrega_resultados),
+          reportes:              c.reportes              || '',
+          status_resultados:     c.status_resultados     || '',
+          observaciones:         c.observaciones         || '',
+        });
+      });
+      setCitasPorTab(grouped);
 
       setError(null);
     } catch (err) {
@@ -1276,28 +1328,72 @@ const SortGes = () => {
   };
 
   // ── Cita Previa handlers ─────────────────────────────────────
-  // Local-only for now — no backend endpoint exists yet for citas (see the
-  // TODO on citasPorTab's declaration above).
-  const addCita = (tabId) => {
-    const newId = Date.now() + Math.random();
-    setCitasPorTab(prev => ({
-      ...prev,
-      [tabId]: [...prev[tabId], { id: newId, ...CITA_EMPTY }],
-    }));
+  const addCita = async (tabId) => {
+    try {
+      const res = await api.post(
+        `/api/sort-ges/${id}/cita-previa`,
+        { sub_tab: tabId, ...CITA_EMPTY },
+        { withCredentials: true }
+      );
+      const c = res.data;
+      setCitasPorTab(prev => ({
+        ...prev,
+        [tabId]: [...prev[tabId], {
+          id:                    c.id,
+          motivo:                c.motivo                || '',
+          sdg:                   c.sdg                   || '',
+          inicio_tratamiento:    toDateInputValue(c.inicio_tratamiento),
+          final:                 toDateInputValue(c.final),
+          diagnostico:           c.diagnostico ? 'true' : 'false',
+          fecha_cita:            toDateInputValue(c.fecha_cita),
+          dr_tratante:           c.dr_tratante           || '',
+          status:                c.status                || '',
+          comentario_solicitud:  c.comentario_solicitud  || '',
+          entrega_resultados:    toDateInputValue(c.entrega_resultados),
+          reportes:              c.reportes              || '',
+          status_resultados:     c.status_resultados     || '',
+          observaciones:         c.observaciones         || '',
+        }],
+      }));
+    } catch (err) {
+      console.error('Error creating cita:', err);
+      showNotification('danger', 'Error al crear la cita');
+    }
   };
 
-  const updateCita = (tabId, citaId, field, value) => {
+  // Mirrors updateSeguimiento: sends the FULL row on every field change
+  // (not a partial update), since that's what the backend's
+  // updateCitaPrevia expects.
+  const updateCita = async (tabId, citaId, field, value) => {
     setCitasPorTab(prev => ({
       ...prev,
       [tabId]: prev[tabId].map(c => c.id === citaId ? { ...c, [field]: value } : c),
     }));
+    try {
+      const current = citasPorTab[tabId].find(c => c.id === citaId);
+      const updated = { ...current, [field]: value };
+      await api.put(
+        `/api/sort-ges/${id}/cita-previa/${citaId}`,
+        { sub_tab: tabId, ...updated },
+        { withCredentials: true }
+      );
+    } catch (err) {
+      console.error('Error saving cita:', err);
+      showNotification('danger', 'Error al guardar la cita');
+    }
   };
 
-  const deleteCita = (tabId, citaId) => {
-    setCitasPorTab(prev => ({
-      ...prev,
-      [tabId]: prev[tabId].filter(c => c.id !== citaId),
-    }));
+  const deleteCita = async (tabId, citaId) => {
+    try {
+      await api.delete(`/api/sort-ges/${id}/cita-previa/${citaId}`, { withCredentials: true });
+      setCitasPorTab(prev => ({
+        ...prev,
+        [tabId]: prev[tabId].filter(c => c.id !== citaId),
+      }));
+    } catch (err) {
+      console.error('Error deleting cita:', err);
+      showNotification('danger', 'Error al eliminar la cita');
+    }
   };
 
   // ── Historial gate handlers ──────────────────────────────────
@@ -1472,11 +1568,28 @@ const SortGes = () => {
   const renderLockableInput = (section, field, value, onChange, props = {}) => {
     const locked = isFieldLocked(section, field);
     const { type = 'text', placeholder = '', disabled: propsDisabled, ...restProps } = props;
+    // Date inputs don't reliably fire onBlur after a value is picked from
+    // the native calendar widget in every browser — that was silently
+    // skipping the save-and-lock prompt (and therefore the actual save) for
+    // dates specifically. Mirrors what renderLockableSelect already does on
+    // onChange for selects, which never had this problem.
+    const isDate = type === 'date';
+    const handleChange = locked ? undefined : (e) => {
+      onChange(e);
+      if (!isDate) return;
+      const currentValue = e.target.value;
+      const initialValue = activeEditingFieldRef.current.initialValue;
+      if (currentValue && currentValue !== '' && currentValue !== initialValue) {
+        setPendingFieldLock({ section, field, value: currentValue });
+        setShowConfirmModal(true);
+        activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+      }
+    };
     return (
       <CInputGroup>
         <CFormInput
           type={type} name={field} value={value || ''}
-          onChange={locked ? undefined : onChange}
+          onChange={handleChange}
           onFocus={locked ? undefined : (e) => handleFieldFocus(section, field, e.target.value)}
           onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
           onKeyDown={locked ? undefined : (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
@@ -1539,13 +1652,27 @@ const SortGes = () => {
   // ── Table cell input (Psico Inicial) ─────────────────────────
   const renderTableInput = (section, field, value, onChange, type = 'text') => {
     const locked = isFieldLocked(section, field);
+    // See renderLockableInput's comment — date fields trigger the
+    // save-and-lock check on change too, not only on blur.
+    const isDate = type === 'date';
+    const handleChange = locked ? undefined : (e) => {
+      onChange(e);
+      if (!isDate) return;
+      const currentValue = e.target.value;
+      const initialValue = activeEditingFieldRef.current.initialValue;
+      if (currentValue && currentValue !== '' && currentValue !== initialValue) {
+        setPendingFieldLock({ section, field, value: currentValue });
+        setShowConfirmModal(true);
+        activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+      }
+    };
     return (
       <CInputGroup size="sm">
         <CFormInput
           type={type}
           size="sm"
           value={value || ''}
-          onChange={locked ? undefined : onChange}
+          onChange={handleChange}
           onFocus={locked ? undefined : () => handleFieldFocus(section, field, value)}
           onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
           onKeyDown={locked ? undefined : (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
@@ -1593,6 +1720,20 @@ const SortGes = () => {
   const renderSegInput = (segId, field, value, type = 'text', placeholder = '') => {
     const section = `seg_${segId}`;
     const locked = isFieldLocked(section, field);
+    // See renderLockableInput's comment — date fields trigger the
+    // save-and-lock check on change too, not only on blur.
+    const isDate = type === 'date';
+    const handleChange = locked ? undefined : (e) => {
+      updateSeguimiento(segId, field, e.target.value);
+      if (!isDate) return;
+      const currentValue = e.target.value;
+      const initialValue = activeEditingFieldRef.current.initialValue;
+      if (currentValue && currentValue !== '' && currentValue !== initialValue) {
+        setPendingFieldLock({ section, field, value: currentValue });
+        setShowConfirmModal(true);
+        activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+      }
+    };
     return (
       <CInputGroup size="sm">
         <CFormInput
@@ -1600,7 +1741,7 @@ const SortGes = () => {
           size="sm"
           value={value || ''}
           placeholder={placeholder}
-          onChange={locked ? undefined : e => updateSeguimiento(segId, field, e.target.value)}
+          onChange={handleChange}
           onFocus={locked ? undefined : () => handleFieldFocus(section, field, value)}
           onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
           onKeyDown={locked ? undefined : (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
@@ -1663,6 +1804,20 @@ const SortGes = () => {
   const renderCitaInput = (tabId, citaId, field, value, type = 'text', placeholder = '') => {
     const section = `cita_${tabId}_${citaId}`;
     const locked = isFieldLocked(section, field);
+    // See renderLockableInput's comment — date fields trigger the
+    // save-and-lock check on change too, not only on blur.
+    const isDate = type === 'date';
+    const handleChange = locked ? undefined : (e) => {
+      updateCita(tabId, citaId, field, e.target.value);
+      if (!isDate) return;
+      const currentValue = e.target.value;
+      const initialValue = activeEditingFieldRef.current.initialValue;
+      if (currentValue && currentValue !== '' && currentValue !== initialValue) {
+        setPendingFieldLock({ section, field, value: currentValue });
+        setShowConfirmModal(true);
+        activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+      }
+    };
     return (
       <CInputGroup size="sm">
         <CFormInput
@@ -1670,7 +1825,7 @@ const SortGes = () => {
           size="sm"
           value={value || ''}
           placeholder={placeholder}
-          onChange={locked ? undefined : e => updateCita(tabId, citaId, field, e.target.value)}
+          onChange={handleChange}
           onFocus={locked ? undefined : () => handleFieldFocus(section, field, value)}
           onBlur={locked ? undefined : (e) => handleFieldBlur(section, field, e.target.value)}
           onKeyDown={locked ? undefined : (e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
@@ -1728,6 +1883,22 @@ const SortGes = () => {
       </CInputGroup>
     );
   };
+
+  // "Diagnóstico" isn't free text — it's a simple locked/unlocked toggle.
+  // Persisted as the cita's `diagnostico` field ('true'/'false') via updateCita.
+  const CitaDiagnosticoToggle = ({ locked, onClick }) => (
+    <CButton
+      type="button"
+      color={locked ? 'warning' : 'secondary'}
+      variant="outline"
+      size="sm"
+      onClick={onClick}
+      title={locked ? 'Diagnóstico bloqueado — clic para desbloquear' : 'Diagnóstico desbloqueado — clic para bloquear'}
+    >
+      <CIcon icon={locked ? cilLockLocked : cilLockUnlocked} className="me-1" />
+      {locked ? 'Bloqueado' : 'Desbloqueado'}
+    </CButton>
+  );
 
   // ── Lockable checkbox ────────────────────────────────────────
   // For checkboxes: lock fires immediately on check, not on blur
@@ -1983,6 +2154,23 @@ const SortGes = () => {
       showNotification('danger', 'Error al eliminar el documento');
     } finally {
       setDocRemoving(prev => ({ ...prev, [fieldName]: false }));
+    }
+  };
+
+  // Persists a single Checklist field immediately (partial update — matches
+  // upsertChecklist's ALLOWED-fields pattern, so this never clobbers other
+  // checklist columns). Used by "Programar cita para entrega/firma", which
+  // — unlike every other field on this tab — were never wired into the
+  // lock/confirm autosave system: they only ever updated local state, so
+  // picking a date here silently didn't persist unless a checkbox on the
+  // same tab happened to be locked afterward (which triggers a full
+  // checklist save as a side effect) or "Guardar cambios" was clicked.
+  const saveChecklistField = async (field, value) => {
+    try {
+      await api.put(`/api/sort-ges/${id}/checklist`, { [field]: value || null }, { withCredentials: true });
+    } catch (err) {
+      console.error(`Error saving checklist.${field}:`, err);
+      showNotification('danger', 'Error al guardar la fecha');
     }
   };
 
@@ -2582,15 +2770,39 @@ const SortGes = () => {
                       <CCol md={6}>
                         <div className="mb-3">
                           <CFormLabel>Programar cita para entrega:</CFormLabel>
-                          <CInputGroup>
-                            <CFormInput type="date" value={documentos.cita_entrega}
-                              onChange={(e) => setDocumentos(prev => ({ ...prev, cita_entrega: e.target.value }))}
-                              disabled={getDocumentosStatus().label === 'Completado'}
-                              style={getDocumentosStatus().label === 'Completado' ? { backgroundColor: '#e9ecef' } : {}} />
-                            <CInputGroupText>
-                              <CBadge color={getCitaEntregaStatus().color}>{getCitaEntregaStatus().label}</CBadge>
-                            </CInputGroupText>
-                          </CInputGroup>
+                          {(() => {
+                            const locked = isFieldLocked('documentos', 'cita_entrega');
+                            const completado = getDocumentosStatus().label === 'Completado';
+                            return (
+                              <CInputGroup>
+                                <CFormInput type="date" value={documentos.cita_entrega}
+                                  onFocus={locked ? undefined : (e) => handleFieldFocus('documentos', 'cita_entrega', e.target.value)}
+                                  onChange={locked ? undefined : (e) => {
+                                    const newVal = e.target.value;
+                                    setDocumentos(prev => ({ ...prev, cita_entrega: newVal }));
+                                    const initialValue = activeEditingFieldRef.current.initialValue;
+                                    if (newVal && newVal !== initialValue) {
+                                      setPendingFieldLock({ section: 'documentos', field: 'cita_entrega', value: newVal });
+                                      setShowConfirmModal(true);
+                                      activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+                                    }
+                                  }}
+                                  disabled={locked || completado}
+                                  readOnly={locked}
+                                  style={(locked || completado) ? { backgroundColor: '#e9ecef', color: '#6c757d' } : {}} />
+                                {locked
+                                  ? <LockBtn section="documentos" field="cita_entrega" />
+                                  : documentos.cita_entrega
+                                    ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
+                                        <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
+                                      </CInputGroupText>
+                                    : null}
+                                <CInputGroupText>
+                                  <CBadge color={getCitaEntregaStatus().color}>{getCitaEntregaStatus().label}</CBadge>
+                                </CInputGroupText>
+                              </CInputGroup>
+                            );
+                          })()}
                         </div>
                         <div className="mb-3">
                           <CFormLabel>Estado de documentación:</CFormLabel>
@@ -2610,15 +2822,39 @@ const SortGes = () => {
                       <CCol md={6}>
                         <div className="mb-3">
                           <CFormLabel>Programar cita para firma:</CFormLabel>
-                          <CInputGroup>
-                            <CFormInput type="date" value={consentimientos.cita_firma}
-                              onChange={(e) => setConsentimientos(prev => ({ ...prev, cita_firma: e.target.value }))}
-                              disabled={getConsentimientosStatus().label === 'Completado'}
-                              style={getConsentimientosStatus().label === 'Completado' ? { backgroundColor: '#e9ecef' } : {}} />
-                            <CInputGroupText>
-                              <CBadge color={getCitaFirmaStatus().color}>{getCitaFirmaStatus().label}</CBadge>
-                            </CInputGroupText>
-                          </CInputGroup>
+                          {(() => {
+                            const locked = isFieldLocked('consentimientos', 'cita_firma');
+                            const completado = getConsentimientosStatus().label === 'Completado';
+                            return (
+                              <CInputGroup>
+                                <CFormInput type="date" value={consentimientos.cita_firma}
+                                  onFocus={locked ? undefined : (e) => handleFieldFocus('consentimientos', 'cita_firma', e.target.value)}
+                                  onChange={locked ? undefined : (e) => {
+                                    const newVal = e.target.value;
+                                    setConsentimientos(prev => ({ ...prev, cita_firma: newVal }));
+                                    const initialValue = activeEditingFieldRef.current.initialValue;
+                                    if (newVal && newVal !== initialValue) {
+                                      setPendingFieldLock({ section: 'consentimientos', field: 'cita_firma', value: newVal });
+                                      setShowConfirmModal(true);
+                                      activeEditingFieldRef.current = { section: null, field: null, initialValue: null };
+                                    }
+                                  }}
+                                  disabled={locked || completado}
+                                  readOnly={locked}
+                                  style={(locked || completado) ? { backgroundColor: '#e9ecef', color: '#6c757d' } : {}} />
+                                {locked
+                                  ? <LockBtn section="consentimientos" field="cita_firma" />
+                                  : consentimientos.cita_firma
+                                    ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
+                                        <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
+                                      </CInputGroupText>
+                                    : null}
+                                <CInputGroupText>
+                                  <CBadge color={getCitaFirmaStatus().color}>{getCitaFirmaStatus().label}</CBadge>
+                                </CInputGroupText>
+                              </CInputGroup>
+                            );
+                          })()}
                         </div>
                       </CCol>
                       <CCol md={6}>
@@ -3618,34 +3854,101 @@ const SortGes = () => {
 
                           {/* Body — permanently visible, no toggle */}
                           <div className="p-3">
+                            {/* Row 1: Motivo de la cita, SDG */}
                             <CRow>
-                              <CCol md={4} className="mb-3">
+                              <CCol md={6} className="mb-3">
                                 <CFormLabel className="fw-semibold small text-muted">Motivo de la cita:</CFormLabel>
                                 {renderCitaSelect(tab.id, cita.id, 'motivo', cita.motivo, citaMotivoOpts)}
                               </CCol>
-                              <CCol md={4} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Dr. Tratante:</CFormLabel>
-                                {renderCitaInput(tab.id, cita.id, 'dr_tratante', cita.dr_tratante, 'text', 'Nombre del doctor')}
+                              <CCol md={6} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">SDG:</CFormLabel>
+                                {renderCitaSelect(tab.id, cita.id, 'sdg', cita.sdg, citaSdgOpts)}
                               </CCol>
+                            </CRow>
+
+                            {/* Row 2: Inicio tratamiento, Final, Diagnóstico */}
+                            <CRow>
                               <CCol md={4} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Status:</CFormLabel>
-                                {renderCitaSelect(tab.id, cita.id, 'status', cita.status, citaStatusOpts)}
-                              </CCol>
-                              <CCol md={3} className="mb-3">
                                 <CFormLabel className="fw-semibold small text-muted">Inicio Tratamiento:</CFormLabel>
                                 {renderCitaInput(tab.id, cita.id, 'inicio_tratamiento', cita.inicio_tratamiento, 'date')}
                               </CCol>
-                              <CCol md={3} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Fecha Cita:</CFormLabel>
-                                {renderCitaInput(tab.id, cita.id, 'fecha_cita', cita.fecha_cita, 'date')}
-                              </CCol>
-                              <CCol md={3} className="mb-3">
+                              <CCol md={4} className="mb-3">
                                 <CFormLabel className="fw-semibold small text-muted">Final:</CFormLabel>
                                 {renderCitaInput(tab.id, cita.id, 'final', cita.final, 'date')}
                               </CCol>
-                              <CCol md={3} className="mb-3">
+                              <CCol md={4} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Diagnóstico:</CFormLabel>
+                                <div>
+                                  <CitaDiagnosticoToggle
+                                    locked={cita.diagnostico === 'true'}
+                                    onClick={() => updateCita(tab.id, cita.id, 'diagnostico', cita.diagnostico === 'true' ? 'false' : 'true')}
+                                  />
+                                </div>
+                              </CCol>
+                            </CRow>
+
+                            {/* Row 3: Fecha cita (shown as "Prox Cita" in the header), Médico tratante */}
+                            <CRow>
+                              <CCol md={6} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Fecha Cita:</CFormLabel>
+                                {renderCitaInput(tab.id, cita.id, 'fecha_cita', cita.fecha_cita, 'date')}
+                              </CCol>
+                              <CCol md={6} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Médico Tratante:</CFormLabel>
+                                {renderCitaInput(tab.id, cita.id, 'dr_tratante', cita.dr_tratante, 'text', 'Nombre del médico')}
+                              </CCol>
+                            </CRow>
+
+                            {/* Row 4: Status cita */}
+                            <CRow>
+                              <CCol md={6} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Status cita:</CFormLabel>
+                                {renderCitaSelect(tab.id, cita.id, 'status', cita.status, citaStatusOpts)}
+                              </CCol>
+                            </CRow>
+
+                            {/* Row 5: Comentario de la solicitud */}
+                            <CRow>
+                              <CCol md={12} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Comentario de la solicitud:</CFormLabel>
+                                {renderCitaInput(tab.id, cita.id, 'comentario_solicitud', cita.comentario_solicitud, 'text', 'Comentario de la solicitud')}
+                              </CCol>
+                            </CRow>
+
+                            {/* Row 6: Entrega resultados, Reportes, Status */}
+                            <CRow>
+                              <CCol md={4} className="mb-3">
                                 <CFormLabel className="fw-semibold small text-muted">Entrega resultados:</CFormLabel>
                                 {renderCitaInput(tab.id, cita.id, 'entrega_resultados', cita.entrega_resultados, 'date')}
+                              </CCol>
+                              <CCol md={4} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Reportes:</CFormLabel>
+                                <div>
+                                  {/* Placeholder for document upload — not wired up yet */}
+                                  <CButton
+                                    type="button"
+                                    color="secondary"
+                                    variant="outline"
+                                    size="sm"
+                                    disabled
+                                    title="Carga de documentos — próximamente"
+                                  >
+                                    <CIcon icon={cilFolder} className="me-1" />
+                                    Reportes
+                                  </CButton>
+                                </div>
+                              </CCol>
+                              <CCol md={4} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Status:</CFormLabel>
+                                {renderCitaSelect(tab.id, cita.id, 'status_resultados', cita.status_resultados, citaStatusResultadosOpts)}
+                              </CCol>
+                            </CRow>
+
+                            {/* Row 7: Observaciones */}
+                            <CRow>
+                              <CCol md={12} className="mb-3">
+                                <CFormLabel className="fw-semibold small text-muted">Observaciones:</CFormLabel>
+                                {renderCitaInput(tab.id, cita.id, 'observaciones', cita.observaciones, 'text', 'Observaciones')}
                               </CCol>
                             </CRow>
                           </div>

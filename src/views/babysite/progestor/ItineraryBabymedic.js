@@ -242,9 +242,20 @@ const ItineraryBabymedic = () => {
         }
     };
 
+    // The <input type="date"> gives us a plain "YYYY-MM-DD" string with no
+    // time/timezone component. Passing that straight into `new Date(...)`
+    // makes JS parse it as UTC MIDNIGHT (per the ECMA-262 date-time string
+    // spec), and toLocaleDateString() then converts that instant back to
+    // the browser's LOCAL timezone for display. In any timezone behind UTC
+    // (Mexico included), UTC midnight on day D falls in the evening of day
+    // D-1 locally — so the printed date was silently one day earlier than
+    // what was actually picked. Parsing the Y/M/D components ourselves and
+    // building the Date with the local-time constructor (year, monthIndex,
+    // day) sidesteps the UTC interpretation entirely.
     const formatDate = (dateString) => {
         if (!dateString) return '';
-        const date = new Date(dateString);
+        const [year, month, day] = dateString.split('-').map(Number);
+        const date = new Date(year, month - 1, day);
         return date.toLocaleDateString('es-MX', {
             day: '2-digit',
             month: '2-digit',
