@@ -1,7 +1,7 @@
 // src/components/PublicOnlyRoute.js
 import { Navigate } from 'react-router-dom';
 import { CSpinner } from '@coreui/react';
-import { useUser } from '../context/AuthContext';
+import { useUser, getGuestHomePath } from '../context/AuthContext';
 
 const PublicOnlyRoute = ({ children, redirectTo = '/dashboard' }) => {
   const { user, loading } = useUser();
@@ -16,7 +16,7 @@ const PublicOnlyRoute = ({ children, redirectTo = '/dashboard' }) => {
   }
 
   if (user) {
-    return <Navigate to={redirectTo} replace />;
+    return <Navigate to={user.isGuest ? getGuestHomePath(user) : redirectTo} replace />;
   }
 
   return children;

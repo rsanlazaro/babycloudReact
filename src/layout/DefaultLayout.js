@@ -118,7 +118,7 @@ const DefaultLayout = () => {
 
   return (
     <div>
-      <AppSidebar />
+      {!user?.isGuest && <AppSidebar />}
       <div className="wrapper d-flex flex-column min-vh-100">
         <AppHeader />
         <div className="body flex-grow-1 app-container">

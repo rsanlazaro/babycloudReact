@@ -18,7 +18,7 @@ import {
 import CIcon from '@coreui/icons-react';
 import { cilLockLocked, cilUser } from '@coreui/icons';
 import api from '../../../services/api';
-import { useUser } from '../../../context/AuthContext';
+import { useUser, getGuestHomePath } from '../../../context/AuthContext';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -55,8 +55,8 @@ const Login = () => {
       // Call login function from context
       login(user, access);
 
-      // Redirect to dashboard
-      navigate('/dashboard');
+      // Guests go straight to their IP preview; users to the dashboard
+      navigate(user?.isGuest ? getGuestHomePath(user) : '/dashboard', { replace: true });
     } catch (err) {
       console.error('Login error:', err);
       setError(err.response?.data?.message || 'Error al iniciar sesión');

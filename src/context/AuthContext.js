@@ -10,6 +10,13 @@ const AuthContext = createContext(null);
  * 1 = Visible but not editable (read-only)
  * 2 = Visible and editable (full access)
  */
+/**
+ * Guests (rows from the `guests` table) can only see their own IP preview.
+ * Add more paths to GUEST_ALLOWED_PATHS later to open other sections.
+ */
+export const getGuestHomePath = (user) => `/babycloud/cloud-ips/preview/${user?.id}`;
+export const GUEST_ALLOWED_PATHS = (user) => [getGuestHomePath(user)];
+
 export const PERMISSION_LEVELS = {
   HIDDEN: 0,
   READ_ONLY: 1,
@@ -301,6 +308,7 @@ export const AuthProvider = ({ children }) => {
     setPermissions,
     loading,
     isAuthenticated: !!user,
+    isGuest: !!user?.isGuest,
     login,
     logout,
     refreshPermissions,

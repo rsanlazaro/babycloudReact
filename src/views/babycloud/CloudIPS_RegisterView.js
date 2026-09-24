@@ -8,6 +8,7 @@ import {
 import CIcon from '@coreui/icons-react'
 import { cilArrowLeft } from '@coreui/icons'
 import api from '../../services/api'
+import { useUser } from '../../context/AuthContext'
 
 // ─── Same STAGES / state config as admin view ────────────────────────────────
 
@@ -372,6 +373,7 @@ const PreviewStage = ({ stage, stageData, phaseCounts, onModalOpen }) => {
 // ─── Main preview view ────────────────────────────────────────────────────────
 
 const CloudIPS_RegisterView = () => {
+  const { user, isGuest } = useUser()
   const { id }     = useParams()
   const navigate   = useNavigate()
   const location   = useLocation()
@@ -384,7 +386,10 @@ const CloudIPS_RegisterView = () => {
   const [modal, setModal]           = useState({ visible: false, content: '' })
 
   useEffect(() => {
-    setGuest(location.state?.guest ?? { id })
+    setGuest(
+      location.state?.guest ??
+      (isGuest ? { id, username: user?.username, mail: user?.email, profile: user?.role } : { id })
+    )
     const load = async () => {
       try {
         setLoading(true)
@@ -415,10 +420,12 @@ const CloudIPS_RegisterView = () => {
         <CCard className="mb-3">
           <CCardHeader className="d-flex align-items-center justify-content-between flex-wrap gap-2">
             <div className="d-flex align-items-center gap-3">
-              <CButton color="secondary" variant="outline" size="sm"
-                onClick={() => navigate(`/babycloud/cloud-ips/register/${id}`, { state: { guest } })}>
-                <CIcon icon={cilArrowLeft} className="me-1" />Volver
-              </CButton>
+              {!isGuest && (
+                <CButton color="secondary" variant="outline" size="sm"
+                  onClick={() => navigate(`/babycloud/cloud-ips/register/${id}`, { state: { guest } })}>
+                  <CIcon icon={cilArrowLeft} className="me-1" />Volver
+                </CButton>
+              )}
               <div>
                 <div className="fw-bold fs-5">{guest?.username || `Guest #${id}`}</div>
                 <div className="text-muted" style={{ fontSize: '0.8rem' }}>

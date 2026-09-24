@@ -26,10 +26,12 @@ import {
 } from '@coreui/icons'
 
 import { AppBreadcrumb } from './index'
+import { useUser } from '../context/AuthContext'
 import { AppHeaderDropdown } from './header/index'
 
 const AppHeader = () => {
   const headerRef = useRef()
+  const { isGuest } = useUser()
   const { colorMode, setColorMode } = useColorModes('coreui-free-react-admin-template-theme')
 
   const dispatch = useDispatch()
@@ -48,19 +50,23 @@ const AppHeader = () => {
   return (
     <CHeader position="sticky" className="p-0" ref={headerRef}>
       <CContainer className="border-bottom px-4 app-header" fluid>
-        <CHeaderToggler
-          onClick={() => dispatch({ type: 'set', sidebarShow: !sidebarShow })}
-          style={{ marginInlineStart: '-14px' }}
-        >
-          <CIcon icon={cilMenu} size="lg" />
-        </CHeaderToggler>
-        <CHeaderNav className="d-none d-md-flex">
-          <CNavItem>
-            <CNavLink to="/dashboard" as={NavLink}>
-              Dashboard
-            </CNavLink>
-          </CNavItem>
-        </CHeaderNav>
+        {!isGuest && (
+          <>
+            <CHeaderToggler
+              onClick={() => dispatch({ type: 'set', sidebarShow: !sidebarShow })}
+              style={{ marginInlineStart: '-14px' }}
+            >
+              <CIcon icon={cilMenu} size="lg" />
+            </CHeaderToggler>
+            <CHeaderNav className="d-none d-md-flex">
+              <CNavItem>
+                <CNavLink to="/dashboard" as={NavLink}>
+                  Dashboard
+                </CNavLink>
+              </CNavItem>
+            </CHeaderNav>
+          </>
+        )}
         <CHeaderNav className="ms-auto">
           <CNavItem>
             <CNavLink href="#">

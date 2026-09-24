@@ -44,6 +44,7 @@ const AppHeaderDropdown = () => {
         <CDropdownHeader className="bg-body-secondary fw-semibold mb-2">
           {user?.username || 'Account'}
         </CDropdownHeader>
+        {!user?.isGuest && (<>
         <CDropdownItem href="#">
           <CIcon icon={cilBell} className="me-2" />
           Updates
@@ -75,6 +76,7 @@ const AppHeaderDropdown = () => {
           Settings
         </CDropdownItem>
         <CDropdownDivider />
+        </>)}
         <CDropdownItem
           onClick={handleLogout}
           style={{
