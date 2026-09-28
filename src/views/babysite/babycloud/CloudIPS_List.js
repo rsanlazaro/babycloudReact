@@ -90,12 +90,12 @@ const CloudIPS_List = () => {
   return (
     <CContainer fluid>
       {error && (
-        <CAlert className="mx-5" color="danger" dismissible onClose={() => setError(null)}>
+        <CAlert color="danger" dismissible onClose={() => setError(null)}>
           {error}
         </CAlert>
       )}
 
-      <CCard className="mb-4 mx-5">
+      <CCard className="mb-4">
         <CCardHeader className="d-flex align-items-center justify-content-between">
           <div className="d-flex align-items-center gap-2">
             <CIcon icon={cilCloudUpload} size="lg" className="text-primary" />

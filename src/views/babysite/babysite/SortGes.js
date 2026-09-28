@@ -299,8 +299,10 @@ const SortGes = () => {
   // Select options
   // ─────────────────────────────────────────────────────────────
   const esquemaOptions = [
-    { value: '$400,000.00', label: '$400,000.00' },
     { value: '$375,000.00', label: '$375,000.00' },
+    { value: '$400,000.00', label: '$400,000.00' },
+    { value: '$450,000.00', label: '$450,000.00' },
+    { value: '$475,000.00', label: '$475,000.00' },
   ];
   const tipoSangreOptions = [
     { value: '', label: 'Seleccionar...' },
@@ -2254,12 +2256,12 @@ const SortGes = () => {
   return (
     <CContainer fluid>
       {alert.show && (
-        <CAlert className="mx-3" color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
+        <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
           {alert.message}
         </CAlert>
       )}
 
-      <CCard className="mb-4 mx-3">
+      <CCard className="mb-4">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>Listado de Sort_GESC</strong>
           <div className="d-flex align-items-center gap-2">

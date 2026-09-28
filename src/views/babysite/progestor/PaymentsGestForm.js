@@ -2250,20 +2250,20 @@ const PaymentsGestForm = () => {
       `}</style>
 
       {alert.show && (
-        <CAlert className="mx-5" color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
+        <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
           {alert.message}
         </CAlert>
       )}
 
       {!canEditForm && (
-        <CAlert color="warning" className="mx-5 d-flex align-items-center">
+        <CAlert color="warning" className="d-flex align-items-center">
           <CIcon icon={cilLockLocked} className="me-2" />
           <span><strong>Modo solo lectura.</strong> No tienes permiso para {isEditMode ? 'editar este registro' : 'crear nuevos registros'} de pagos.</span>
         </CAlert>
       )}
 
       {/* Action bar */}
-      <CRow className="mb-4 mx-5 align-items-center">
+      <CRow className="mb-4 align-items-center">
         <CCol>
           <CButton color="secondary" variant="outline" onClick={() => navigate('/progestor/payments-gest')} className="me-3">
             <CIcon icon={cilArrowLeft} className="me-2" />Volver a Esquemas
@@ -2333,7 +2333,7 @@ const PaymentsGestForm = () => {
         }
       `}</style>
 
-      <CAccordion activeItemKey={1} alwaysOpen className="mx-5 pagos-accordion">
+      <CAccordion activeItemKey={1} alwaysOpen className="pagos-accordion">
 
         {/* ═══ 1. Datos del esquema ════════════════════════════════════════ */}
         <CAccordionItem itemKey={1}>

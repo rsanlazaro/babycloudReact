@@ -1027,8 +1027,10 @@ const CandidateFormFields = ({ form, setForm }) => (
         <CFormLabel>Esquema ofrecido:</CFormLabel>
         <CFormSelect value={form.esquema_ofrecido}
           onChange={e => setForm(p => ({ ...p, esquema_ofrecido: e.target.value }))}>
-          <option value="$400,000.00">$400,000.00</option>
           <option value="$375,000.00">$375,000.00</option>
+          <option value="$400,000.00">$400,000.00</option>
+          <option value="$450,000.00">$450,000.00</option>
+          <option value="$475,000.00">$475,000.00</option>
         </CFormSelect>
       </CCol>
       <CCol md={6} className="mb-3">
@@ -1507,13 +1509,13 @@ const SortGesList = () => {
   return (
     <CContainer fluid>
       {alert.show && (
-        <CAlert className="mx-3" color={alert.type} dismissible
+        <CAlert color={alert.type} dismissible
           onClose={() => setAlert({ show: false })}>
           {alert.message}
         </CAlert>
       )}
 
-      <CCard className="mb-4 mx-3">
+      <CCard className="mb-4">
         {/* ── Tab navigation ── */}
         <div className="px-4 pt-3 pb-0 border-bottom d-flex align-items-center justify-content-between">
           {/* Tabs */}

@@ -304,13 +304,13 @@ const PaymentsGest = () => {
   return (
     <CContainer fluid>
       {alert.show && (
-        <CAlert className="mx-5" color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
+        <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
           {alert.message}
         </CAlert>
       )}
-      {error && <CAlert className="mx-5" color="danger">{error}</CAlert>}
+      {error && <CAlert color="danger">{error}</CAlert>}
 
-      <CCard className="mb-4 mx-5">
+      <CCard className="mb-4">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>Esquemas de Pago (Gestantes)</strong>
           {paymentsPerms.create.visible && (

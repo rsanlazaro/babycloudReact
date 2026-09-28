@@ -861,12 +861,12 @@ const RegisterForm = () => {
       </style>
 
       {alert.show && (
-        <CAlert className="mx-5" color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
+        <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>
           {alert.message}
         </CAlert>
       )}
 
-      <CRow className="mb-4 mx-5">
+      <CRow className="mb-4">
         <CCol>
           <CButton color="secondary" variant="outline" onClick={navigateBack} className="me-3">
             <CIcon icon={cilArrowLeft} className="me-2" />
@@ -888,7 +888,7 @@ const RegisterForm = () => {
         </CCol>
       </CRow>
 
-      <CCard className="mb-4 mx-5">
+      <CCard className="mb-4">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>{isEditMode ? 'Editar programa' : 'Nuevo programa'}</strong>
           <CFormSelect 
@@ -1033,7 +1033,7 @@ const RegisterForm = () => {
         </CCardBody>
       </CCard>
 
-      <CCard className="mb-4 mx-5">
+      <CCard className="mb-4">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <strong>Resumen de caja</strong>
           <CFormSelect style={{ width: 'auto' }} value={currency} onChange={(e) => setCurrency(e.target.value)}>
@@ -1061,7 +1061,7 @@ const RegisterForm = () => {
         </CCardBody>
       </CCard>
 
-      <CCard className="mb-4 mx-5">
+      <CCard className="mb-4">
         <CCardHeader><strong>Fases del programa</strong></CCardHeader>
         <CCardBody>
           {phaseAlert.show && (
@@ -1169,7 +1169,7 @@ const RegisterForm = () => {
         </CCardBody>
       </CCard>
 
-      <CCard className="mb-4 mx-5">
+      <CCard className="mb-4">
         <CCardHeader><strong>Extrato de gastos</strong></CCardHeader>
         <CCardBody>
           {expenseAlert.show && (

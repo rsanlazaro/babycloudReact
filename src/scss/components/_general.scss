@@ -54,6 +54,30 @@
   background-color: var(--app-bg) !important;
 }
 
+/* ── Uniform page spacing ─────────────────────────────────────────────
+   .app-content (AppContent.js) gives every view 1.5rem (p-4) on all
+   four sides. Views that wrap themselves in their own <CContainer fluid>
+   or <CContainer lg> would add extra side padding / a max-width on top
+   of that, so those root containers are neutralized here. Only the
+   view's ROOT container is affected; containers nested inside cards,
+   modals, etc. keep their normal behavior. */
+.app-content > .container,
+.app-content > .container-fluid,
+.app-content > [class*="container-"] {
+  max-width: none;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* The last block of a view usually has mb-4; drop it so the bottom
+   gap equals the top and sides instead of doubling. */
+.app-content > :last-child,
+.app-content > .container > :last-child,
+.app-content > .container-fluid > :last-child,
+.app-content > [class*="container-"] > :last-child {
+  margin-bottom: 0 !important;
+}
+
 .btn-outline-success {
   z-index: 2;
 }

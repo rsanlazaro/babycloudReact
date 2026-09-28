@@ -121,25 +121,81 @@ a.nav-link.sidebar-component.active {
   color: var(--app-bg) !important;
 }
 
+/* ── Sidebar calendar (Windows 11 style) ─────────────────────────────
+   Header always visible; the month view expands below it on click.
+   The menu (.sidebar-nav, flex: 1 + scroll) shrinks to make room, so
+   the header never leaves the screen. */
 .sidebar-calendar {
-  background-color: var(--app-gray) !important;
-  border: none;
-  margin-top: 2rem;
+  flex-shrink: 0;
+  margin-top: 0.5rem;
+  background-color: var(--app-gray);
+  border: 2px solid var(--app-bg);
+  border-radius: 0.5rem;
+  overflow: hidden;
 
-  .card-body {
-    margin: 0 !important;
-    padding: 0 !important;
-    word-wrap: normal !important;
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: none;
+    background: transparent;
+    color: var(--app-text);
+    font-size: 0.8rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+
+    &:hover {
+      background-color: rgba(0, 0, 0, 0.06);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--app-primary);
+      outline-offset: -2px;
+    }
+  }
+
+  &__chevron {
+    width: 0.85rem;
+    height: 0.85rem;
+    color: var(--app-primary);
+    transition: transform 0.25s ease;
+  }
+
+  /* Collapsed: chevron points up (calendar opens upward, like Windows 11) */
+  &.is-open &__chevron {
+    transform: rotate(180deg);
+  }
+
+  /* Smooth height animation without fixed pixel heights */
+  &__panel {
+    display: grid;
+    grid-template-rows: 0fr;
+    transition: grid-template-rows 0.25s ease;
+  }
+
+  &.is-open &__panel {
+    grid-template-rows: 1fr;
+  }
+
+  &__panel-inner {
+    overflow: hidden;
+    min-height: 0;
+  }
+
+  &.is-open &__panel-inner {
+    border-top: 1px solid var(--app-bg);
   }
 
   .react-calendar {
     border: none;
     font-size: 0.7rem; // compact text
     width: 100%;
-    padding: 0.25rem 0.5rem !important;
-    padding-bottom: 1.5rem !important;
+    padding: 0.25rem 0.5rem 0.75rem !important;
     background-color: var(--app-gray);
-    border: 2px solid var(--app-bg);
 
     .react-calendar__month-view__days__day {
       color: var(--app-text) !important;

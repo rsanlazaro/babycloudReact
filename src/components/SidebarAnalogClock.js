@@ -34,25 +34,59 @@ const isDaytime = (date) => {
   return h >= 6 && h < 20
 }
 
-// Short local zone abbreviation (e.g. "CST", "GMT-6") instead of a
-// hardcoded "LOCAL" label, so the home face is actually informative too.
-const getLocalZoneLabel = (date) => {
-  try {
-    const parts = new Intl.DateTimeFormat(undefined, { timeZoneName: 'short' }).formatToParts(date)
-    const zonePart = parts.find((p) => p.type === 'timeZoneName')
-    return zonePart ? zonePart.value.toUpperCase() : 'LOCAL'
-  } catch {
-    return 'LOCAL'
-  }
+// 2x2 grid, row by row: LOCAL, MEX / BRA, FRA.
+const CLOCKS = [
+  { id: 'local',  label: 'LOCAL', flag: null, timeZone: null,                  theme: 'light' },
+  { id: 'mexico', label: 'MEX',   flag: 'mx', timeZone: 'America/Mexico_City', theme: 'light' },
+  { id: 'brasil', label: 'BRA',   flag: 'br', timeZone: 'America/Sao_Paulo',   theme: 'dark'  },
+  { id: 'france', label: 'FRA',   flag: 'fr', timeZone: 'Europe/Paris',        theme: 'dark'  },
+]
+
+// Small inline SVG flags (12x8). Emoji flags are NOT used on purpose:
+// Windows doesn't render them (shows "MX", "BR", "FR" letters instead).
+const FLAG_PATHS = {
+  mx: (
+    <>
+      <rect width="4" height="8" fill="#006847" />
+      <rect x="4" width="4" height="8" fill="#ffffff" />
+      <rect x="8" width="4" height="8" fill="#ce1126" />
+      <circle cx="6" cy="4" r="1.2" fill="#8c5a2b" />
+    </>
+  ),
+  br: (
+    <>
+      <rect width="12" height="8" fill="#009b3a" />
+      <polygon points="6,1 11,4 6,7 1,4" fill="#fedf00" />
+      <circle cx="6" cy="4" r="1.7" fill="#002776" />
+    </>
+  ),
+  fr: (
+    <>
+      <rect width="4" height="8" fill="#0055a4" />
+      <rect x="4" width="4" height="8" fill="#ffffff" />
+      <rect x="8" width="4" height="8" fill="#ef4135" />
+    </>
+  ),
 }
 
-// Left to right: Local, Mexico City, Rio de Janeiro, Paris.
-const CLOCKS = [
-  { id: 'local',  label: null,   timeZone: null,                  theme: 'light' },
-  { id: 'mexico', label: 'DF',   timeZone: 'America/Mexico_City', theme: 'light' },
-  { id: 'brasil', label: 'RDJ',  timeZone: 'America/Sao_Paulo',   theme: 'dark'  },
-  { id: 'france', label: 'PAR',  timeZone: 'Europe/Paris',        theme: 'dark'  },
-]
+const Flag = ({ code, title }) => (
+  <svg
+    width="12"
+    height="8"
+    viewBox="0 0 12 8"
+    role="img"
+    aria-label={title}
+    style={{ flexShrink: 0, borderRadius: '1.5px', display: 'block' }}
+  >
+    <title>{title}</title>
+    {FLAG_PATHS[code]}
+    {/* thin outline so the white stripes stay visible on light tiles */}
+    <rect x="0.25" y="0.25" width="11.5" height="7.5" rx="1.25" fill="none"
+      stroke="rgba(0,0,0,0.25)" strokeWidth="0.5" />
+  </svg>
+)
+
+const FLAG_TITLES = { mx: 'México', br: 'Brasil', fr: 'Francia' }
 
 const FACE_THEME = {
   light: { bg: '#fbfbfd', bezel: '#c9c9d1', text: '#1c1c1e', label: '#8e8e93', shadow: 'rgba(0,0,0,0.10)' },
@@ -65,7 +99,10 @@ const FACE_THEME = {
 const OFFSET_ACCENT = '#ff9f0a'
 
 
-const ClockFace = ({ label, date, offset, theme }) => {
+// Wide tile for the 2x2 grid: label + day/night + offset on the left,
+// big time on the right. A wide tile (not a square) keeps the whole grid
+// short, so the menu keeps its space.
+const ClockFace = ({ label, flag, date, offset, theme }) => {
   const [hovered, setHovered] = useState(false)
   const colors = FACE_THEME[theme]
   const { h, m } = formatDigital(date)
@@ -73,9 +110,7 @@ const ClockFace = ({ label, date, offset, theme }) => {
   const daytime = isDaytime(date)
 
   return (
-    // Outer layer = the metallic case/bezel, flat solid color. The visible
-    // "ring" is just the padding around the inner screen div showing that
-    // bezel color through.
+    // Outer layer = the bezel; inner layer = the recessed screen.
     <div
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -84,11 +119,10 @@ const ClockFace = ({ label, date, offset, theme }) => {
         hour: '2-digit', minute: '2-digit',
       })}
       style={{
-        position: 'relative',
         backgroundColor: colors.bezel,
-        borderRadius: '12px',
-        aspectRatio: '1 / 1',
+        borderRadius: '10px',
         padding: '3px',
+        minWidth: 0,
         cursor: 'default',
         boxShadow: hovered
           ? `0 6px 14px ${colors.shadow}`
@@ -97,77 +131,74 @@ const ClockFace = ({ label, date, offset, theme }) => {
         transition: 'transform 0.15s ease, box-shadow 0.15s ease',
       }}
     >
-      {/* Inner layer = the actual screen, recessed inside the bezel via
-          an inset shadow so it reads as sunken glass, not flush with the case. */}
       <div
         style={{
-          position: 'relative',
-          height: '100%',
+          height: '46px',
           backgroundColor: colors.bg,
-          borderRadius: '10px',
+          borderRadius: '8px',
           boxShadow: `inset 0 0 4px ${colors.shadow}`,
           display: 'flex',
-          flexDirection: 'column',
           alignItems: 'center',
-          justifyContent: 'center',
-          padding: '3px',
+          justifyContent: 'space-between',
+          padding: '0 5px',
+          gap: '3px',
+          minWidth: 0,
         }}
       >
-        {/* Day/night indicator */}
-        <span
-          aria-hidden="true"
-          style={{
-            position: 'absolute',
-            top: '2px',
-            right: '4px',
-            fontSize: '0.45rem',
-            lineHeight: 1,
-            opacity: 0.85,
-          }}
-        >
-          {daytime ? '☀️' : '🌙'}
-        </span>
-
-        <div
-          style={{
-            fontSize: '0.4rem',
-            fontWeight: 600,
-            letterSpacing: '0.04em',
-            color: colors.label,
-            minHeight: '0.5rem',
-          }}
-        >
-          {label}
+        {/* Left: label alone on top (never truncated), day/night + offset below */}
+        <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15, flexShrink: 0 }}>
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '3px',
+              fontSize: '0.55rem',
+              fontWeight: 600,
+              letterSpacing: '0.02em',
+              color: colors.label,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {label}
+            {flag && <Flag code={flag} title={FLAG_TITLES[flag]} />}
+          </span>
+          <span
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '2px',
+              fontSize: '0.55rem',
+              fontWeight: 600,
+              fontVariantNumeric: 'tabular-nums',
+              color: OFFSET_ACCENT,
+              minHeight: '0.65rem',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <span aria-hidden="true" style={{ fontSize: '0.5rem' }}>{daytime ? '☀️' : '🌙'}</span>
+            {offset === null ? '' : offset > 0 ? `+${offset}h` : `${offset}h`}
+          </span>
         </div>
 
+        {/* Right: time */}
         <time
           dateTime={date.toISOString()}
           style={{
-            fontSize: '0.72rem',
+            fontSize: '1.05rem',
             fontWeight: 700,
             color: colors.text,
-            lineHeight: 1.1,
+            lineHeight: 1,
             fontFamily: "'SF Mono', 'Courier New', Consolas, monospace",
             fontVariantNumeric: 'tabular-nums',
             letterSpacing: '0.01em',
+            whiteSpace: 'nowrap',
+            flexShrink: 0,
           }}
         >
           {h}
           <span style={{ opacity: blinkOn ? 1 : 0.25, transition: 'opacity 0.2s linear' }}>:</span>
           {m}
         </time>
-
-        <div
-          style={{
-            fontSize: '0.42rem',
-            fontWeight: 600,
-            fontVariantNumeric: 'tabular-nums',
-            color: offset === null ? colors.label : OFFSET_ACCENT,
-            minHeight: '0.5rem',
-          }}
-        >
-          {offset === null ? '' : offset > 0 ? `+${offset}` : offset}
-        </div>
       </div>
     </div>
   )
@@ -184,23 +215,23 @@ const SidebarAnalogClock = () => {
   const localDate = new Date()
 
   return (
-    <CCard className="sidebar-analog-clock mx-2 mb-3">
+    <CCard className="sidebar-analog-clock mx-2 mb-2">
       <CCardBody className="p-2 d-flex justify-content-center">
         <div
           style={{
             display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
             gap: '6px',
             width: '100%',
-            maxWidth: '250px',
           }}
         >
-          {CLOCKS.map(({ id, label, timeZone, theme }) => {
+          {CLOCKS.map(({ id, label, flag, timeZone, theme }) => {
             const zoneDate = getZonedDate(timeZone)
             return (
               <ClockFace
                 key={id}
-                label={label || getLocalZoneLabel(zoneDate)}
+                label={label}
+                flag={flag}
                 date={zoneDate}
                 offset={timeZone ? getOffsetHours(zoneDate, localDate) : null}
                 theme={theme}

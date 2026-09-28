@@ -62,6 +62,20 @@ const ActivityHistory = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const itemsPerPage = 20;
+  const PAGE_WINDOW = 5; // max page numbers shown at once between the arrows
+
+  // Page numbers visible around the current page (sliding window)
+  const getVisiblePages = () => {
+    const half = Math.floor(PAGE_WINDOW / 2);
+    let start = Math.max(1, currentPage - half);
+    let end = Math.min(totalPages, start + PAGE_WINDOW - 1);
+    start = Math.max(1, end - PAGE_WINDOW + 1);
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i);
+  };
+
+  const goToPage = (page) => {
+    setCurrentPage(Math.min(Math.max(1, page), totalPages));
+  };
 
   // Fetch users for dropdown
   useEffect(() => {
@@ -449,32 +463,60 @@ const ActivityHistory = () => {
               </CTable>
 
               {totalPages > 1 && (
-                <CPagination className="justify-content-center mt-3">
-                  <CPaginationItem
-                    disabled={currentPage === 1}
-                    onClick={() => setCurrentPage(currentPage - 1)}
-                  >
-                    Previo
-                  </CPaginationItem>
-
-                  {[...Array(totalPages)].map((_, i) => (
+                <div className="d-flex flex-column align-items-center mt-3 gap-1">
+                  <CPagination className="mb-0 flex-wrap justify-content-center" aria-label="Paginación">
+                    {/* First / previous */}
                     <CPaginationItem
-                      className='app-button'
-                      key={i + 1}
-                      active={currentPage === i + 1}
-                      onClick={() => setCurrentPage(i + 1)}
+                      disabled={currentPage === 1}
+                      onClick={() => goToPage(1)}
+                      aria-label="Primera página"
+                      title="Primera página"
                     >
-                      {i + 1}
+                      «
                     </CPaginationItem>
-                  ))}
+                    <CPaginationItem
+                      disabled={currentPage === 1}
+                      onClick={() => goToPage(currentPage - 1)}
+                      aria-label="Página anterior"
+                      title="Página anterior"
+                    >
+                      ‹
+                    </CPaginationItem>
 
-                  <CPaginationItem
-                    disabled={currentPage === totalPages}
-                    onClick={() => setCurrentPage(currentPage + 1)}
-                  >
-                    Siguiente
-                  </CPaginationItem>
-                </CPagination>
+                    {/* Sliding window of page numbers */}
+                    {getVisiblePages().map((page) => (
+                      <CPaginationItem
+                        className='app-button'
+                        key={page}
+                        active={currentPage === page}
+                        onClick={() => goToPage(page)}
+                      >
+                        {page}
+                      </CPaginationItem>
+                    ))}
+
+                    {/* Next / last */}
+                    <CPaginationItem
+                      disabled={currentPage === totalPages}
+                      onClick={() => goToPage(currentPage + 1)}
+                      aria-label="Página siguiente"
+                      title="Página siguiente"
+                    >
+                      ›
+                    </CPaginationItem>
+                    <CPaginationItem
+                      disabled={currentPage === totalPages}
+                      onClick={() => goToPage(totalPages)}
+                      aria-label="Última página"
+                      title="Última página"
+                    >
+                      »
+                    </CPaginationItem>
+                  </CPagination>
+                  <small className="text-body-secondary">
+                    Página {currentPage} de {totalPages}
+                  </small>
+                </div>
               )}
             </>
           )}

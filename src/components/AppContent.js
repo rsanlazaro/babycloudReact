@@ -16,7 +16,7 @@ const AppContent = () => {
   }
 
   return (
-    <CContainer className="px-4 mt-5 pt-5 mb-5 pb-5" fluid>
+    <CContainer className="app-content p-4" fluid>
       <Suspense fallback={<CSpinner color="primary" />}>
         <Routes>
           {routes.map((route, idx) => {
