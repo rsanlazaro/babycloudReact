@@ -29,17 +29,22 @@ const getOffsetHours = (zoneDate, localDate) => {
 // Day (sun) vs night (moon) at that location — the one piece of info a
 // world clock actually needs to answer at a glance: "is it a reasonable
 // hour to call them?" 6:00-19:59 counts as day.
-const isDaytime = (date) => {
+// Night = from 21:00 to 05:59 in that clock's own time zone.
+// Drives both the dark-gray background and the ☀️/🌙 icon.
+const NIGHT_START = 21
+const NIGHT_END = 6
+const isNight = (date) => {
   const h = date.getHours()
-  return h >= 6 && h < 20
+  return h >= NIGHT_START || h < NIGHT_END
 }
 
 // 2x2 grid, row by row: LOCAL, MEX / BRA, FRA.
+// `theme` is the daytime color; at night every clock switches to `night`.
 const CLOCKS = [
-  { id: 'local',  label: 'LOCAL', flag: null, timeZone: null,                  theme: 'light' },
+  { id: 'local',  label: 'LOCAL', flag: null, timeZone: null,                  theme: 'pink'  },
   { id: 'mexico', label: 'MEX',   flag: 'mx', timeZone: 'America/Mexico_City', theme: 'light' },
-  { id: 'brasil', label: 'BRA',   flag: 'br', timeZone: 'America/Sao_Paulo',   theme: 'dark'  },
-  { id: 'france', label: 'FRA',   flag: 'fr', timeZone: 'Europe/Paris',        theme: 'dark'  },
+  { id: 'brasil', label: 'BRA',   flag: 'br', timeZone: 'America/Sao_Paulo',   theme: 'light' },
+  { id: 'france', label: 'FRA',   flag: 'fr', timeZone: 'Europe/Paris',        theme: 'light' },
 ]
 
 // Small inline SVG flags (12x8). Emoji flags are NOT used on purpose:
@@ -89,8 +94,10 @@ const Flag = ({ code, title }) => (
 const FLAG_TITLES = { mx: 'México', br: 'Brasil', fr: 'Francia' }
 
 const FACE_THEME = {
-  light: { bg: '#fbfbfd', bezel: '#c9c9d1', text: '#1c1c1e', label: '#8e8e93', shadow: 'rgba(0,0,0,0.10)' },
-  dark:  { bg: '#161616', bezel: '#5a5a5c', text: '#f5f5f7', label: '#a1a1a6', shadow: 'rgba(0,0,0,0.45)' },
+  // System pink (same variables as the header), white text like the header
+  pink:  { bg: 'var(--app-primary)', bezel: 'var(--app-primary-dark)', text: '#ffffff', label: 'rgba(255,255,255,0.85)', shadow: 'rgba(223,69,123,0.30)' },
+  light: { bg: '#ffffff', bezel: '#c9c9d1', text: '#1c1c1e', label: '#8e8e93', shadow: 'rgba(0,0,0,0.10)' },
+  night: { bg: '#3a3a3c', bezel: '#5a5a5c', text: '#f5f5f7', label: '#c7c7cc', shadow: 'rgba(0,0,0,0.35)' },
 }
 
 // One consistent accent color for every offset, regardless of sign — the
@@ -104,10 +111,10 @@ const OFFSET_ACCENT = '#ff9f0a'
 // short, so the menu keeps its space.
 const ClockFace = ({ label, flag, date, offset, theme }) => {
   const [hovered, setHovered] = useState(false)
-  const colors = FACE_THEME[theme]
+  const night = isNight(date)
+  const colors = FACE_THEME[night ? 'night' : theme]
   const { h, m } = formatDigital(date)
   const blinkOn = date.getSeconds() % 2 === 0
-  const daytime = isDaytime(date)
 
   return (
     // Outer layer = the bezel; inner layer = the recessed screen.
@@ -128,13 +135,14 @@ const ClockFace = ({ label, flag, date, offset, theme }) => {
           ? `0 6px 14px ${colors.shadow}`
           : `0 2px 6px ${colors.shadow}`,
         transform: hovered ? 'translateY(-2px) scale(1.03)' : 'none',
-        transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+        transition: 'transform 0.15s ease, box-shadow 0.15s ease, background-color 0.6s ease',
       }}
     >
       <div
         style={{
           height: '46px',
           backgroundColor: colors.bg,
+          transition: 'background-color 0.6s ease',
           borderRadius: '8px',
           boxShadow: `inset 0 0 4px ${colors.shadow}`,
           display: 'flex',
@@ -175,7 +183,7 @@ const ClockFace = ({ label, flag, date, offset, theme }) => {
               whiteSpace: 'nowrap',
             }}
           >
-            <span aria-hidden="true" style={{ fontSize: '0.5rem' }}>{daytime ? '☀️' : '🌙'}</span>
+            <span aria-hidden="true" style={{ fontSize: '0.5rem' }}>{night ? '🌙' : '☀️'}</span>
             {offset === null ? '' : offset > 0 ? `+${offset}h` : `${offset}h`}
           </span>
         </div>

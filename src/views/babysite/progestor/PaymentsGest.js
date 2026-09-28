@@ -165,7 +165,9 @@ const PaymentsGest = () => {
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       result = result.filter(
-        p => p.gesca?.toLowerCase().includes(term) || p.ip?.toLowerCase().includes(term)
+        p => p.gesca?.toLowerCase().includes(term)
+          || p.curp?.toLowerCase().includes(term)
+          || p.ip?.toLowerCase().includes(term)
       );
     }
 
@@ -333,7 +335,7 @@ const PaymentsGest = () => {
               <CInputGroup>
                 <CInputGroupText><CIcon icon={cilSearch} /></CInputGroupText>
                 <CFormInput
-                  placeholder="Buscar por GESCA o IP..."
+                  placeholder="Buscar por GESCA, CURP o IP..."
                   value={searchTerm}
                   onChange={e => setSearchTerm(e.target.value)}
                   autoComplete="off"
@@ -353,6 +355,7 @@ const PaymentsGest = () => {
               <CTableHead>
                 <CTableRow>
                   <SortableHeader label="GESCA"   sortKey="gesca"      />
+                  <SortableHeader label="CURP"     sortKey="curp"       />
                   <SortableHeader label="IP"       sortKey="ip"         />
                   <SortableHeader label="Estado"   sortKey="status"     />
                   <CTableHeaderCell>Programa</CTableHeaderCell>
@@ -364,7 +367,7 @@ const PaymentsGest = () => {
               <CTableBody>
                 {filteredAndSortedPayments.length === 0 ? (
                   <CTableRow>
-                    <CTableDataCell colSpan={7} className="text-center py-4">
+                    <CTableDataCell colSpan={8} className="text-center py-4">
                       {searchTerm || statusFilter !== 'all'
                         ? 'No se encontraron esquemas con los filtros aplicados'
                         : 'No hay esquemas de pago. Crea uno nuevo para comenzar.'}
@@ -376,6 +379,11 @@ const PaymentsGest = () => {
                   return (
                     <CTableRow key={payment.id}>
                       <CTableDataCell><strong>{payment.gesca || '-'}</strong></CTableDataCell>
+                      <CTableDataCell>
+                        {payment.curp
+                          ? <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{payment.curp}</span>
+                          : <CBadge color="warning" title="Captura la CURP en el esquema para vincularlo con SORT_GES">Sin CURP</CBadge>}
+                      </CTableDataCell>
                       <CTableDataCell>{payment.ip || '-'}</CTableDataCell>
                       <CTableDataCell>{getStatusBadge(payment.status)}</CTableDataCell>
                       <CTableDataCell>

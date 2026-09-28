@@ -72,7 +72,7 @@ const ImporteCell = ({ planned, realValue, onChange, disabled, width = '110px', 
   );
 };
 
-const LockedFormInput = ({ name, label, value, type = 'text', locked, disabled, onChange, onLockRequest }) => (
+const LockedFormInput = ({ name, label, value, type = 'text', locked, disabled, onChange, onLockRequest, maxLength, placeholder }) => (
   <div>
     <CFormLabel className="mb-1 small d-flex align-items-center gap-1">
       {label}
@@ -81,6 +81,7 @@ const LockedFormInput = ({ name, label, value, type = 'text', locked, disabled, 
     <div className="d-flex gap-1">
       <CFormInput
         type={type} name={name} value={value}
+        maxLength={maxLength} placeholder={placeholder}
         disabled={locked || disabled}
         onChange={onChange}
         style={{ flex: 1 }}
@@ -227,7 +228,18 @@ const getSchemeLabel = (v) => SCHEME_OPTIONS.find(o => o.value === v)?.label || 
 // per-scheme tables — see p1Base / ultimasFirmasBase / cdoGescaBase below).
 const HIGH_TIER_SCHEMES = ['450000', '475000'];
 
-const FORM_FIELDS = ['gesca', 'ip', 'banco', 'clabe', 'fum', 'giro_semana'];
+const FORM_FIELDS = ['gesca', 'curp', 'ip', 'banco', 'clabe', 'fum', 'giro_semana'];
+
+// CURP links this register with SORT_GES (Alta Gesca). Same rule as the
+// backend (services/curp.js): 10–18 letters or digits — length varies in practice.
+const CURP_MIN_LENGTH = 10;
+const CURP_MAX_LENGTH = 18;
+const CURP_REGEX = new RegExp(`^[A-Z0-9]{${CURP_MIN_LENGTH},${CURP_MAX_LENGTH}}$`);
+const CURP_FORMAT_MESSAGE = `La CURP debe tener entre ${CURP_MIN_LENGTH} y ${CURP_MAX_LENGTH} letras o números`;
+const normalizeCurp = (v) => String(v || '').replace(/\s+/g, '').toUpperCase();
+const isValidCurp = (v) => CURP_REGEX.test(normalizeCurp(v));
+// "$450,000.00" → "450000"
+const esquemaToSchemeValue = (v) => String(Math.round(parseFloat(String(v || '').replace(/[^0-9.]/g, ''))) || '');
 const initLockedFields = (locked) => {
   const s = {};
   FORM_FIELDS.forEach(f => { s[f] = locked; });
@@ -277,6 +289,10 @@ const PaymentsGestForm = () => {
   const [autoSaving, setAutoSaving] = useState(false);
   const [lastSaved, setLastSaved] = useState(null);
   const [saveError, setSaveError] = useState('');
+  // Result of looking up the typed CURP: { valid, scheme, candidate } | null
+  const [curpInfo, setCurpInfo] = useState(null);
+  const [curpChecking, setCurpChecking] = useState(false);
+  const curpPrefilledRef = useRef('');
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
 
   const recordIdRef = useRef(isEditMode ? id : null);
@@ -303,7 +319,7 @@ const PaymentsGestForm = () => {
   const [showFieldUnlockModal, setShowFieldUnlockModal] = useState(false);
 
   const [formData, setFormData] = useState({
-    gesca: '', ip: '', banco: '', clabe: '',
+    gesca: '', curp: '', ip: '', banco: '', clabe: '',
     fum: '', giro_semana: '', scheme_value: '', status: 'active',
   });
 
@@ -940,7 +956,7 @@ const PaymentsGestForm = () => {
       const res = await api.get(`/api/payments-gest/${id}`, { withCredentials: true });
       const data = res.data;
       setFormData({
-        gesca: data.gesca || '', ip: data.ip || '', banco: data.banco || '',
+        gesca: data.gesca || '', curp: data.curp || '', ip: data.ip || '', banco: data.banco || '',
         clabe: data.clabe || '',
         fum: data.fum ? data.fum.split('T')[0] : '',
         giro_semana: data.giro_semana || '',
@@ -978,7 +994,7 @@ const PaymentsGestForm = () => {
 
       const newLocked = {};
       const loadedData = {
-        gesca: data.gesca, ip: data.ip, banco: data.banco, clabe: data.clabe,
+        gesca: data.gesca, curp: data.curp, ip: data.ip, banco: data.banco, clabe: data.clabe,
         fum: data.fum, giro_semana: data.giro_semana,
       };
       FORM_FIELDS.forEach(f => {
@@ -994,10 +1010,62 @@ const PaymentsGestForm = () => {
   };
 
   // ── Per-field lock handlers ───────────────────────────────────────────────
-  const handleFormChange = (e) => { setFormData(p => ({ ...p, [e.target.name]: e.target.value })); markSectionDirty('Datos del esquema'); debouncedSave(); };
+  const handleFormChange = (e) => {
+    const { name } = e.target;
+    const value = name === 'curp' ? normalizeCurp(e.target.value) : e.target.value;
+    setFormData(p => ({ ...p, [name]: value }));
+    markSectionDirty('Datos del esquema');
+    debouncedSave();
+  };
+
+  // ── CURP link with SORT_GES ───────────────────────────────────────────────
+  // Look up the CURP (debounced): is there already a payment scheme for it, and
+  // is there a SORT_GES candidate with it?
+  useEffect(() => {
+    const curp = normalizeCurp(formData.curp);
+    if (!isValidCurp(curp)) { setCurpInfo(null); setCurpChecking(false); return undefined; }
+    setCurpChecking(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get(`/api/payments-gest/curp-lookup/${curp}`, { withCredentials: true });
+        setCurpInfo(res.data);
+      } catch {
+        setCurpInfo(null);
+      } finally {
+        setCurpChecking(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [formData.curp]);
+
+  // Another register already uses this CURP (not this one)
+  const curpDuplicate = curpInfo?.scheme && String(curpInfo.scheme.id) !== String(recordIdRef.current)
+    ? curpInfo.scheme : null;
+  const curpCandidate = curpInfo?.candidate || null;
+
+  // New register + CURP found in SORT_GES → fill empty fields from the candidate (once per CURP)
+  useEffect(() => {
+    if (recordIdRef.current || !curpCandidate || curpDuplicate) return;
+    if (curpPrefilledRef.current === curpInfo.curp) return;
+    curpPrefilledRef.current = curpInfo.curp;
+    const c = curpCandidate;
+    setFormData(p => ({
+      ...p,
+      gesca: p.gesca || c.nombre_completo || '',
+      ip:    p.ip    || c.ip_responsable  || '',
+      banco: p.banco || c.banco           || '',
+      clabe: p.clabe || c.clabe_interbancaria || '',
+      fum:   p.fum   || (c.fecha_ultima_menstruacion ? String(c.fecha_ultima_menstruacion).split('T')[0] : ''),
+      scheme_value: schemeLocked
+        ? p.scheme_value
+        : (p.scheme_value || esquemaToSchemeValue(c.esquema_ofrecido) || ''),
+    }));
+    markSectionDirty('Datos del esquema');
+    debouncedSave(); // creates the register once GESCA/CURP/scheme are complete
+  }, [curpInfo]);
 
   const FIELD_LABELS = {
-    gesca: 'GESCA', ip: 'IP', banco: 'Banco', clabe: 'Clabe',
+    gesca: 'GESCA', curp: 'CURP', ip: 'IP', banco: 'Banco', clabe: 'Clabe',
     fum: 'FUM', giro_semana: 'Giro de semana',
   };
 
@@ -2014,6 +2082,17 @@ const PaymentsGestForm = () => {
     if (!s.formData?.gesca || !s.formData?.scheme_value) return;
     if (!s.schemeSelected) return;
     if (isSavingRef.current) return;
+    // CURP is required to CREATE the register (it links it with SORT_GES).
+    // Older registers without CURP can keep saving; if one is typed it must be valid.
+    const curpNow = normalizeCurp(s.formData?.curp);
+    if (!recordIdRef.current && !curpNow) {
+      setSaveError('Captura la CURP para crear el registro');
+      return;
+    }
+    if (curpNow && !isValidCurp(curpNow)) {
+      setSaveError(CURP_FORMAT_MESSAGE);
+      return;
+    }
 
     isSavingRef.current = true;
     setAutoSaving(true);
@@ -2029,8 +2108,28 @@ const PaymentsGestForm = () => {
         const res = await api.post('/api/payments-gest', payload, { withCredentials: true });
         const newId = res.data.id || res.data.data?.id;
         recordIdRef.current = newId;
-        window.history.replaceState(null, '', `/progestor/payments-gest/${newId}`);
+        window.history.replaceState(null, '', `/progestor/payments-gest/form/${newId}`);
         setSchemeLocked(true);
+
+        // The backend also creates (or links) the SORT_GES register for this CURP
+        const sg = res.data._sortGes;
+        if (sg?.id) {
+          setCurpInfo(prev => ({
+            ...(prev || {}),
+            valid: true,
+            scheme: { id: newId, gesca: s.formData.gesca },
+            candidate: prev?.candidate || { id: sg.id, nombre_completo: s.formData.gesca },
+          }));
+          setAlert({
+            show: true,
+            type: 'success',
+            message: sg.created
+              ? 'Esquema creado. También se creó su registro en SORT_GES con los datos disponibles.'
+              : 'Esquema creado y vinculado con su registro existente en SORT_GES.',
+          });
+        } else if (res.data._sortGesError) {
+          setAlert({ show: true, type: 'warning', message: res.data._sortGesError });
+        }
       } else {
         await api.put(`/api/payments-gest/${recordIdRef.current}`, payload, { withCredentials: true });
       }
@@ -2424,15 +2523,57 @@ const PaymentsGestForm = () => {
                   </small>
                 )}
               </div>
+              <div>
+                <LockedFormInput name="curp" label="CURP *" value={formData.curp} locked={lockedFields.curp}
+                  maxLength={CURP_MAX_LENGTH} placeholder="CURP" {...fieldProps} />
+                {!formData.curp && (
+                  <small className="text-danger d-flex align-items-center gap-1 mt-1">
+                    <CIcon icon={cilWarning} size="sm" />
+                    {isEditMode
+                      ? 'Campo requerido — captura la CURP para vincular con SORT_GES'
+                      : 'Campo requerido — sin CURP no se creará el registro'}
+                  </small>
+                )}
+                {formData.curp && !isValidCurp(formData.curp) && (
+                  <small className="text-danger d-flex align-items-center gap-1 mt-1">
+                    <CIcon icon={cilWarning} size="sm" /> {CURP_FORMAT_MESSAGE} (llevas {formData.curp.length})
+                  </small>
+                )}
+                {curpChecking && <small className="text-muted d-block mt-1">Verificando CURP…</small>}
+                {!curpChecking && curpDuplicate && (
+                  <div className="small text-danger mt-1 d-flex align-items-center gap-2 flex-wrap">
+                    <span><CIcon icon={cilWarning} size="sm" /> Ya existe un esquema con esta CURP: <strong>{curpDuplicate.gesca || `#${curpDuplicate.id}`}</strong></span>
+                    <CButton size="sm" color="danger" variant="outline" style={{ padding: '0 8px' }}
+                      onClick={() => window.location.assign(`/progestor/payments-gest/form/${curpDuplicate.id}`)}>
+                      Abrir esquema existente
+                    </CButton>
+                  </div>
+                )}
+                {!curpChecking && !curpDuplicate && curpCandidate && (
+                  <div className="small mt-1 d-flex align-items-center gap-2 flex-wrap" style={{ color: 'var(--cui-success)' }}>
+                    <span>✓ Vinculada con SORT_GES: <strong>{curpCandidate.nombre_completo || `Candidata #${curpCandidate.id}`}</strong></span>
+                    <CButton size="sm" color="success" variant="outline" style={{ padding: '0 8px' }}
+                      onClick={() => navigate(`/babysite/sortGes/${curpCandidate.id}`)}>
+                      Ver en SORT_GES
+                    </CButton>
+                  </div>
+                )}
+                {!curpChecking && curpInfo?.valid && !curpDuplicate && !curpCandidate && (
+                  <small className="text-muted d-block mt-1">Sin candidata en SORT_GES con esta CURP (se vinculará si se registra después).</small>
+                )}
+              </div>
+            </div>
+            <div className="form-row-equal cols-2 mb-3">
               <LockedFormInput name="ip" label="IP" value={formData.ip} locked={lockedFields.ip} {...fieldProps} />
+              <LockedFormInput name="fum" label="FUM" value={formData.fum} locked={lockedFields.fum} type="date" {...fieldProps} />
             </div>
             <div className="form-row-equal cols-2 mb-3">
               <LockedFormInput name="banco" label="Banco" value={formData.banco} locked={lockedFields.banco} {...fieldProps} />
               <LockedFormInput name="clabe" label="Clabe" value={formData.clabe} locked={lockedFields.clabe} {...fieldProps} />
             </div>
             <div className="form-row-equal cols-2">
-              <LockedFormInput name="fum" label="FUM" value={formData.fum} locked={lockedFields.fum} type="date" {...fieldProps} />
               <LockedFormInput name="giro_semana" label="Giro de semana" value={formData.giro_semana} locked={lockedFields.giro_semana} {...fieldProps} />
+              <div />
             </div>
           </CAccordionBody>
         </CAccordionItem>

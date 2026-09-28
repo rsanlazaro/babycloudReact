@@ -6,13 +6,13 @@ import {
   CButton, CFormInput, CFormSelect, CFormLabel, CSpinner, CAlert,
   CInputGroup, CInputGroupText, CBadge,
   CModal, CModalHeader, CModalTitle, CModalBody, CModalFooter,
-  CNav, CNavItem, CNavLink, CTabContent, CTabPane,
+  CTabContent, CTabPane,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
 import {
   cilSearch, cilPlus, cilArrowTop, cilArrowBottom,
   cilFile, cilPencil, cilTrash, cilWarning,
-  cilUser, cilClipboard, cilCalendar, cilPeople,
+  cilUserFemale, cilNotes, cilMedicalCross, cilTask,
   cilSend, cilClock, cilCheck, cilLockLocked, cilLockUnlocked,
 } from '@coreui/icons';
 import { Link, useNavigate } from 'react-router-dom';
@@ -331,12 +331,13 @@ const EMPTY_FORM = {
   vinculo:          '',
 };
 
-// Tab config — icon + label + color matching the image
+// Tab config — round icon tabs, each with its own color.
+// Inactive: light tinted circle + outlined icon. Active: solid circle + white icon.
 const TABS = [
-  { id: 'data-gesca',  label: 'Data GESCA',  icon: cilUser,      color: '#0098b3' },
-  { id: 'admisiones',  label: 'Admisiones',  icon: cilClipboard, color: '#5856d6' },
-  { id: 'att-previa',  label: 'Att. Previa', icon: cilCalendar,  color: '#d97ea1' },
-  { id: 'psicologia',  label: 'Psicología',  icon: cilPeople,    color: '#0098b3' },
+  { id: 'data-gesca',  label: 'Data GESCA',  icon: cilUserFemale,   color: '#2f9aa0' },
+  { id: 'admisiones',  label: 'Admisiones',  icon: cilNotes,        color: '#7b6fb8' },
+  { id: 'att-previa',  label: 'Att. Previa', icon: cilMedicalCross, color: '#e53935' },
+  { id: 'psicologia',  label: 'Psicología',  icon: cilTask,         color: '#43a047' },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -1515,39 +1516,38 @@ const SortGesList = () => {
         </CAlert>
       )}
 
+      {/* ── Tab navigation — icon tabs, outside the table card ── */}
+      <div className="sortges-icon-tabs mb-3" role="tablist" aria-label="Secciones">
+        {TABS.map(tab => {
+          const active = activeTab === tab.id;
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              className={`sortges-icon-tab${active ? ' is-active' : ''}`}
+              style={{ '--tab-color': tab.color }}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <span className="sortges-icon-tab__circle">
+                <CIcon icon={tab.icon} className="sortges-icon-tab__icon" />
+              </span>
+              <span className="sortges-icon-tab__label">{tab.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
       <CCard className="mb-4">
-        {/* ── Tab navigation ── */}
-        <div className="px-4 pt-3 pb-0 border-bottom d-flex align-items-center justify-content-between">
-          {/* Tabs */}
-          <CNav variant="tabs" style={{ borderBottom: 'none', gap: '4px' }}>
-            {TABS.map(tab => (
-              <CNavItem key={tab.id}>
-                <CNavLink
-                  active={activeTab === tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  style={{
-                    cursor: 'pointer',
-                    color:  activeTab === tab.id ? tab.color : '#6c757d',
-                    fontWeight: activeTab === tab.id ? 700 : 400,
-                    background: 'none',
-                    border: 'none',
-                    borderBottom: activeTab === tab.id
-                      ? `3px solid ${tab.color}` : '3px solid transparent',
-                    paddingBottom: '10px',
-                    paddingTop: '4px',
-                    display: 'flex', alignItems: 'center', gap: '6px',
-                    transition: 'all 0.15s',
-                  }}
-                >
-                  <CIcon icon={tab.icon} size="sm" />
-                  {tab.label}
-                </CNavLink>
-              </CNavItem>
-            ))}
-          </CNav>
+        {/* ── Card top bar: count (left) + search/add (right) ── */}
+        <div className="px-3 py-2 border-bottom d-flex align-items-center justify-content-between flex-wrap gap-2">
+          <span className="text-muted" style={{ fontSize: '0.78rem' }}>
+            {filtered.length} de {candidates.length} candidatos
+          </span>
 
           {/* Search + add — top right */}
-          <div className="d-flex align-items-center gap-2 pb-2">
+          <div className="d-flex align-items-center gap-2">
             <CInputGroup size="sm" style={{ width: '220px' }}>
               <CInputGroupText style={{ backgroundColor: '#fff', borderRight: 'none' }}>
                 <CIcon icon={cilSearch} style={{ color: '#d97ea1' }} />
@@ -1577,11 +1577,6 @@ const SortGesList = () => {
 
         <CCardBody className="p-0">
           {error && <CAlert color="danger" className="m-3">{error}</CAlert>}
-
-          {/* Count */}
-          <div className="px-3 py-2 text-muted" style={{ fontSize: '0.78rem', borderBottom: '1px solid #f0f0f0' }}>
-            {filtered.length} de {candidates.length} candidatos
-          </div>
 
           {/* Tab content */}
           <CTabContent>
@@ -1716,6 +1711,79 @@ const SortGesList = () => {
         .nowrap-table td {
           white-space: nowrap;
           vertical-align: middle;
+        }
+
+        /* ── Icon tabs ─────────────────────────────────────── */
+        .sortges-icon-tabs {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem 2rem;
+        }
+        .sortges-icon-tab {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: 0.35rem;
+          min-width: 88px;
+          padding: 0.25rem 0.5rem;
+          background: none;
+          border: none;
+          cursor: pointer;
+          color: var(--tab-color);
+        }
+        .sortges-icon-tab:focus-visible {
+          outline: 2px solid var(--tab-color);
+          outline-offset: 2px;
+          border-radius: 0.5rem;
+        }
+        .sortges-icon-tab__circle {
+          width: 52px;
+          height: 52px;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: 2px solid color-mix(in srgb, var(--tab-color) 55%, transparent);
+          background: color-mix(in srgb, var(--tab-color) 8%, var(--cui-body-bg, #fff));
+          transition: background-color 0.2s ease, border-color 0.2s ease,
+                      box-shadow 0.2s ease, transform 0.2s ease;
+        }
+        .sortges-icon-tab__icon {
+          width: 26px !important;
+          height: 26px !important;
+          color: var(--tab-color);
+          opacity: 0.75;
+          transition: color 0.2s ease, opacity 0.2s ease;
+        }
+        .sortges-icon-tab__label {
+          font-size: 0.9rem;
+          font-weight: 600;
+          opacity: 0.7;
+          white-space: nowrap;
+          transition: opacity 0.2s ease;
+        }
+        .sortges-icon-tab:hover .sortges-icon-tab__circle {
+          border-color: var(--tab-color);
+          transform: translateY(-2px);
+        }
+        .sortges-icon-tab:hover .sortges-icon-tab__icon,
+        .sortges-icon-tab:hover .sortges-icon-tab__label {
+          opacity: 1;
+        }
+
+        /* Active tab: solid circle, white icon, full-strength bold label */
+        .sortges-icon-tab.is-active .sortges-icon-tab__circle {
+          background: var(--tab-color);
+          border-color: var(--tab-color);
+          box-shadow: 0 4px 12px color-mix(in srgb, var(--tab-color) 40%, transparent);
+        }
+        .sortges-icon-tab.is-active .sortges-icon-tab__icon {
+          color: #fff;
+          opacity: 1;
+        }
+        .sortges-icon-tab.is-active .sortges-icon-tab__label {
+          opacity: 1;
+          font-weight: 800;
         }
       `}</style>
     </CContainer>

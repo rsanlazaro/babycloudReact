@@ -56,8 +56,20 @@ import {
   cilCamera,
   cilWarning,
   cilFolder,
+  cilFolderOpen,
+  cilCash,
+  cilExternalLink,
+  cilLoopCircular,
 } from '@coreui/icons';
 import { useParams, useNavigate } from 'react-router-dom';
+
+// CURP links this candidate with Listado de pagos (payments_gest). Same rule as the
+// backend (services/curp.js): 10–18 letters or digits — length varies in practice.
+const CURP_MIN_LENGTH = 10;
+const CURP_MAX_LENGTH = 18;
+const CURP_REGEX = new RegExp(`^[A-Z0-9]{${CURP_MIN_LENGTH},${CURP_MAX_LENGTH}}$`);
+const normalizeCurp = (v) => String(v || '').replace(/\s+/g, '').toUpperCase();
+const isValidCurp = (v) => CURP_REGEX.test(normalizeCurp(v));
 import api from '../../../services/api';
 
 // Tab configuration with colors and icons
@@ -96,6 +108,38 @@ const toDateInputValue = (v) => {
   return s.includes('T') ? s.split('T')[0] : s;
 };
 
+// ─────────────────────────────────────────────────────────────
+// Presentational wrappers — defined OUTSIDE SortGes on purpose.
+// A component defined inside SortGes is a brand-new component type on every
+// render, so React remounts it (and every input inside it) on each keystroke
+// and the cursor jumps out of the field.
+// ─────────────────────────────────────────────────────────────
+// Static (non-collapsible) section with a gray title bar
+const StaticSection = ({ title, children }) => (
+  <div className="border rounded mb-3 overflow-hidden">
+    <div className="px-3 py-2" style={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}>
+      <strong>{title}</strong>
+    </div>
+    <div className="p-3">
+      {children}
+    </div>
+  </div>
+);
+
+const CitaDiagnosticoToggle = ({ locked, onClick }) => (
+  <CButton
+    type="button"
+    color={locked ? 'warning' : 'secondary'}
+    variant="outline"
+    size="sm"
+    onClick={onClick}
+    title={locked ? 'Diagnóstico bloqueado — clic para desbloquear' : 'Diagnóstico desbloqueado — clic para bloquear'}
+  >
+    <CIcon icon={locked ? cilLockLocked : cilLockUnlocked} className="me-1" />
+    {locked ? 'Bloqueado' : 'Desbloqueado'}
+  </CButton>
+);
+
 const SortGes = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -117,6 +161,22 @@ const SortGes = () => {
   const [uploadingFoto, setUploadingFoto]   = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const fotoInputRef                        = useRef(null);
+  // Payment scheme linked by CURP (Listado de pagos)
+  const [paymentScheme, setPaymentScheme]         = useState(null);   // { id, gesca } | null
+  const [paymentSchemeChecking, setPaymentSchemeChecking] = useState(false);
+  const [generatingScheme, setGeneratingScheme]   = useState(false);
+  const [showSchemeConfirm, setShowSchemeConfirm] = useState(false);
+  // Photo source: "Seleccionar archivo" or "Tomar foto" (live camera)
+  const [fotoMenuOpen, setFotoMenuOpen]     = useState(false);
+  const fotoMenuRef                         = useRef(null);
+  const fotoCaptureInputRef                 = useRef(null); // fallback: native camera on phones
+  const [showCamera, setShowCamera]         = useState(false);
+  const [cameraFacing, setCameraFacing]     = useState('user'); // 'user' | 'environment'
+  const [cameraCount, setCameraCount]       = useState(0);
+  const [cameraReady, setCameraReady]       = useState(false);
+  const [cameraError, setCameraError]       = useState('');
+  const videoRef                            = useRef(null);
+  const streamRef                           = useRef(null);
 
   // Field locking
   const [lockedFields, setLockedFields] = useState({});
@@ -828,7 +888,8 @@ const SortGes = () => {
   };
 
   // Small reusable button — dropped into each of the 5 tabs
-  const IndicarDescarteButton = () => (
+  // Render function (not a component) — see note above StaticSection
+  const renderIndicarDescarteButton = () => (
     <div className="mb-3 d-flex justify-content-end">
       <CButton
         color="danger"
@@ -846,20 +907,127 @@ const SortGes = () => {
   // collapsible CAccordion/CAccordionItem/CAccordionHeader/CAccordionBody
   // with a static equivalent that keeps the same visual style but can't be
   // closed by the user.
-  const StaticSection = ({ title, children }) => (
-    <div className="border rounded mb-3 overflow-hidden">
-      <div className="px-3 py-2" style={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}>
-        <strong>{title}</strong>
-      </div>
-      <div className="p-3">
-        {children}
-      </div>
-    </div>
-  );
+
+  // ── Candidate photo: pick from file OR take with the camera ──────
+  // Shared validation for both sources; the upload itself is unchanged.
+  const handleFotoSelected = (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showNotification('danger', 'Por favor seleccione una imagen');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      showNotification('danger', 'La imagen no debe superar 5MB');
+      return;
+    }
+    if (fotoPreview) URL.revokeObjectURL(fotoPreview);
+    setFotoFile(file);
+    setFotoPreview(URL.createObjectURL(file));
+  };
+
+  // Close the small photo menu when clicking outside it
+  useEffect(() => {
+    if (!fotoMenuOpen) return;
+    const onDown = (e) => {
+      if (fotoMenuRef.current && !fotoMenuRef.current.contains(e.target)) setFotoMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('touchstart', onDown);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('touchstart', onDown);
+    };
+  }, [fotoMenuOpen]);
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraReady(false);
+  };
+
+  // Start/restart the camera while the modal is open (and when switching front/back)
+  useEffect(() => {
+    if (!showCamera) return undefined;
+    let cancelled = false;
+    (async () => {
+      setCameraError('');
+      stopCamera(); // release the previous camera first (needed on many phones)
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: cameraFacing, width: { ideal: 1280 }, height: { ideal: 960 } },
+          audio: false,
+        });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play().catch(() => {});
+        }
+        setCameraReady(true);
+        // Labels/devices are only fully listed after permission is granted
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        if (!cancelled) setCameraCount(devices.filter((d) => d.kind === 'videoinput').length);
+      } catch (err) {
+        console.error('Camera error:', err);
+        if (cancelled) return;
+        setCameraError(
+          err?.name === 'NotAllowedError'
+            ? 'Permiso de cámara denegado. Habilítalo en la configuración del navegador.'
+            : err?.name === 'NotFoundError'
+              ? 'No se encontró ninguna cámara en este dispositivo.'
+              : 'No se pudo abrir la cámara.'
+        );
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [showCamera, cameraFacing]);
+
+  // Always release the camera when leaving the page
+  useEffect(() => () => stopCamera(), []);
+
+  const openFilePicker = () => {
+    setFotoMenuOpen(false);
+    fotoInputRef.current?.click();
+  };
+
+  const openCamera = () => {
+    setFotoMenuOpen(false);
+    // Camera API needs HTTPS (or localhost); if unavailable, use the phone's native camera
+    if (!navigator.mediaDevices?.getUserMedia || !window.isSecureContext) {
+      fotoCaptureInputRef.current?.click();
+      return;
+    }
+    setShowCamera(true);
+  };
+
+  const closeCamera = () => {
+    stopCamera();
+    setShowCamera(false);
+    setCameraError('');
+  };
+
+  const takePhoto = () => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        showNotification('danger', 'No se pudo capturar la foto');
+        return;
+      }
+      handleFotoSelected(new File([blob], `foto-candidato-${id}-${Date.now()}.jpg`, { type: 'image/jpeg' }));
+      closeCamera();
+    }, 'image/jpeg', 0.9);
+  };
 
   // ── Candidate photo upload (mirrors Profile.js uploadToCloudinary) ──
-  const uploadCandidateFoto = async () => {
-    if (!fotoFile) return;
+  // Returns true when the photo is stored in Cloudinary AND saved on the candidate.
+  // `fromMainSave`: called by "Guardar cambios" — lets that flow word the error.
+  const uploadCandidateFoto = async (fromMainSave = false) => {
+    if (!fotoFile) return true;
     try {
       setUploadingFoto(true);
       setUploadProgress(0);
@@ -885,26 +1053,49 @@ const SortGes = () => {
           if (e.lengthComputable) setUploadProgress(Math.round(e.loaded * 100 / e.total));
         };
         xhr.onload = async () => {
-          if (xhr.status !== 200) { reject(new Error('Upload failed')); return; }
-          const { secure_url } = JSON.parse(xhr.responseText);
-          // Persist URL to DB
-          await api.put(`/api/sort-ges/${id}/foto`, { fotoUrl: secure_url }, { withCredentials: true });
-          setCandidate(prev => ({ ...prev, foto_url: secure_url }));
-          setFotoPreview(null);
-          setFotoFile(null);
-          setUploadingFoto(false);
-          setUploadProgress(0);
-          showNotification('success', 'Foto actualizada correctamente');
-          resolve();
+          try {
+            if (xhr.status !== 200) throw new Error(`Cloudinary upload failed (${xhr.status})`);
+            const { secure_url } = JSON.parse(xhr.responseText);
+            // Persist URL to DB
+            await api.put(`/api/sort-ges/${id}/foto`, { fotoUrl: secure_url }, { withCredentials: true });
+            setCandidate(prev => ({ ...prev, foto_url: secure_url }));
+            if (fotoPreview) URL.revokeObjectURL(fotoPreview);
+            setFotoPreview(null);
+            setFotoFile(null);
+            setUploadingFoto(false);
+            setUploadProgress(0);
+            showNotification('success', 'Foto actualizada correctamente');
+            resolve();
+          } catch (e) {
+            reject(e); // includes a failed DB save — no longer hangs the spinner
+          }
         };
-        xhr.onerror = () => { setUploadingFoto(false); reject(new Error('Upload failed')); };
+        xhr.onerror = () => reject(new Error('Network error uploading to Cloudinary'));
         xhr.send(fd);
       });
+      return true;
     } catch (err) {
       console.error('Error uploading foto:', err);
       setUploadingFoto(false);
-      showNotification('danger', 'Error al subir la foto');
+      setUploadProgress(0);
+      // Keep fotoFile/preview so the user can retry with "Guardar foto"
+      if (!fromMainSave) {
+        showNotification('danger', 'Error al guardar la foto. Intenta de nuevo con "Guardar foto".');
+      }
+      return false;
     }
+  };
+
+  // Don't silently drop a photo that was taken/selected but not saved yet
+  const goBackToList = () => {
+    if (fotoFile && !window.confirm('Hay una foto nueva sin guardar. ¿Salir sin guardarla?')) return;
+    navigate('/babysite/sortGes');
+  };
+
+  const cancelFotoChange = () => {
+    if (fotoPreview) URL.revokeObjectURL(fotoPreview);
+    setFotoFile(null);
+    setFotoPreview(null);
   };
 
   // ─────────────────────────────────────────────────────────────
@@ -917,7 +1108,9 @@ const SortGes = () => {
   const handleRegistroInicialChange = (e) => {
     const { name, value } = e.target;
     if (isFieldLocked('registroInicial', name)) return;
-    const sanitized = (name === 'tel_1' || name === 'tel_2') ? sanitizePhoneField(value) : value;
+    const sanitized = (name === 'tel_1' || name === 'tel_2') ? sanitizePhoneField(value)
+      : name === 'curp' ? normalizeCurp(value)
+      : value;
     setRegistroInicial(prev => ({ ...prev, [name]: sanitized }));
   };
 
@@ -1555,7 +1748,8 @@ const SortGes = () => {
   // ─────────────────────────────────────────────────────────────
 
   // Lock icon button — reused in all renderers
-  const LockBtn = ({ section, field }) => (
+  // Render function (not a component) — see note above StaticSection
+  const renderLockBtn = (section, field) => (
     <CButton
       color="warning" variant="outline" size="sm"
       onClick={() => requestUnlock(section, field)}
@@ -1602,7 +1796,7 @@ const SortGes = () => {
           {...restProps}
         />
         {locked
-          ? <LockBtn section={section} field={field} />
+          ? renderLockBtn(section, field)
           : value
             ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
                 <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
@@ -1640,7 +1834,7 @@ const SortGes = () => {
           {options.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
         </CFormSelect>
         {locked
-          ? <LockBtn section={section} field={field} />
+          ? renderLockBtn(section, field)
           : value
             ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
                 <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
@@ -1682,7 +1876,7 @@ const SortGes = () => {
           readOnly={locked}
           style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
         />
-        {locked && <LockBtn section={section} field={field} />}
+        {locked && renderLockBtn(section, field)}
       </CInputGroup>
     );
   };
@@ -1713,7 +1907,7 @@ const SortGes = () => {
         >
           {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </CFormSelect>
-        {locked && <LockBtn section={section} field={field} />}
+        {locked && renderLockBtn(section, field)}
       </CInputGroup>
     );
   };
@@ -1752,7 +1946,7 @@ const SortGes = () => {
           style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
         />
         {locked
-          ? <LockBtn section={section} field={field} />
+          ? renderLockBtn(section, field)
           : value
             ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
                 <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
@@ -1791,7 +1985,7 @@ const SortGes = () => {
           {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </CFormSelect>
         {locked
-          ? <LockBtn section={section} field={field} />
+          ? renderLockBtn(section, field)
           : value
             ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
                 <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
@@ -1836,7 +2030,7 @@ const SortGes = () => {
           style={locked ? { backgroundColor: '#e9ecef', color: '#6c757d', pointerEvents: 'none' } : {}}
         />
         {locked
-          ? <LockBtn section={section} field={field} />
+          ? renderLockBtn(section, field)
           : value
             ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
                 <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
@@ -1875,7 +2069,7 @@ const SortGes = () => {
           {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
         </CFormSelect>
         {locked
-          ? <LockBtn section={section} field={field} />
+          ? renderLockBtn(section, field)
           : value
             ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
                 <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
@@ -1888,19 +2082,6 @@ const SortGes = () => {
 
   // "Diagnóstico" isn't free text — it's a simple locked/unlocked toggle.
   // Persisted as the cita's `diagnostico` field ('true'/'false') via updateCita.
-  const CitaDiagnosticoToggle = ({ locked, onClick }) => (
-    <CButton
-      type="button"
-      color={locked ? 'warning' : 'secondary'}
-      variant="outline"
-      size="sm"
-      onClick={onClick}
-      title={locked ? 'Diagnóstico bloqueado — clic para desbloquear' : 'Diagnóstico desbloqueado — clic para bloquear'}
-    >
-      <CIcon icon={locked ? cilLockLocked : cilLockUnlocked} className="me-1" />
-      {locked ? 'Bloqueado' : 'Desbloqueado'}
-    </CButton>
-  );
 
   // ── Lockable checkbox ────────────────────────────────────────
   // For checkboxes: lock fires immediately on check, not on blur
@@ -1938,15 +2119,67 @@ const SortGes = () => {
   };
 
   // Tab 1 + Tab 2 — triggered by the global "Guardar cambios" button
+  const saveAltaGesca = () =>
+    api.put(`/api/sort-ges/${id}/alta-gesca`, {
+      ...registroInicial,
+      ...datosSalud,
+      locked_fields: lockedFields,
+    }, { withCredentials: true });
+
+  // ── Payment scheme (Listado de pagos), linked by CURP ─────────────────────
+  // Is there already a scheme for the typed CURP? (created here or in Listado de pagos)
+  useEffect(() => {
+    const curp = normalizeCurp(registroInicial.curp);
+    if (!isValidCurp(curp)) { setPaymentScheme(null); setPaymentSchemeChecking(false); return undefined; }
+    setPaymentSchemeChecking(true);
+    const t = setTimeout(async () => {
+      try {
+        const res = await api.get(`/api/payments-gest/curp-lookup/${curp}`, { withCredentials: true });
+        setPaymentScheme(res.data?.scheme || null);
+      } catch {
+        setPaymentScheme(null);
+      } finally {
+        setPaymentSchemeChecking(false);
+      }
+    }, 400);
+    return () => clearTimeout(t);
+  }, [registroInicial.curp]);
+
+  // Why "Generar esquema" can't run yet (null = ready)
+  const schemeBlockReason = !registroInicial.curp
+    ? 'Captura la CURP para generar el esquema'
+    : !isValidCurp(registroInicial.curp)
+      ? `La CURP debe tener entre ${CURP_MIN_LENGTH} y ${CURP_MAX_LENGTH} letras o números`
+      : !registroInicial.nombre_completo
+        ? 'Captura el nombre completo'
+        : !registroInicial.esquema_ofrecido
+          ? 'Selecciona el esquema ofrecido'
+          : null;
+
+  const confirmGeneratePaymentScheme = async () => {
+    setShowSchemeConfirm(false);
+    try {
+      setGeneratingScheme(true);
+      // The backend builds the scheme from SAVED data → save Alta Gesca first
+      await saveAltaGesca();
+      const res = await api.post(`/api/sort-ges/${id}/payment-scheme`, {}, { withCredentials: true });
+      setPaymentScheme({ id: res.data.id, gesca: res.data.gesca });
+      showNotification('success', res.data.created
+        ? 'Esquema de pagos generado. Ya aparece en Listado de pagos.'
+        : 'Ya existía un esquema de pagos con esta CURP; quedó vinculado.');
+    } catch (err) {
+      console.error('Error generating payment scheme:', err);
+      showNotification('danger', err.response?.data?.message || 'Error al generar el esquema de pagos');
+    } finally {
+      setGeneratingScheme(false);
+    }
+  };
+
   const handleSave = async () => {
     try {
       setSaving(true);
       await Promise.all([
-        api.put(`/api/sort-ges/${id}/alta-gesca`, {
-          ...registroInicial,
-          ...datosSalud,
-          locked_fields: lockedFields,
-        }, { withCredentials: true }),
+        saveAltaGesca(),
         api.put(`/api/sort-ges/${id}/checklist`, {
           certificado_nacimiento_url: documentos.certificado_nacimiento?.name || null,
           curp_url:                   documentos.curp?.name                   || null,
@@ -1964,6 +2197,14 @@ const SortGes = () => {
           full_consent:                 consentimientos.full,
         }, { withCredentials: true }),
       ]);
+      // A photo taken/selected but not yet saved with "Guardar foto" is saved here too
+      if (fotoFile) {
+        const fotoOk = await uploadCandidateFoto(true);
+        if (!fotoOk) {
+          showNotification('warning', 'Datos guardados, pero la foto no se pudo guardar. Intenta de nuevo con "Guardar foto".');
+          return; // photo kept on screen for retry
+        }
+      }
       showNotification('success', 'Datos guardados correctamente');
     } catch (err) {
       console.error('Error saving:', err);
@@ -2237,7 +2478,7 @@ const SortGes = () => {
 
   if (error || !candidate) {
     return (
-      <CContainer className="mx-5">
+      <CContainer fluid>
         <CAlert color="danger">{error || 'Candidato no encontrado'}</CAlert>
         <CButton color="secondary" onClick={() => navigate('/babysite/sortGes')}>
           <CIcon icon={cilArrowLeft} className="me-2" />Volver a la lista
@@ -2260,6 +2501,13 @@ const SortGes = () => {
           {alert.message}
         </CAlert>
       )}
+
+      {/* ── Botón superior: volver a la lista ───────────────── */}
+      <div className="mb-3">
+        <CButton color="secondary" variant="outline" onClick={goBackToList}>
+          <CIcon icon={cilArrowLeft} className="me-2" />Volver a la lista
+        </CButton>
+      </div>
 
       <CCard className="mb-4">
         <CCardHeader className="d-flex justify-content-between align-items-center">
@@ -2326,12 +2574,12 @@ const SortGes = () => {
                       border: '3px solid #d97ea1',
                       boxShadow: '0 2px 8px rgba(217,126,161,0.3)',
                     }}
-                    onClick={() => fotoInputRef.current?.click()}
+                    onClick={() => setFotoMenuOpen((o) => !o)}
                     title="Cambiar foto"
                   />
                   {/* Camera overlay */}
                   <div
-                    onClick={() => fotoInputRef.current?.click()}
+                    onClick={() => setFotoMenuOpen((o) => !o)}
                     style={{
                       position: 'absolute', bottom: 4, right: 4,
                       width: 28, height: 28, borderRadius: '50%',
@@ -2342,28 +2590,99 @@ const SortGes = () => {
                   >
                     <CIcon icon={cilCamera} style={{ color: '#fff', width: 14, height: 14 }} />
                   </div>
-                  {/* Hidden file input */}
+                  {/* Photo source menu */}
+                  {fotoMenuOpen && (
+                    <div
+                      ref={fotoMenuRef}
+                      className="shadow-sm border rounded bg-body text-start"
+                      style={{ position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 20, minWidth: 190, overflow: 'hidden' }}
+                      role="menu"
+                    >
+                      <button type="button" role="menuitem" className="dropdown-item d-flex align-items-center px-3 py-2" onClick={openFilePicker}>
+                        <CIcon icon={cilFolderOpen} className="me-2" />Seleccionar archivo
+                      </button>
+                      <button type="button" role="menuitem" className="dropdown-item d-flex align-items-center px-3 py-2" onClick={openCamera}>
+                        <CIcon icon={cilCamera} className="me-2" />Tomar foto
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Hidden file input — pick from files/gallery */}
                   <input
                     ref={fotoInputRef}
                     type="file"
                     accept="image/*"
                     style={{ display: 'none' }}
                     onChange={(e) => {
-                      const file = e.target.files[0];
-                      if (!file) return;
-                      if (!file.type.startsWith('image/')) {
-                        showNotification('danger', 'Por favor seleccione una imagen');
-                        return;
-                      }
-                      if (file.size > 5 * 1024 * 1024) {
-                        showNotification('danger', 'La imagen no debe superar 5MB');
-                        return;
-                      }
-                      setFotoFile(file);
-                      setFotoPreview(URL.createObjectURL(file));
+                      handleFotoSelected(e.target.files[0]);
+                      e.target.value = ''; // allow picking the same file again
+                    }}
+                  />
+                  {/* Hidden camera input — fallback for phones without camera API access */}
+                  <input
+                    ref={fotoCaptureInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="user"
+                    style={{ display: 'none' }}
+                    onChange={(e) => {
+                      handleFotoSelected(e.target.files[0]);
+                      e.target.value = '';
                     }}
                   />
                 </div>
+
+                {/* Live camera */}
+                <CModal visible={showCamera} onClose={closeCamera} alignment="center" size="lg" backdrop="static">
+                  <CModalHeader>
+                    <CModalTitle>Tomar foto</CModalTitle>
+                  </CModalHeader>
+                  <CModalBody className="text-center">
+                    {cameraError ? (
+                      <CAlert color="danger" className="mb-0 text-start">{cameraError}</CAlert>
+                    ) : (
+                      <div className="position-relative bg-black rounded overflow-hidden" style={{ minHeight: 240 }}>
+                        <video
+                          ref={(el) => {
+                            videoRef.current = el;
+                            if (el && streamRef.current && el.srcObject !== streamRef.current) {
+                              el.srcObject = streamRef.current;
+                            }
+                          }}
+                          autoPlay
+                          playsInline
+                          muted
+                          style={{ width: '100%', maxHeight: '60vh', display: 'block', objectFit: 'contain' }}
+                        />
+                        {!cameraReady && (
+                          <div className="position-absolute top-50 start-50 translate-middle text-white">
+                            <CSpinner size="sm" className="me-2" />Abriendo cámara...
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </CModalBody>
+                  <CModalFooter className="d-flex justify-content-between">
+                    <div>
+                      {cameraCount > 1 && !cameraError && (
+                        <CButton color="secondary" variant="outline"
+                          onClick={() => setCameraFacing((f) => (f === 'user' ? 'environment' : 'user'))}>
+                          <CIcon icon={cilLoopCircular} className="me-2" />Cambiar cámara
+                        </CButton>
+                      )}
+                    </div>
+                    <div className="d-flex gap-2">
+                      <CButton color="secondary" variant="outline" onClick={closeCamera}>Cancelar</CButton>
+                      <CButton
+                        style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1', color: '#fff' }}
+                        onClick={takePhoto}
+                        disabled={!cameraReady || !!cameraError}
+                      >
+                        <CIcon icon={cilCamera} className="me-2" />Capturar
+                      </CButton>
+                    </div>
+                  </CModalFooter>
+                </CModal>
 
                 {/* Save / progress — only when a new file is selected */}
                 {fotoFile && !uploadingFoto && (
@@ -2371,12 +2690,12 @@ const SortGes = () => {
                     <CButton
                       size="sm"
                       style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1', color: '#fff' }}
-                      onClick={uploadCandidateFoto}
+                      onClick={() => uploadCandidateFoto()}
                     >
                       <CIcon icon={cilSave} className="me-1" />Guardar foto
                     </CButton>
                     <CButton size="sm" color="secondary" variant="outline"
-                      onClick={() => { setFotoFile(null); setFotoPreview(null); }}>
+                      onClick={cancelFotoChange}>
                       Cancelar
                     </CButton>
                   </div>
@@ -2427,7 +2746,7 @@ const SortGes = () => {
 
             {/* ── ALTA GESCA ─────────────────────────────────── */}
             <CTabPane visible={activeTab === 'alta-gesca'}>
-              <IndicarDescarteButton />
+              {renderIndicarDescarteButton()}
               <>
                 <StaticSection title="Registro Inicial / Datos personales">
                     <CRow>
@@ -2447,8 +2766,68 @@ const SortGes = () => {
                         ))}
                         <div className="mb-2">
                           <CFormLabel>Esquema ofrecido:</CFormLabel>
-                          {renderLockableSelect('registroInicial', 'esquema_ofrecido', registroInicial.esquema_ofrecido, handleRegistroInicialChange, esquemaOptions)}
+                          <div className="d-flex gap-2 align-items-start flex-wrap">
+                            <div style={{ flex: '1 1 160px', minWidth: 0 }}>
+                              {renderLockableSelect('registroInicial', 'esquema_ofrecido', registroInicial.esquema_ofrecido, handleRegistroInicialChange, esquemaOptions)}
+                            </div>
+                            {paymentScheme ? (
+                              <CButton
+                                color="success"
+                                variant="outline"
+                                style={{ whiteSpace: 'nowrap' }}
+                                onClick={() => navigate(`/progestor/payments-gest/form/${paymentScheme.id}`)}
+                                title="Abrir el esquema de pagos vinculado por CURP"
+                              >
+                                <CIcon icon={cilExternalLink} className="me-1" />Ver esquema
+                              </CButton>
+                            ) : (
+                              <CButton
+                                style={{ whiteSpace: 'nowrap', backgroundColor: '#d97ea1', borderColor: '#d97ea1', color: '#fff' }}
+                                disabled={!!schemeBlockReason || generatingScheme || paymentSchemeChecking}
+                                onClick={() => setShowSchemeConfirm(true)}
+                                title={schemeBlockReason || 'Crear el registro en Listado de pagos'}
+                              >
+                                {generatingScheme
+                                  ? <><CSpinner size="sm" className="me-1" />Generando...</>
+                                  : <><CIcon icon={cilCash} className="me-1" />Generar esquema</>}
+                              </CButton>
+                            )}
+                          </div>
+                          {paymentScheme ? (
+                            <small className="d-block mt-1" style={{ color: 'var(--cui-success)' }}>
+                              ✓ Esquema de pagos vinculado por CURP
+                            </small>
+                          ) : schemeBlockReason && (
+                            <small className="text-muted d-block mt-1">{schemeBlockReason}</small>
+                          )}
                         </div>
+
+                        {/* Confirm generating the payment scheme */}
+                        <CModal visible={showSchemeConfirm} onClose={() => setShowSchemeConfirm(false)} alignment="center">
+                          <CModalHeader>
+                            <CModalTitle>Generar esquema de pagos</CModalTitle>
+                          </CModalHeader>
+                          <CModalBody>
+                            <p className="mb-2">Se creará el registro en <strong>Listado de pagos</strong> con:</p>
+                            <ul className="mb-2">
+                              <li><strong>GESCA:</strong> {registroInicial.nombre_completo}</li>
+                              <li><strong>CURP:</strong> {normalizeCurp(registroInicial.curp)}</li>
+                              <li><strong>Esquema:</strong> {registroInicial.esquema_ofrecido}</li>
+                            </ul>
+                            <small className="text-muted">
+                              También se copian IP, banco, CLABE y FUM si están capturados. Los datos de Alta Gesca se guardarán antes de generarlo.
+                            </small>
+                          </CModalBody>
+                          <CModalFooter>
+                            <CButton color="secondary" variant="outline" onClick={() => setShowSchemeConfirm(false)}>Cancelar</CButton>
+                            <CButton
+                              style={{ backgroundColor: '#d97ea1', borderColor: '#d97ea1', color: '#fff' }}
+                              onClick={confirmGeneratePaymentScheme}
+                            >
+                              <CIcon icon={cilCash} className="me-1" />Generar
+                            </CButton>
+                          </CModalFooter>
+                        </CModal>
                         <div className="mb-2">
                           <CFormLabel>Estado civil:</CFormLabel>
                           {renderLockableSelect('registroInicial', 'estado_civil', registroInicial.estado_civil, handleRegistroInicialChange, estadoCivilOptions)}
@@ -2668,7 +3047,7 @@ const SortGes = () => {
 
             {/* ── CHECK LIST ─────────────────────────────────── */}
             <CTabPane visible={activeTab === 'checklist'}>
-              <IndicarDescarteButton />
+              {renderIndicarDescarteButton()}
               <>
                 <StaticSection title="Archivado de documentación">
                     <CRow>
@@ -2793,7 +3172,7 @@ const SortGes = () => {
                                   readOnly={locked}
                                   style={(locked || completado) ? { backgroundColor: '#e9ecef', color: '#6c757d' } : {}} />
                                 {locked
-                                  ? <LockBtn section="documentos" field="cita_entrega" />
+                                  ? renderLockBtn('documentos', 'cita_entrega')
                                   : documentos.cita_entrega
                                     ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
                                         <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
@@ -2845,7 +3224,7 @@ const SortGes = () => {
                                   readOnly={locked}
                                   style={(locked || completado) ? { backgroundColor: '#e9ecef', color: '#6c757d' } : {}} />
                                 {locked
-                                  ? <LockBtn section="consentimientos" field="cita_firma" />
+                                  ? renderLockBtn('consentimientos', 'cita_firma')
                                   : consentimientos.cita_firma
                                     ? <CInputGroupText style={{ backgroundColor: 'transparent', border: 'none' }}>
                                         <CIcon icon={cilLockUnlocked} className="text-muted" style={{ opacity: 0.4 }} />
@@ -2915,7 +3294,7 @@ const SortGes = () => {
                 SEGURO MED TAB
             ══════════════════════════════════════════════════ */}
             <CTabPane visible={activeTab === 'seguro-med'}>
-              <IndicarDescarteButton />
+              {renderIndicarDescarteButton()}
               <>
 
                 {/* ────────────────────────────────────────────
@@ -3474,7 +3853,7 @@ const SortGes = () => {
 
             {/* ── PSICO SOCIAL ───────────────────────────────── */}
             <CTabPane visible={activeTab === 'psico-social'}>
-              <IndicarDescarteButton />
+              {renderIndicarDescarteButton()}
               <>
 
                 {/* ════════════════════════════════════════════
@@ -3772,7 +4151,7 @@ const SortGes = () => {
 
             {/* ── CITA PREVIA ────────────────────────────────── */}
             <CTabPane visible={activeTab === 'cita-previa'}>
-              <IndicarDescarteButton />
+              {renderIndicarDescarteButton()}
 
               {/* Sub-tabs — each holds its own independent list of citas */}
               <CNav variant="tabs" className="mb-3" style={{ borderBottom: 'none' }}>
@@ -3981,7 +4360,7 @@ const SortGes = () => {
           {/* ── Global action buttons ─────────────────────── */}
           <CRow className="mt-4">
             <CCol className="d-flex justify-content-between">
-              <CButton color="secondary" variant="outline" onClick={() => navigate('/babysite/sortGes')}>
+              <CButton color="secondary" variant="outline" onClick={goBackToList}>
                 <CIcon icon={cilArrowLeft} className="me-2" />Volver a la lista
               </CButton>
               <CButton color="primary" className="app-button" onClick={handleSave} disabled={saving}>
