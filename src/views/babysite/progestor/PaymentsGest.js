@@ -388,6 +388,8 @@ const PaymentsGest = () => {
                       <CTableDataCell>{getStatusBadge(payment.status)}</CTableDataCell>
                       <CTableDataCell>
                         <CBadge color="secondary">
+                          {payment.contrato || 'Babyboom'}
+                          {' · '}
                           {payment.scheme_value ? formatSchemeValue(payment.scheme_value) : '-'}
                         </CBadge>
                       </CTableDataCell>

@@ -215,13 +215,25 @@ const PARC_AMOUNTS = {
   3: [15000, 3000, 2000],
 };
 
+// Contract ("contrato") of the payment scheme. Each scheme belongs to one
+// contract; the scheme dropdown only shows the selected contract's schemes.
+// Keep in sync with backend/services/contracts.js.
+const DEFAULT_CONTRACT = 'Babyboom';
+const CONTRACT_OPTIONS = [
+  { value: 'Babyboom', label: 'Babyboom' },
+  { value: 'Nora',     label: 'Nora' },
+];
+
 const SCHEME_OPTIONS = [
-  { value: '375000', label: 'Esquema $375,000' },
-  { value: '400000', label: 'Esquema $400,000' },
-  { value: '450000', label: 'Esquema $450,000' },
-  { value: '475000', label: 'Esquema $475,000' },
+  { value: '375000', label: 'Esquema $375,000', contrato: 'Babyboom' },
+  { value: '400000', label: 'Esquema $400,000', contrato: 'Babyboom' },
+  { value: '450000', label: 'Esquema $450,000', contrato: 'Babyboom' },
+  { value: '475000', label: 'Esquema $475,000', contrato: 'Babyboom' },
+  // Nora's schemes will be added here (contrato: 'Nora')
 ];
 const getSchemeLabel = (v) => SCHEME_OPTIONS.find(o => o.value === v)?.label || 'Esquema $375,000';
+const getSchemesForContract = (c) => SCHEME_OPTIONS.filter(o => o.contrato === c);
+const getContractForScheme = (v) => SCHEME_OPTIONS.find(o => o.value === String(v))?.contrato || null;
 
 // Schemes $450,000 and $475,000 share the same "higher tier" bases for
 // Nacimiento / Puerperio 4 / +CDO-GESCA (verified against the provided
@@ -320,7 +332,7 @@ const PaymentsGestForm = () => {
 
   const [formData, setFormData] = useState({
     gesca: '', curp: '', ip: '', banco: '', clabe: '',
-    fum: '', giro_semana: '', scheme_value: '', status: 'active',
+    fum: '', giro_semana: '', scheme_value: '', contrato: DEFAULT_CONTRACT, status: 'active',
   });
 
   // ── Payment states ────────────────────────────────────────────────────────
@@ -960,7 +972,9 @@ const PaymentsGestForm = () => {
         clabe: data.clabe || '',
         fum: data.fum ? data.fum.split('T')[0] : '',
         giro_semana: data.giro_semana || '',
-        scheme_value: String(Math.round(parseFloat(data.scheme_value)) || 375000), status: data.status || 'active',
+        scheme_value: String(Math.round(parseFloat(data.scheme_value)) || 375000),
+        contrato: data.contrato || DEFAULT_CONTRACT,
+        status: data.status || 'active',
       });
       if (data.transferencias) setTransferencias(data.transferencias);
       if (data.row_states) setRowStates(data.row_states);
@@ -1056,9 +1070,12 @@ const PaymentsGestForm = () => {
       banco: p.banco || c.banco           || '',
       clabe: p.clabe || c.clabe_interbancaria || '',
       fum:   p.fum   || (c.fecha_ultima_menstruacion ? String(c.fecha_ultima_menstruacion).split('T')[0] : ''),
-      scheme_value: schemeLocked
-        ? p.scheme_value
-        : (p.scheme_value || esquemaToSchemeValue(c.esquema_ofrecido) || ''),
+      ...(() => {
+        if (schemeLocked || p.scheme_value) return {};
+        const sv = esquemaToSchemeValue(c.esquema_ofrecido);
+        const contrato = getContractForScheme(sv);
+        return contrato ? { scheme_value: sv, contrato } : {};
+      })(),
     }));
     markSectionDirty('Datos del esquema');
     debouncedSave(); // creates the register once GESCA/CURP/scheme are complete
@@ -1099,6 +1116,19 @@ const PaymentsGestForm = () => {
   };
 
   // ── Scheme handlers ───────────────────────────────────────────────────────
+  // Changing the contract keeps the scheme only if it belongs to the new contract
+  const handleContratoChange = (newContrato) => {
+    if (schemeLocked) return;
+    setFormData(p => ({
+      ...p,
+      contrato: newContrato,
+      scheme_value: getSchemesForContract(newContrato).some(o => o.value === p.scheme_value)
+        ? p.scheme_value : '',
+    }));
+    markSectionDirty('Datos del esquema');
+    debouncedSave();
+  };
+
   const handleSchemeDropdownChange = (newValue) => {
     if (!newValue || schemeLocked) return;
     setFormData(p => ({ ...p, scheme_value: newValue }));
@@ -2448,10 +2478,35 @@ const PaymentsGestForm = () => {
               <div className="d-flex align-items-center gap-3 flex-wrap">
                 <div>
                   <CFormLabel className="mb-1 fw-semibold d-flex align-items-center gap-2">
-                    {schemeSelected ? '✓ Esquema confirmado' : '① Selecciona y confirma el esquema para continuar'}
+                    {schemeSelected ? '✓ Esquema confirmado' : '① Selecciona contrato y esquema, y confirma para continuar'}
                     {schemeLocked && <CIcon icon={cilLockLocked} size="sm" className="text-warning" />}
                   </CFormLabel>
                   <div className="d-flex gap-2 align-items-center flex-wrap">
+                    {/* Contrato */}
+                    {schemeLocked ? (
+                      <div className="px-3 py-1 rounded fw-semibold" title="Contrato" style={{
+                        border: '1px solid var(--cui-success)',
+                        backgroundColor: 'color-mix(in srgb, var(--cui-success) 8%, transparent)',
+                        color: 'var(--cui-body-color)',
+                        fontSize: '0.95rem',
+                      }}>
+                        Contrato: {formData.contrato || DEFAULT_CONTRACT}
+                      </div>
+                    ) : (
+                      <CFormSelect
+                        style={{ width: '170px' }}
+                        name="contrato"
+                        aria-label="Contrato"
+                        value={formData.contrato || DEFAULT_CONTRACT}
+                        onChange={e => handleContratoChange(e.target.value)}
+                      >
+                        {CONTRACT_OPTIONS.map(o => (
+                          <option key={o.value} value={o.value}>Contrato: {o.label}</option>
+                        ))}
+                      </CFormSelect>
+                    )}
+
+                    {/* Esquema (only the selected contract's schemes) */}
                     {schemeLocked ? (
                       <div className="px-3 py-1 rounded fw-semibold" style={{
                         border: '1px solid var(--cui-success)',
@@ -2468,9 +2523,12 @@ const PaymentsGestForm = () => {
                         name="scheme_value"
                         value={formData.scheme_value}
                         onChange={e => handleSchemeDropdownChange(e.target.value)}
+                        disabled={getSchemesForContract(formData.contrato || DEFAULT_CONTRACT).length === 0}
                       >
-                        {!formData.scheme_value && <option value="">— Seleccionar —</option>}
-                        {SCHEME_OPTIONS.map(o => (
+                        {getSchemesForContract(formData.contrato || DEFAULT_CONTRACT).length === 0
+                          ? <option value="">Sin esquemas disponibles</option>
+                          : !formData.scheme_value && <option value="">— Seleccionar —</option>}
+                        {getSchemesForContract(formData.contrato || DEFAULT_CONTRACT).map(o => (
                           <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                       </CFormSelect>
@@ -2500,7 +2558,10 @@ const PaymentsGestForm = () => {
                       </CButton>
                     )}
 
-                    {!schemeSelected && !formData.scheme_value && (
+                    {!schemeSelected && getSchemesForContract(formData.contrato || DEFAULT_CONTRACT).length === 0 && (
+                      <small className="text-warning fw-semibold">Aún no hay esquemas para el contrato {formData.contrato}.</small>
+                    )}
+                    {!schemeSelected && !formData.scheme_value && getSchemesForContract(formData.contrato || DEFAULT_CONTRACT).length > 0 && (
                       <small className="text-muted">Selecciona un esquema y haz clic en <strong>Confirmar selección</strong>.</small>
                     )}
                     {!schemeSelected && formData.scheme_value && (

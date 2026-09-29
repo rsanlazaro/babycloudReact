@@ -16,7 +16,7 @@ import {
   CRow,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilLockLocked, cilUser } from '@coreui/icons';
+import { cilLockLocked, cilEnvelopeClosed } from '@coreui/icons';
 import api from '../../../services/api';
 import { useUser, getGuestHomePath } from '../../../context/AuthContext';
 
@@ -24,7 +24,7 @@ const Login = () => {
   const navigate = useNavigate();
   const { login } = useUser();
 
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -32,11 +32,22 @@ const Login = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError(null);
-    setLoading(true);
 
+    // Login is strictly by email — catch usernames before calling the server
+    const cleanEmail = email.trim();
+    if (!cleanEmail || !password) {
+      setError('Ingresa tu correo electrónico y tu contraseña.');
+      return;
+    }
+    if (!cleanEmail.includes('@')) {
+      setError('Inicia sesión con tu correo electrónico completo, no con tu nombre de usuario.');
+      return;
+    }
+
+    setLoading(true);
     try {
       const response = await api.post('/api/auth/login', {
-        username,
+        email: cleanEmail,
         password,
       });
 
@@ -73,22 +84,32 @@ const Login = () => {
             <CCardGroup>
               <CCard className="p-4">
                 <CCardBody>
-                  <CForm onSubmit={handleSubmit}>
+                  <CForm onSubmit={handleSubmit} noValidate>
                     <h1>Inicio de sesión</h1>
                     <p className="text-body-secondary">Ingresa a tu cuenta</p>
                     {error && <CAlert color="danger">{error}</CAlert>}
-                    <CInputGroup className="mb-3">
+                    <CInputGroup>
                       <CInputGroupText>
-                        <CIcon icon={cilUser} />
+                        <CIcon icon={cilEnvelopeClosed} />
                       </CInputGroupText>
                       <CFormInput
-                        placeholder="Usuario o correo"
-                        autoComplete="username"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
+                        type="email"
+                        inputMode="email"
+                        placeholder="Correo electrónico"
+                        aria-label="Correo electrónico"
+                        aria-describedby="login-email-help"
+                        autoComplete="email"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
                         required
                       />
                     </CInputGroup>
+                    <small id="login-email-help" className="d-block text-body-secondary mt-1 mb-3" style={{ fontSize: '0.78rem' }}>
+                      Ingresa <strong>únicamente tu correo electrónico completo</strong> (ej. nombre@dominio.com).
+                      Tu nombre de usuario ya no sirve para iniciar sesión.
+                    </small>
                     <CInputGroup className="mb-4">
                       <CInputGroupText>
                         <CIcon icon={cilLockLocked} />
