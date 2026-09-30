@@ -207,7 +207,7 @@ const CITA_PREVIA_SUBTAB_LABELS = {
 //   - Psico Inicial: each row's Fecha
 //   - Seguimiento Psicológico: each entry's Programar date
 //   - Seguro de Vida: Fecha de alta, Vencimiento (per policy)
-//   - Seguro de Maternidad: Fecha solicitud/alta/liberación/vencimiento,
+//   - Seguro de Gastos Médicos Mayores: Fecha solicitud/alta/liberación/vencimiento,
 //     plus each cuota's vencimiento (per policy)
 //   - Cita Previa: Fecha cita, Inicio Tratamiento, Final, Entrega resultados
 //     (per cita, across all 5 sub-tabs)
@@ -244,12 +244,12 @@ const getProximaActInfo = (candidate) => {
   });
 
   (candidate?.seguro_mat || []).forEach((p) => {
-    consider(p.fecha_solicitud, 'Seguro de Maternidad: fecha de solicitud');
-    consider(p.fecha_alta, 'Seguro de Maternidad: fecha de alta');
-    consider(p.fecha_liberacion, 'Seguro de Maternidad: fecha de liberación');
-    consider(p.fecha_vencimiento, 'Seguro de Maternidad: fecha de vencimiento');
+    consider(p.fecha_solicitud, 'Seguro de Gastos Médicos Mayores: fecha de solicitud');
+    consider(p.fecha_alta, 'Seguro de Gastos Médicos Mayores: fecha de alta');
+    consider(p.fecha_liberacion, 'Seguro de Gastos Médicos Mayores: fecha de liberación');
+    consider(p.fecha_vencimiento, 'Seguro de Gastos Médicos Mayores: fecha de vencimiento');
     (p.pagos || []).forEach((cuota) => {
-      consider(cuota.vencimiento, `Seguro de Maternidad: cuota ${cuota.cuota_num}`);
+      consider(cuota.vencimiento, `Seguro de Gastos Médicos Mayores: cuota ${cuota.cuota_num}`);
     });
   });
 
@@ -1231,7 +1231,7 @@ const SortGesList = () => {
   const fetchSeguroVidaForCandidates = (candidateList) =>
     fetchPerCandidate(candidateList, '/seguro-vida', 'seguro_vida', (res) => res.data || []);
 
-  // Powers Próxima Act's Seguro de Maternidad dates (including per-cuota vencimientos)
+  // Powers Próxima Act's Seguro de Gastos Médicos Mayores dates (including per-cuota vencimientos)
   const fetchSeguroMatForCandidates = (candidateList) =>
     fetchPerCandidate(candidateList, '/seguro-mat', 'seguro_mat', (res) => res.data || []);
 

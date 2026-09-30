@@ -33,6 +33,9 @@ const CloudIPS_RegisterView = React.lazy(() => import('./views/babycloud/CloudIP
 // Babysite
 const sortGes = React.lazy(() => import('./views/babysite/babysite/SortGes'))
 const sortGesList = React.lazy(() => import('./views/babysite/babysite/SortGesList'))
+const segurosList = React.lazy(() => import('./views/babysite/babysite/SegurosList'))
+const sortIpList = React.lazy(() => import('./views/babysite/babysite/SortIPList'))
+const sortIp = React.lazy(() => import('./views/babysite/babysite/SortIP'))
 
 // Notas
 const ListadoNotas = React.lazy(() => import('./views/babysite/progestor/ListadoNotas'))
@@ -63,6 +66,9 @@ const routes = [
   { path: '/progestor/users/roles', name: 'AccessRoles', element: AccessRoles },
   { path: '/babysite/sortGes', name: 'sortGesList', element: sortGesList },
   { path: '/babysite/sortGes/:id', name: 'sortGes', element: sortGes },
+  { path: '/babysite/seguros', name: 'segurosList', element: segurosList },
+  { path: '/babysite/ips', name: 'sortIpList', element: sortIpList },
+  { path: '/babysite/ips/:id', name: 'sortIp', element: sortIp },
   { path: '/babycloud/cloud-ips', name: 'CloudIPS_List', element: CloudIPS_List },
   { path: '/babycloud/cloud-ips/register/:id', name: 'CloudIPS_Register', element: CloudIPS_Register },
   { path: '/babycloud/cloud-ips/register/view/:id', name: 'CloudIPS_RegisterView', element: CloudIPS_RegisterView },

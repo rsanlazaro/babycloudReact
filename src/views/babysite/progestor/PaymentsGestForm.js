@@ -2154,8 +2154,8 @@ const PaymentsGestForm = () => {
             show: true,
             type: 'success',
             message: sg.created
-              ? 'Esquema creado. También se creó su registro en SORT_GES con los datos disponibles.'
-              : 'Esquema creado y vinculado con su registro existente en SORT_GES.',
+              ? 'Esquema creado. También se creó su registro en Sort_GESCA con los datos disponibles.'
+              : 'Esquema creado y vinculado con su registro existente en Sort_GESCA.',
           });
         } else if (res.data._sortGesError) {
           setAlert({ show: true, type: 'warning', message: res.data._sortGesError });
@@ -2591,7 +2591,7 @@ const PaymentsGestForm = () => {
                   <small className="text-danger d-flex align-items-center gap-1 mt-1">
                     <CIcon icon={cilWarning} size="sm" />
                     {isEditMode
-                      ? 'Campo requerido — captura la CURP para vincular con SORT_GES'
+                      ? 'Campo requerido — captura la CURP para vincular con Sort_GESCA'
                       : 'Campo requerido — sin CURP no se creará el registro'}
                   </small>
                 )}
@@ -2612,15 +2612,15 @@ const PaymentsGestForm = () => {
                 )}
                 {!curpChecking && !curpDuplicate && curpCandidate && (
                   <div className="small mt-1 d-flex align-items-center gap-2 flex-wrap" style={{ color: 'var(--cui-success)' }}>
-                    <span>✓ Vinculada con SORT_GES: <strong>{curpCandidate.nombre_completo || `Candidata #${curpCandidate.id}`}</strong></span>
+                    <span>✓ Vinculada con Sort_GESCA: <strong>{curpCandidate.nombre_completo || `Candidata #${curpCandidate.id}`}</strong></span>
                     <CButton size="sm" color="success" variant="outline" style={{ padding: '0 8px' }}
                       onClick={() => navigate(`/babysite/sortGes/${curpCandidate.id}`)}>
-                      Ver en SORT_GES
+                      Ver en Sort_GESCA
                     </CButton>
                   </div>
                 )}
                 {!curpChecking && curpInfo?.valid && !curpDuplicate && !curpCandidate && (
-                  <small className="text-muted d-block mt-1">Sin candidata en SORT_GES con esta CURP (se vinculará si se registra después).</small>
+                  <small className="text-muted d-block mt-1">Sin candidata en Sort_GESCA con esta CURP (se vinculará si se registra después).</small>
                 )}
               </div>
             </div>

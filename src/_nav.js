@@ -95,7 +95,7 @@ const _nav = [
     items: [
       {
         component: CNavItem,
-        name: 'Sort_GES List',
+        name: 'Sort_GESCA',
         to: '/babysite/sortGes',
         className: 'sidebar-component',
         state: 'enabled',
@@ -103,15 +103,14 @@ const _nav = [
       },
       {
         component: CNavItem,
-        name: 'Sort_IPS List',
+        name: 'Sort_IPS',
         to: '/babysite/ips',
         className: 'sidebar-component',
-        state: 'disabled',
         permission: PERMISSIONS.LIST_SORT_IP, // access_33
       },
       {
         component: CNavItem,
-        name: 'Sort_DON List',
+        name: 'Sort_DONA',
         to: '/babysite/donant',
         className: 'sidebar-component',
         state: 'disabled',
@@ -119,11 +118,10 @@ const _nav = [
       },
       {
         component: CNavItem,
-        name: 'Programas',
-        to: '/babysite/programs',
+        name: 'Listado de seguros',
+        to: '/babysite/seguros',
         className: 'sidebar-component',
-        state: 'disabled',
-        permission: PERMISSIONS.VIEW_PROGRAMS, // access_40
+        permission: PERMISSIONS.VIEW_PROGRAMS, // access_40 (was "Programas")
       },
       {
         component: CNavItem,

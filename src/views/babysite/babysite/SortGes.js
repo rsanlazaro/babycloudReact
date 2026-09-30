@@ -61,7 +61,10 @@ import {
   cilExternalLink,
   cilLoopCircular,
 } from '@coreui/icons';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import {
+  TIPO_PAGO_CONFIG, buildPagos, computeMatLiberacion, computeVidaVencimiento,
+} from '../../../utils/seguroPagos';
 
 // CURP links this candidate with Listado de pagos (payments_gest). Same rule as the
 // backend (services/curp.js): 10–18 letters or digits — length varies in practice.
@@ -144,7 +147,9 @@ const SortGes = () => {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState('alta-gesca');
+  const location = useLocation();
+  // Other pages can open a specific tab, e.g. Listado de seguros → { state: { tab: 'seguro-med' } }
+  const [activeTab, setActiveTab] = useState(location.state?.tab || 'alta-gesca');
   const [candidate, setCandidate] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -262,7 +267,7 @@ const SortGes = () => {
   const [pendingPagoVida, setPendingPagoVida] = useState({});
 
   // ─────────────────────────────────────────────────────────────
-  // SEGURO MED — Seguro de Maternidad
+  // SEGURO MED — Seguro de Gastos Médicos Mayores (internal names still say 'mat')
   // Each policy: { id, gestor, tipo_pago, valor_cuota, fecha_alta,
   //               fecha_liberacion, fecha_vencimiento, aseguradora, numero_poliza,
   //               pagos: [{ cuota_num, total, vencimiento, fecha_pago, status }] }
@@ -527,7 +532,7 @@ const SortGes = () => {
     return { label: 'Asegurada', color: 'success' };
   };
 
-  // Maternidad cuota status derived from vencimiento + whether payment registered
+  // Gastos Médicos Mayores cuota status derived from vencimiento + whether payment registered
   const getCuotaStatus = (cuota) => {
     if (cuota.status === 'cancelado') return { label: 'Cancelado', color: 'dark' };
     if (cuota.fecha_pago) return { label: 'Abonado', color: 'success' };
@@ -540,37 +545,6 @@ const SortGes = () => {
     return { label: 'Esperando pago', color: 'info' };
   };
 
-  // Tipo de pago config: months between payments, total payments over ~9 months coverage
-  const TIPO_PAGO_CONFIG = {
-    mensual:     { intervalo: 1,  label: 'Mensual',     cuotas: 12 },
-    bimestral:   { intervalo: 2,  label: 'Bimestral',   cuotas: 6  },
-    trimestral:  { intervalo: 3,  label: 'Trimestral',  cuotas: 3  },
-    semestral:   { intervalo: 6,  label: 'Semestral',   cuotas: 2  },
-    anual:       { intervalo: 12, label: 'Anual',       cuotas: 1  },
-  };
-
-  // Build pagos from tipo_pago + fecha_alta (payments start at month+intervalo − 10 days)
-  const buildPagos = (tipoPago, valorCuota, fechaAlta) => {
-    const cfg = TIPO_PAGO_CONFIG[tipoPago];
-    if (!cfg || !fechaAlta) return [];
-    const base = new Date(fechaAlta);
-    return Array.from({ length: cfg.cuotas }, (_, i) => {
-      // Advance (i+1) intervals from alta, then subtract 10 days
-      const d = new Date(base);
-      d.setMonth(d.getMonth() + cfg.intervalo * (i + 1));
-      d.setDate(d.getDate() - 10);
-      const vencimiento = d.toISOString().split('T')[0];
-      return { cuota_num: i + 1, total: cfg.cuotas, vencimiento, fecha_pago: '', status: 'pendiente' };
-    });
-  };
-
-  // Compute suggested fecha_liberacion = fecha_alta + 90 days
-  const computeMatLiberacion = (fechaAlta) => {
-    if (!fechaAlta) return '';
-    const d = new Date(fechaAlta);
-    d.setDate(d.getDate() + 90);
-    return d.toISOString().split('T')[0];
-  };
 
   // Compute total estimate label for the modal
   const computeMatTotal = (tipoPago, valorCuota) => {
@@ -756,7 +730,7 @@ const SortGes = () => {
         pago_fecha:  v.fecha_pago  || '',
       })));
 
-      // ── Seguro de Maternidad ─────────────────────────────────
+      // ── Seguro de Gastos Médicos Mayores ─────────────────────
       setSegurosMat((matRes.data || []).map(p => ({
         id:               p.id,
         gestor:           p.gestor            || '',
@@ -1122,13 +1096,6 @@ const SortGes = () => {
 
   // ── Seguro de Vida CRUD ──────────────────────────────────────
 
-  // Auto-compute vencimiento = fecha_alta + 1 year
-  const computeVidaVencimiento = (fechaAlta) => {
-    if (!fechaAlta) return '';
-    const d = new Date(fechaAlta);
-    d.setFullYear(d.getFullYear() + 1);
-    return d.toISOString().split('T')[0];
-  };
 
   const openNuevoVida = () => {
     setFormVida(VIDA_EMPTY);
@@ -1266,7 +1233,7 @@ const SortGes = () => {
     }
   };
 
-  // ── Seguro de Maternidad CRUD ────────────────────────────────
+  // ── Seguro de Gastos Médicos Mayores CRUD ─────────────────────
   const openNuevoMat = () => {
     setFormMat(MAT_EMPTY);
     setEditingMatId(null);
@@ -1334,11 +1301,11 @@ const SortGes = () => {
             status:     c.status      || 'pendiente',
           })),
         }]);
-        showNotification('success', 'Seguro de maternidad registrado');
+        showNotification('success', 'Seguro de gastos médicos mayores registrado');
       }
     } catch (err) {
       console.error(err);
-      showNotification('danger', 'Error al guardar el seguro de maternidad');
+      showNotification('danger', 'Error al guardar el seguro de gastos médicos mayores');
     }
     setEditingMatId(null);
     setModalMat(null);
@@ -2511,7 +2478,7 @@ const SortGes = () => {
 
       <CCard className="mb-4">
         <CCardHeader className="d-flex justify-content-between align-items-center">
-          <strong>Listado de Sort_GESC</strong>
+          <strong>Listado de Sort_GESCA</strong>
           <div className="d-flex align-items-center gap-2">
             <CButton color="light" variant="ghost" className="rounded-circle">
               <CIcon icon={cilFile} />
@@ -2552,11 +2519,6 @@ const SortGes = () => {
                     )}
                   </p>
                   <p className="text-muted mb-0"><strong>IP:</strong> {candidate.ip_responsable}</p>
-                </div>
-                <div className="ms-3">
-                  <CButton color="light" variant="outline" size="sm" style={{ color: '#dc3545' }}>
-                    <CIcon icon={cilFile} className="me-1" />PDF
-                  </CButton>
                 </div>
               </div>
             </CCol>
@@ -3615,9 +3577,9 @@ const SortGes = () => {
                 </StaticSection>
 
                 {/* ────────────────────────────────────────────
-                    SEGURO DE MATERNIDAD
+                    SEGURO DE GASTOS MÉDICOS MAYORES
                 ──────────────────────────────────────────── */}
-                <StaticSection title="Seguro de Maternidad">
+                <StaticSection title="Seguro de Gastos Médicos Mayores">
 
                     {/* Polizas list */}
                     {segurosMat.map((poliza) => (
@@ -3832,7 +3794,7 @@ const SortGes = () => {
                     ))}
 
                     {segurosMat.length === 0 && (
-                      <p className="text-muted small mb-3">No hay seguros de maternidad registrados.</p>
+                      <p className="text-muted small mb-3">No hay seguros de gastos médicos mayores registrados.</p>
                     )}
 
                     {/* Action buttons */}
@@ -4572,10 +4534,10 @@ const SortGes = () => {
         </CModalFooter>
       </CModal>
 
-      {/* ── Modal: Nuevo Seguro de Maternidad ─────────────── */}
+      {/* ── Modal: Nuevo Seguro de Gastos Médicos Mayores ─── */}
       <CModal visible={modalMat === 'new'} onClose={() => { setModalMat(null); setEditingMatId(null); }} size="lg">
         <CModalHeader>
-          <CModalTitle>{editingMatId !== null ? 'Editar seguro de maternidad' : 'Nuevo seguro de maternidad'}</CModalTitle>
+          <CModalTitle>{editingMatId !== null ? 'Editar seguro de gastos médicos mayores' : 'Nuevo seguro de gastos médicos mayores'}</CModalTitle>
         </CModalHeader>
         <CModalBody>
           <CRow>
@@ -4909,7 +4871,7 @@ const SortGes = () => {
         </CModalFooter>
       </CModal>
 
-      {/* ── Modal: Contraseña para editar/eliminar pago de Maternidad ── */}
+      {/* ── Modal: Contraseña para editar/eliminar pago de Gastos Médicos Mayores ── */}
       <CModal visible={showMatPagoEditModal} onClose={cancelMatPagoAction}>
         <CModalHeader>
           <CModalTitle>
