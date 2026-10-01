@@ -1,1 +1,9 @@
+# Netlify rules, applied top to bottom.
+ 
+# 1. API → Render backend, served from this same site (babycloud.netlify.app/api/...).
+#    The session cookie is then first-party, so incognito windows, Safari and
+#    Firefox strict mode don't block it (they block cross-site cookies).
+/api/*    https://babycloudreact-backend.onrender.com/api/:splat    200
+ 
+# 2. Everything else → the React app (client-side routing)
 /*    /index.html   200
