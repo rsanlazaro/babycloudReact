@@ -29,11 +29,13 @@ export const buildPagos = (tipoPago, valorCuota, fechaAlta) => {
   });
 };
 
-// Compute suggested fecha_liberacion = fecha_alta + 90 days
+// Compute suggested fecha_liberacion = fecha_alta + 93 days
+// (same rule as backend/services/seguroStatus.js → LIBERACION_DAYS)
+export const LIBERACION_DAYS = 93;
 export const computeMatLiberacion = (fechaAlta) => {
   if (!fechaAlta) return '';
   const d = new Date(fechaAlta);
-  d.setDate(d.getDate() + 90);
+  d.setDate(d.getDate() + LIBERACION_DAYS);
   return d.toISOString().split('T')[0];
 };
 
@@ -51,4 +53,17 @@ export const toDateInput = (v) => {
   if (!v) return '';
   const m = String(v).match(/^(\d{4}-\d{2}-\d{2})/);
   return m ? m[1] : '';
+};
+
+// Display format for every date in the seguros screens: día-mes-año ("30-10-2026").
+// Accepts "2026-10-30", an ISO datetime or a Date; empty → "—". (Date inputs keep
+// the browser's own date picker.)
+export const formatFechaDMY = (v) => {
+  if (!v) return '—';
+  const ymd = v instanceof Date && !Number.isNaN(v.getTime())
+    ? `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`
+    : toDateInput(v);
+  if (!ymd) return '—';
+  const [y, m, d] = ymd.split('-');
+  return `${d}-${m}-${y}`;
 };

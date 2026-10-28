@@ -48,7 +48,7 @@ const _nav = [
       },
       {
         component: CNavItem,
-        name: 'Listado de pagos',
+        name: 'Esquemas de pagos',
         to: '/progestor/payments-gest',
         className: 'sidebar-component',
         state: 'enabled',
@@ -56,7 +56,7 @@ const _nav = [
       },
       {
         component: CNavItem,
-        name: 'Listado de notas',
+        name: 'Notas pendientes',
         to: '/progestor/notes',
         className: 'sidebar-component',
         state: 'enabled',
@@ -118,10 +118,17 @@ const _nav = [
       },
       {
         component: CNavItem,
-        name: 'Listado de seguros',
+        name: 'Seguros',
         to: '/babysite/seguros',
         className: 'sidebar-component',
-        permission: PERMISSIONS.VIEW_PROGRAMS, // access_40 (was "Programas")
+        permission: PERMISSIONS.VIEW_PROGRAMS, // access_40 — "Seguros" (was "Programas", then "Listado de seguros")
+      },
+      {
+        component: CNavItem,
+        name: 'Programas',
+        to: '/babysite/programas',
+        className: 'sidebar-component',
+        permission: PERMISSIONS.LIST_PROGRAMS, // access_96
       },
       {
         component: CNavItem,

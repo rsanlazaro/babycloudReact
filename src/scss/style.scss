@@ -71,3 +71,17 @@ body {
     --cui-footer-bg: var(--cui-body-bg);
   }
 }
+// Profile photos (Sort_GESCA, Sort_IPS, header avatar): the image always fills
+// its circle and is trimmed to fit, whatever its proportions (no stretching,
+// no empty corners).
+.avatar {
+  overflow: hidden;
+}
+
+.avatar > .avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  border-radius: 50%;
+}

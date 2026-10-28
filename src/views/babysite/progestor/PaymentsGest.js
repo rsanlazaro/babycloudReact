@@ -296,7 +296,7 @@ const PaymentsGest = () => {
           <CCardBody className="text-center">
             <CIcon icon={cilWarning} size="3xl" className="text-danger mb-3" />
             <h4>Acceso Denegado</h4>
-            <p className="text-muted">No tienes permiso para ver el listado de pagos.</p>
+            <p className="text-muted">No tienes permiso para ver los esquemas de pagos.</p>
           </CCardBody>
         </CCard>
       </CContainer>
@@ -314,7 +314,7 @@ const PaymentsGest = () => {
 
       <CCard className="mb-4">
         <CCardHeader className="d-flex justify-content-between align-items-center">
-          <strong>Esquemas de Pago (Gestantes)</strong>
+          <strong>Esquemas de pagos (Gestantes)</strong>
           {paymentsPerms.create.visible && (
             <CButton
               color="primary"

@@ -1,5 +1,5 @@
 // frontend/src/views/babysite/babysite/SegurosList.js
-// Baby site → "Listado de seguros"
+// Baby site → "Seguros" (formerly "Listado de seguros")
 // Lists every insurance policy of every Sort_GESCA gestante (the same data as
 // the "Seguro med" tab of each register). New registers created here appear in
 // that tab, and vice versa.
@@ -11,46 +11,27 @@ import {
   CContainer, CCard, CCardBody, CAlert, CButton, CBadge, CSpinner,
   CTable, CTableHead, CTableRow, CTableHeaderCell, CTableBody, CTableDataCell,
   CInputGroup, CInputGroupText, CFormInput, CFormLabel, CFormSelect,
-  CModal, CModalHeader, CModalTitle, CModalBody, CModalFooter, CRow, CCol,
+  CModal, CModalHeader, CModalTitle, CModalBody, CModalFooter,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilSearch, cilPlus, cilPencil, cilTrash, cilWarning } from '@coreui/icons';
+import { cilSearch, cilPlus, cilPencil, cilTrash } from '@coreui/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
-import {
-  TIPO_PAGO_CONFIG, buildPagos, computeMatLiberacion, computeVidaVencimiento, toDateInput,
-} from '../../../utils/seguroPagos';
+import { buildPagos, formatFechaDMY } from '../../../utils/seguroPagos';
+// Same fields as Sort_GESCA → SEGURO MED (shared component)
+import SeguroFormFields, {
+  policyToForm, willRebuildPagos as computeRebuild, validateSeguro, ASEGURADORAS, GESTORES,
+} from '../../../components/seguros/SeguroFormFields';
 
 const PINK = '#d97ea1';
 
-// "2026-10-30" or ISO datetime → "30/10/2026" (no timezone shift)
-const formatDate = (v) => {
-  if (!v) return '—';
-  const [y, m, d] = String(v).slice(0, 10).split('-');
-  return y && m && d ? `${d}/${m}/${y}` : '—';
-};
 
 const todayISO = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
-const EMPTY_FORM = { candidate_id: '', aseguradora: '', numero_poliza: '', fecha_solicitud: '' };
-
-// Every field of a policy — the update endpoint overwrites all of them, so the
-// edit form always sends the complete set (same fields as the Seguro med tab).
-const policyToForm = (p) => ({
-  aseguradora:       p.aseguradora       || '',
-  numero_poliza:     p.numero_poliza     || '',
-  gestor:            p.gestor            || '',
-  tipo_pago:         p.tipo_pago         || '',
-  valor_cuota:       p.valor_cuota       ?? '',
-  total_estimado:    p.total_estimado    ?? '',
-  fecha_solicitud:   toDateInput(p.fecha_solicitud),
-  fecha_alta:        toDateInput(p.fecha_alta),
-  fecha_liberacion:  toDateInput(p.fecha_liberacion),
-  fecha_vencimiento: toDateInput(p.fecha_vencimiento),
-});
+const EMPTY_FORM = { candidate_id: '', aseguradora: '', gestor: '', numero_poliza: '', fecha_solicitud: '' };
 
 const SegurosList = () => {
   const navigate = useNavigate();
@@ -94,7 +75,7 @@ const SegurosList = () => {
       setError('');
     } catch (err) {
       console.error('Error loading seguros:', err);
-      setError('Error al cargar el listado de seguros');
+      setError('Error al cargar los seguros');
     } finally {
       setLoading(false);
     }
@@ -154,7 +135,8 @@ const SegurosList = () => {
       setFormError('');
       // Same endpoint as the "Seguro med" tab → it shows up there too
       await api.post(`/api/sort-ges/${form.candidate_id}/seguro-mat`, {
-        aseguradora:     form.aseguradora.trim(),
+        aseguradora:     form.aseguradora,
+        gestor:          form.gestor,
         numero_poliza:   form.numero_poliza.trim(),
         fecha_solicitud: form.fecha_solicitud || null,
         pagos: [],
@@ -191,18 +173,13 @@ const SegurosList = () => {
 
   const closeEdit = () => { setEditTarget(null); setEditOriginal(null); setEditForm(null); };
 
-  const setEdit = (changes) => setEditForm(f => ({ ...f, ...changes }));
-
-  // Same rule as the Seguro med tab: payment type or start date changed → payments are rebuilt
-  const originalForm = editOriginal ? policyToForm(editOriginal) : null;
-  const willRebuildPagos = !!(editForm && originalForm && (
-    editForm.tipo_pago !== originalForm.tipo_pago || editForm.fecha_alta !== originalForm.fecha_alta
-  )) && buildPagos(editForm.tipo_pago, editForm.valor_cuota, editForm.fecha_alta).length > 0;
-  const paidCount = (editOriginal?.pagos || []).filter(c => c.fecha_pago).length;
+  // Same rule as the SEGURO MED tab: payment type or start date changed → payments are rebuilt
+  const willRebuildPagos = computeRebuild(editForm, editOriginal);
 
   const handleEditSave = async () => {
-    if (!editForm.fecha_solicitud) {
-      setEditError('La fecha de solicitud es obligatoria');
+    const invalid = validateSeguro(editForm);
+    if (invalid) {
+      setEditError(invalid);
       return;
     }
     try {
@@ -247,6 +224,11 @@ const SegurosList = () => {
     }
   };
 
+  // "Asignar" — shown only when the insurance is liberado. What it does is still to be defined.
+  const handleAsignar = (s) => {
+    showNotification('info', `Asignar (${s.gestante}): esta acción aún no tiene una función definida.`);
+  };
+
   // Open the gestante's register directly on the "Seguro med" tab
   const openSeguro = (s) => navigate(`/babysite/sortGes/${s.candidate_id}`, { state: { tab: 'seguro-med' } });
 
@@ -262,7 +244,7 @@ const SegurosList = () => {
         {/* ── Top bar: title + count (left), search + add (right) ── */}
         <div className="px-3 py-2 border-bottom d-flex align-items-center justify-content-between flex-wrap gap-2">
           <div className="d-flex align-items-baseline gap-2">
-            <strong>Listado de seguros</strong>
+            <strong>Seguros</strong>
             <span className="text-muted" style={{ fontSize: '0.78rem' }}>
               {filtered.length} de {seguros.length} registros
             </span>
@@ -343,11 +325,11 @@ const SegurosList = () => {
                   <CTableDataCell>
                     <CBadge color={s.solicitud?.color || 'secondary'}>{s.solicitud?.label || '—'}</CBadge>
                   </CTableDataCell>
-                  <CTableDataCell>{formatDate(s.start_poliza)}</CTableDataCell>
+                  <CTableDataCell>{formatFechaDMY(s.start_poliza)}</CTableDataCell>
                   <CTableDataCell>
                     <CBadge color={s.status_gral?.color || 'secondary'}>{s.status_gral?.label || '—'}</CBadge>
                   </CTableDataCell>
-                  <CTableDataCell>{formatDate(s.prox_pago)}</CTableDataCell>
+                  <CTableDataCell>{formatFechaDMY(s.prox_pago)}</CTableDataCell>
                   <CTableDataCell>
                     {s.pago
                       ? <>{s.pago}{s.liquidado && <CBadge color="success" className="ms-2">Liquidado</CBadge>}</>
@@ -356,6 +338,19 @@ const SegurosList = () => {
                   <CTableDataCell>{s.anio || '—'}</CTableDataCell>
                   <CTableDataCell className="text-center" onClick={e => e.stopPropagation()}>
                     <div className="d-inline-flex gap-1">
+                      {/* Always visible; enabled only once the insurance is liberado
+                          (same state as Admisiones → Alta seguro). The span keeps the
+                          tooltip working while the button is disabled. */}
+                      <span title={s.alta_seguro?.key === 'liberada' ? 'Asignar' : 'Disponible cuando el seguro esté liberado'}>
+                        <CButton
+                          size="sm" color="success" className="text-white"
+                          onClick={() => handleAsignar(s)}
+                          disabled={s.alta_seguro?.key !== 'liberada'}
+                          aria-label={`Asignar seguro de ${s.gestante}`}
+                        >
+                          Asignar
+                        </CButton>
+                      </span>
                       <CButton
                         size="sm" color="secondary" variant="ghost"
                         onClick={() => openEdit(s)}
@@ -415,11 +410,24 @@ const SegurosList = () => {
           </CFormSelect>
 
           <CFormLabel className="mb-1">Aseguradora</CFormLabel>
-          <CFormInput
+          <CFormSelect
             className="mb-3"
             value={form.aseguradora}
             onChange={e => setForm(f => ({ ...f, aseguradora: e.target.value }))}
-          />
+          >
+            <option value="">— Seleccionar —</option>
+            {ASEGURADORAS.map(a => <option key={a} value={a}>{a}</option>)}
+          </CFormSelect>
+
+          <CFormLabel className="mb-1">Gestor</CFormLabel>
+          <CFormSelect
+            className="mb-3"
+            value={form.gestor}
+            onChange={e => setForm(f => ({ ...f, gestor: e.target.value }))}
+          >
+            <option value="">— Seleccionar —</option>
+            {GESTORES.map(g => <option key={g} value={g}>{g}</option>)}
+          </CFormSelect>
 
           <CFormLabel className="mb-1">Número de póliza</CFormLabel>
           <CFormInput
@@ -462,124 +470,7 @@ const SegurosList = () => {
             <div className="text-center py-4"><CSpinner size="sm" className="me-2" />Cargando...</div>
           )}
           {editForm && (
-            <CRow>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>Aseguradora:</CFormLabel>
-                <CFormInput value={editForm.aseguradora} onChange={e => setEdit({ aseguradora: e.target.value })} />
-              </CCol>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>Número de póliza:</CFormLabel>
-                <CFormInput value={editForm.numero_poliza} onChange={e => setEdit({ numero_poliza: e.target.value })} />
-              </CCol>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>Gestor:</CFormLabel>
-                <CFormInput value={editForm.gestor} onChange={e => setEdit({ gestor: e.target.value })} />
-              </CCol>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>Tipo de pago:</CFormLabel>
-                <CFormSelect
-                  value={editForm.tipo_pago}
-                  onChange={e => {
-                    const tipo = e.target.value;
-                    const cfg = TIPO_PAGO_CONFIG[tipo];
-                    setEdit({
-                      tipo_pago: tipo,
-                      total_estimado: editForm.valor_cuota && cfg
-                        ? (parseFloat(editForm.valor_cuota) * cfg.cuotas).toFixed(2) : '',
-                    });
-                  }}
-                >
-                  <option value="">— Seleccionar —</option>
-                  {Object.entries(TIPO_PAGO_CONFIG).map(([k, v]) => (
-                    <option key={k} value={k}>{v.label}</option>
-                  ))}
-                </CFormSelect>
-              </CCol>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>Valor por cuota:</CFormLabel>
-                <CInputGroup>
-                  <CInputGroupText>$</CInputGroupText>
-                  <CFormInput
-                    type="number" min="0" step="0.01" placeholder="0.00"
-                    value={editForm.valor_cuota}
-                    onChange={e => {
-                      const v = e.target.value;
-                      const cfg = TIPO_PAGO_CONFIG[editForm.tipo_pago];
-                      setEdit({ valor_cuota: v, total_estimado: cfg && v ? (parseFloat(v) * cfg.cuotas).toFixed(2) : '' });
-                    }}
-                  />
-                </CInputGroup>
-              </CCol>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>
-                  Total estimado:
-                  {TIPO_PAGO_CONFIG[editForm.tipo_pago] && (
-                    <span className="text-muted ms-1" style={{ fontSize: '0.72rem' }}>
-                      ({TIPO_PAGO_CONFIG[editForm.tipo_pago].cuotas} cuota{TIPO_PAGO_CONFIG[editForm.tipo_pago].cuotas > 1 ? 's' : ''})
-                    </span>
-                  )}
-                </CFormLabel>
-                <CInputGroup>
-                  <CInputGroupText>$</CInputGroupText>
-                  <CFormInput
-                    type="number" min="0" step="0.01" placeholder="0.00"
-                    value={editForm.total_estimado}
-                    disabled={!editForm.tipo_pago}
-                    onChange={e => {
-                      const t = e.target.value;
-                      const cfg = TIPO_PAGO_CONFIG[editForm.tipo_pago];
-                      setEdit({ total_estimado: t, valor_cuota: cfg && t && cfg.cuotas > 0 ? (parseFloat(t) / cfg.cuotas).toFixed(2) : '' });
-                    }}
-                  />
-                </CInputGroup>
-              </CCol>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>Fecha de solicitud: <span className="text-danger">*</span></CFormLabel>
-                <CFormInput type="date" value={editForm.fecha_solicitud} onChange={e => setEdit({ fecha_solicitud: e.target.value })} />
-              </CCol>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>Fecha de alta (Start Póliza):</CFormLabel>
-                <CFormInput
-                  type="date"
-                  value={editForm.fecha_alta}
-                  onChange={e => {
-                    // Same suggestions as the Seguro med tab: liberación +90 días, vencimiento +1 año
-                    const fa = e.target.value;
-                    setEditForm(f => ({
-                      ...f,
-                      fecha_alta: fa,
-                      fecha_liberacion: f.fecha_liberacion === computeMatLiberacion(f.fecha_alta) || !f.fecha_liberacion
-                        ? computeMatLiberacion(fa) : f.fecha_liberacion,
-                      fecha_vencimiento: f.fecha_vencimiento === computeVidaVencimiento(f.fecha_alta) || !f.fecha_vencimiento
-                        ? computeVidaVencimiento(fa) : f.fecha_vencimiento,
-                    }));
-                  }}
-                />
-              </CCol>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>Fecha de liberación:</CFormLabel>
-                <CFormInput type="date" value={editForm.fecha_liberacion} onChange={e => setEdit({ fecha_liberacion: e.target.value })} />
-              </CCol>
-              <CCol md={6} className="mb-3">
-                <CFormLabel>Fecha de vencimiento:</CFormLabel>
-                <CFormInput type="date" value={editForm.fecha_vencimiento} onChange={e => setEdit({ fecha_vencimiento: e.target.value })} />
-              </CCol>
-
-              {willRebuildPagos && (
-                <CCol xs={12}>
-                  <CAlert color="warning" className="py-2 mb-0 d-flex align-items-start gap-2">
-                    <CIcon icon={cilWarning} className="mt-1 flex-shrink-0" />
-                    <span>
-                      Cambiaste el tipo de pago o la fecha de alta: al guardar se volverán a calcular las cuotas
-                      ({buildPagos(editForm.tipo_pago, editForm.valor_cuota, editForm.fecha_alta).length}).
-                      {paidCount > 0 && (
-                        <> <strong>Se perderán {paidCount} pago{paidCount > 1 ? 's' : ''} ya registrado{paidCount > 1 ? 's' : ''}.</strong></>
-                      )}
-                    </span>
-                  </CAlert>
-                </CCol>
-              )}
-            </CRow>
+            <SeguroFormFields form={editForm} setForm={setEditForm} original={editOriginal} />
           )}
         </CModalBody>
         <CModalFooter>

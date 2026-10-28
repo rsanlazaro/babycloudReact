@@ -84,8 +84,10 @@ const PERMISSIONS = {
   EXPORT_SORT_IP: 'access_38',
   SORT_IP_EXTRA: 'access_39',
   
-  // Programas (access_40 to access_45)
+  // Programas (access_40 to access_45, access_96)
+  // access_40 is now "Listado de seguros"; the Programas page uses access_96
   VIEW_PROGRAMS: 'access_40',
+  LIST_PROGRAMS: 'access_96',
   CREATE_PROGRAM: 'access_41',
   EDIT_PROGRAM: 'access_42',
   DELETE_PROGRAM: 'access_43',

@@ -17,6 +17,7 @@ import {
 } from '@coreui/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
+import { getIncidenciaCategoria, STATUS_CITA_OPTIONS } from '../../../config/citaPreviaCatalogs';
 
 // ─────────────────────────────────────────────────────────────
 // Constants
@@ -291,18 +292,25 @@ const CITA_STATUS_RESULTADOS_LABELS = {
   completado: 'Completado',
 };
 
-// "Alta seguro" — a 5-state cyclical control. Clicking the badge advances
-// to the next state; each state has its own icon + circular background
-// color, per the design brief. Icon choices (cilSend for "send", cilClock
-// standing in for the hourglass/waiting icon) are the closest equivalents
-// in the CoreUI free icon set — swap them here if exact glyphs are needed.
+// "Alta seguro" — read-only status derived from the gestante's register in
+// Listado de seguros (computed by the backend: backend/services/seguroStatus.js
+// → computeAltaSeguro; candidates come with `alta_seguro: { key, fecha_alta }`).
+// Only 'no_enviado' is clickable: it creates the register in Listado de seguros.
+//   no_enviado       → white send icon on a blue circle (button)
+//   enviado          → blue send icon, no fill (register exists, no request date)
+//   espera_poliza    → request date captured
+//   fecha_asignacion → start date captured — label shows that date
+//   liberada         → today ≥ release date (start + 93 days)
+//   asignada         → today ≥ expiry date
+// Icons: cilClock stands in for the hourglass (not in the CoreUI free set).
+const ALTA_SEGURO_BLUE = '#0d6efd';
 const ALTA_SEGURO_STATES = [
-  { key: 'nada',             label: '—',                  icon: cilSend,  bg: '#000000' },
-  { key: 'espera_poliza',    label: 'Espera póliza',       icon: cilClock, bg: '#dc3545' },
-  // TODO: once tracked in DB, show the actual assignment date here instead of this label
-  { key: 'fecha_asignacion', label: 'Fecha de asignación', icon: cilCheck, bg: '#ffc107' },
-  { key: 'liberada',         label: 'Liberada',            icon: cilCheck, bg: '#198754' },
-  { key: 'asignada',         label: 'Asignada',            icon: cilCheck, bg: '#6f42c1' },
+  { key: 'no_enviado',       label: 'Enviar',                 icon: cilSend,  bg: ALTA_SEGURO_BLUE, title: 'Enviar a Seguros' },
+  { key: 'enviado',          label: 'Pendiente de solicitud', icon: cilSend,  outline: ALTA_SEGURO_BLUE, title: 'Enviado a Seguros — pendiente de solicitud' },
+  { key: 'espera_poliza',    label: 'Espera póliza',          icon: cilClock, bg: '#dc3545' },
+  { key: 'fecha_asignacion', label: 'Fecha de asignación',    icon: cilCheck, bg: '#ffc107', title: 'Fecha de alta del seguro' },
+  { key: 'liberada',         label: 'Liberada',               icon: cilCheck, bg: '#198754' },
+  { key: 'asignada',         label: 'Asignada',               icon: cilCheck, bg: '#6f42c1' },
 ];
 
 // Psicología tab — SDG week checkpoints tracked from week 12 through week 40.
@@ -496,32 +504,62 @@ const AdmisionesStatusSelect = ({ value, onChange, states, blankLabel = '—' })
   </CFormSelect>
 );
 
-// "Alta seguro" cyclical status badge — click advances to the next of the
-// 5 states in ALTA_SEGURO_STATES, rendering that state's icon, circle
-// background color and label.
-const AltaSeguroBadge = ({ value, onClick }) => {
-  const idx = Math.max(0, ALTA_SEGURO_STATES.findIndex((s) => s.key === value));
-  const state = ALTA_SEGURO_STATES[idx] || ALTA_SEGURO_STATES[0];
+// "Alta seguro" badge. Clickable only in the 'no_enviado' state (send);
+// every other state just reflects Listado de seguros.
+// "2026-08-01" → "01/08/2026"
+const formatYmd = (v) => {
+  const [y, m, d] = String(v || '').slice(0, 10).split('-');
+  return y && m && d ? `${d}/${m}/${y}` : '';
+};
+
+const AltaSeguroBadge = ({ altaSeguro, onSend, loading = false }) => {
+  const key = altaSeguro?.key || 'no_enviado';
+  const state = ALTA_SEGURO_STATES.find((s) => s.key === key) || ALTA_SEGURO_STATES[0];
+  const clickable = key === 'no_enviado' && !loading;
+  // "Fecha de asignación" shows the actual start date (fecha de alta)
+  const label = key === 'fecha_asignacion' && altaSeguro?.fecha_alta
+    ? formatYmd(altaSeguro.fecha_alta)
+    : state.label;
+  const title = loading ? 'Enviando…' : (state.title || state.label);
+
+  const circle = (
+    <span
+      style={{
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        width: '26px', height: '26px', borderRadius: '50%', flexShrink: 0,
+        backgroundColor: state.outline ? 'transparent' : state.bg,
+        border: state.outline ? `2px solid ${state.outline}` : 'none',
+      }}
+    >
+      {loading
+        ? <CSpinner size="sm" style={{ color: '#fff', width: 14, height: 14 }} />
+        : <CIcon icon={state.icon} style={{ color: state.outline || '#fff', width: 14, height: 14 }} />}
+    </span>
+  );
+  const text = <span style={{ fontSize: '0.78rem', color: 'var(--cui-body-color, #333)', whiteSpace: 'nowrap' }}>{label}</span>;
+
+  if (key !== 'no_enviado') {
+    // Read-only — changes come from Listado de seguros
+    return (
+      <span title={title} style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'default' }}>
+        {circle}{text}
+      </span>
+    );
+  }
   return (
     <button
       type="button"
-      onClick={onClick}
-      title={state.label}
+      onClick={clickable ? onSend : undefined}
+      disabled={!clickable}
+      title={title}
+      aria-label={title}
       style={{
         display: 'flex', alignItems: 'center', gap: '6px',
-        border: 'none', background: 'transparent', cursor: 'pointer', padding: 0,
+        border: 'none', background: 'transparent', padding: 0,
+        cursor: loading ? 'wait' : 'pointer', opacity: loading ? 0.6 : 1,
       }}
     >
-      <span
-        style={{
-          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-          width: '26px', height: '26px', borderRadius: '50%',
-          backgroundColor: state.bg, flexShrink: 0,
-        }}
-      >
-        <CIcon icon={state.icon} style={{ color: '#fff', width: 14, height: 14 }} />
-      </span>
-      <span style={{ fontSize: '0.78rem', color: '#333', whiteSpace: 'nowrap' }}>{state.label}</span>
+      {circle}{text}
     </button>
   );
 };
@@ -658,6 +696,7 @@ const AdmisionesTable = ({
   rows, sortConfig, onSort, onEdit, onDelete, searchTerm,
   tabId, respByTab, onRespChange,
   fieldValues, onFieldChange,
+  onSendSeguro, sendingSeguroId,
 }) => {
   const getField = (candidateId, field) => fieldValues[`${candidateId}_${field}`] || '';
 
@@ -690,7 +729,6 @@ const AdmisionesTable = ({
           const parts    = (c.nombre_completo || '').trim().split(' ');
           const apellido = parts.length > 1 ? parts.slice(-1)[0] : '-';
           const nombre   = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0] || '-';
-          const altaSeguroValue = getField(c.id, 'alta_seguro') || 'nada';
 
           return (
             <CTableRow key={c.id}>
@@ -773,12 +811,9 @@ const AdmisionesTable = ({
               {/* Alta seguro — 5-state cyclical badge */}
               <CTableDataCell>
                 <AltaSeguroBadge
-                  value={altaSeguroValue}
-                  onClick={() => {
-                    const idx = ALTA_SEGURO_STATES.findIndex(s => s.key === altaSeguroValue);
-                    const next = ALTA_SEGURO_STATES[(idx + 1) % ALTA_SEGURO_STATES.length].key;
-                    onFieldChange(c.id, 'alta_seguro', next);
-                  }}
+                  altaSeguro={c.alta_seguro}
+                  loading={sendingSeguroId === c.id}
+                  onSend={() => onSendSeguro?.(c)}
                 />
               </CTableDataCell>
 
@@ -849,7 +884,10 @@ const AttPreviaTable = ({
 
               {/* Status cita — read-only, sourced from the last cita's Status cita */}
               <CTableDataCell>
-                {lastCita?.status ? (CITA_STATUS_LABELS[lastCita.status] || lastCita.status) : '—'}
+                {lastCita?.status
+                  ? (STATUS_CITA_OPTIONS.find(o => o.value === lastCita.status)?.label
+                    || CITA_STATUS_LABELS[lastCita.status] || lastCita.status)
+                  : '—'}
               </CTableDataCell>
 
               {/* Fecha de inicio — read-only, sourced from the last cita's Inicio Tratamiento */}
@@ -870,13 +908,17 @@ const AttPreviaTable = ({
                 />
               </CTableDataCell>
 
-              {/* Status — read-only, sourced from the last cita's second
-                  Status field (status_resultados) — NOT the candidate's own
-                  status anymore */}
+              {/* Status — read-only, from the last cita: the category of its
+                  Incidencia ("Si tratable" / "Posible descarte"). Older citas
+                  without incidencia keep showing their status_resultados. */}
               <CTableDataCell>
-                {lastCita?.status_resultados
-                  ? (CITA_STATUS_RESULTADOS_LABELS[lastCita.status_resultados] || lastCita.status_resultados)
-                  : '—'}
+                {(() => {
+                  const cat = getIncidenciaCategoria(lastCita?.incidencia);
+                  if (cat) return <CBadge color={cat.color}>{cat.label}</CBadge>;
+                  return lastCita?.status_resultados
+                    ? (CITA_STATUS_RESULTADOS_LABELS[lastCita.status_resultados] || lastCita.status_resultados)
+                    : '—';
+                })()}
               </CTableDataCell>
 
               <CTableDataCell>
@@ -1109,6 +1151,7 @@ const SortGesList = () => {
   // (Vínculo is NOT here either — it's a real
   // candidate-record field set at creation/edit time, see VINCULO_OPTIONS.)
   const [admisionesFields, setAdmisionesFields] = useState({});
+  const [sendingSeguroId, setSendingSeguroId]   = useState(null);
 
   // Att. Previa tab — local UI state for the Bloqueo column only (the sole
   // field still edited directly here). Dr. Tratante / Próxima Cita / Status
@@ -1294,6 +1337,27 @@ const SortGesList = () => {
   // same way handleRespChange does for ip_responsable.
   const handleAdmisionesFieldChange = (candidateId, field, value) => {
     setAdmisionesFields((prev) => ({ ...prev, [`${candidateId}_${field}`]: value }));
+  };
+
+  // Admisiones → "Alta seguro" send button: create the gestante's register in
+  // Listado de seguros (Solicitud "Pendiente de solicitud", Status Gral "Sin iniciar").
+  const handleSendSeguro = async (candidate) => {
+    if (sendingSeguroId) return;
+    try {
+      setSendingSeguroId(candidate.id);
+      const res = await api.post(`/api/sort-ges/${candidate.id}/seguro-solicitud`, {}, { withCredentials: true });
+      // The badge now reflects the register in Listado de seguros
+      setCandidates(prev => prev.map(c => (c.id === candidate.id
+        ? { ...c, alta_seguro: res.data?.alta_seguro || { key: 'enviado' } } : c)));
+      showNotification(res.data?.created ? 'success' : 'info', res.data?.created
+        ? `${candidate.nombre_completo || 'La gestante'} se envió a Seguros (Pendiente de solicitud).`
+        : `${candidate.nombre_completo || 'La gestante'} ya tenía un registro en Seguros; no se creó otro.`);
+    } catch (err) {
+      console.error('Error sending to Listado de seguros:', err);
+      showNotification('danger', err.response?.data?.message || 'Error al enviar a Seguros');
+    } finally {
+      setSendingSeguroId(null);
+    }
   };
 
   // Local-only update for the Att. Previa tab's not-yet-backed-by-DB fields.
@@ -1589,6 +1653,8 @@ const SortGesList = () => {
                 tabId="admisiones"
                 fieldValues={admisionesFields}
                 onFieldChange={handleAdmisionesFieldChange}
+                onSendSeguro={handleSendSeguro}
+                sendingSeguroId={sendingSeguroId}
               />
             </CTabPane>
             <CTabPane visible={activeTab === 'att-previa'}>

@@ -8,7 +8,7 @@ import {
 import CIcon from '@coreui/icons-react'
 import { cilArrowLeft } from '@coreui/icons'
 import api from '../../services/api'
-import { useUser } from '../../context/AuthContext'
+import { useUser, GUEST_IP_HOME } from '../../context/AuthContext'
 
 // ─── Same STAGES / state config as admin view ────────────────────────────────
 
@@ -424,6 +424,12 @@ const CloudIPS_RegisterView = () => {
                 <CButton color="secondary" variant="outline" size="sm"
                   onClick={() => navigate(`/babycloud/cloud-ips/register/${id}`, { state: { guest } })}>
                   <CIcon icon={cilArrowLeft} className="me-1" />Volver
+                </CButton>
+              )}
+              {/* IP guests: back to their "Inicio" (Mis datos / Ver mi registro) */}
+              {isGuest && user?.role === 'ip' && (
+                <CButton color="secondary" variant="outline" size="sm" onClick={() => navigate(GUEST_IP_HOME)}>
+                  <CIcon icon={cilArrowLeft} className="me-1" />Inicio
                 </CButton>
               )}
               <div>

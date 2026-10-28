@@ -28,12 +28,14 @@ const PaymentsGestForm = React.lazy(() => import('./views/babysite/progestor/Pay
 const LegalDocs = React.lazy(() => import('./views/babysite/progestor/LegalDocs'))
 const CloudIPS_List     = React.lazy(() => import('./views/babysite/babycloud/CloudIPS_List'))
 const CloudIPS_Register = React.lazy(() => import('./views/babysite/babycloud/CloudIPS_Register'))
+const GuestHome = React.lazy(() => import('./views/babycloud/GuestHome'))
 const CloudIPS_RegisterView = React.lazy(() => import('./views/babycloud/CloudIPS_RegisterView'))
 
 // Babysite
 const sortGes = React.lazy(() => import('./views/babysite/babysite/SortGes'))
 const sortGesList = React.lazy(() => import('./views/babysite/babysite/SortGesList'))
 const segurosList = React.lazy(() => import('./views/babysite/babysite/SegurosList'))
+const programas = React.lazy(() => import('./views/babysite/babysite/Programas'))
 const sortIpList = React.lazy(() => import('./views/babysite/babysite/SortIPList'))
 const sortIp = React.lazy(() => import('./views/babysite/babysite/SortIP'))
 
@@ -67,12 +69,14 @@ const routes = [
   { path: '/babysite/sortGes', name: 'sortGesList', element: sortGesList },
   { path: '/babysite/sortGes/:id', name: 'sortGes', element: sortGes },
   { path: '/babysite/seguros', name: 'segurosList', element: segurosList },
+  { path: '/babysite/programas', name: 'programas', element: programas },
   { path: '/babysite/ips', name: 'sortIpList', element: sortIpList },
   { path: '/babysite/ips/:id', name: 'sortIp', element: sortIp },
   { path: '/babycloud/cloud-ips', name: 'CloudIPS_List', element: CloudIPS_List },
   { path: '/babycloud/cloud-ips/register/:id', name: 'CloudIPS_Register', element: CloudIPS_Register },
   { path: '/babycloud/cloud-ips/register/view/:id', name: 'CloudIPS_RegisterView', element: CloudIPS_RegisterView },
   { path: '/babycloud/cloud-ips/preview/:id', name: 'CloudIPS_RegisterView', element: CloudIPS_RegisterView },
+  { path: '/babycloud/inicio', name: 'Inicio', element: GuestHome },   // IP guests' home
   { path: '/progestor/notes', name: 'ListadoNotas', element: ListadoNotas },
 ]
 

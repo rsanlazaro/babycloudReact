@@ -45,6 +45,8 @@ import {
   cilCalendar,
   cilUser,
   cilShieldAlt,
+  cilMedicalCross,
+  cilHeart,
   cilPeople,
   cilClipboard,
   cilCloudUpload,
@@ -53,6 +55,7 @@ import {
   cilLockUnlocked,
   cilPlus,
   cilTrash,
+  cilPencil,
   cilCamera,
   cilWarning,
   cilFolder,
@@ -63,8 +66,17 @@ import {
 } from '@coreui/icons';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import {
-  TIPO_PAGO_CONFIG, buildPagos, computeMatLiberacion, computeVidaVencimiento,
+  TIPO_PAGO_CONFIG, buildPagos, computeVidaVencimiento, formatFechaDMY,
 } from '../../../utils/seguroPagos';
+// Seguro de Gastos Médicos Mayores — same form as Baby site → Listado de seguros
+import SeguroFormFields, {
+  SEGURO_EMPTY, policyToForm, willRebuildPagos, validateSeguro,
+} from '../../../components/seguros/SeguroFormFields';
+import {
+  CITA_TIPOS, getMotivos, getMotivoLabel, getPrenatalLab, getIncidencias, getIncidenciaCategoria,
+  RESOLUCION_OPTIONS, STATUS_CITA_OPTIONS, computeCitaStatus,
+  NO_ACUDIO_LIMIT, todayYmd, parseNoAcudio,
+} from '../../../config/citaPreviaCatalogs';
 
 // CURP links this candidate with Listado de pagos (payments_gest). Same rule as the
 // backend (services/curp.js): 10–18 letters or digits — length varies in practice.
@@ -74,6 +86,9 @@ const CURP_REGEX = new RegExp(`^[A-Z0-9]{${CURP_MIN_LENGTH},${CURP_MAX_LENGTH}}$
 const normalizeCurp = (v) => String(v || '').replace(/\s+/g, '').toUpperCase();
 const isValidCurp = (v) => CURP_REGEX.test(normalizeCurp(v));
 import api from '../../../services/api';
+
+// Seguros dates are shown as día-mes-año (same display as Listado de seguros)
+const formatFechaSeguro = formatFechaDMY;
 
 // Tab configuration with colors and icons
 const TAB_CONFIG = [
@@ -111,6 +126,63 @@ const toDateInputValue = (v) => {
   return s.includes('T') ? s.split('T')[0] : s;
 };
 
+// "2026-02-10" → "10/02/2026"
+const formatYmdShort = (v) => {
+  const [y, m, d] = String(v || '').slice(0, 10).split('-');
+  return y && m && d ? `${d}/${m}/${y}` : '—';
+};
+
+// Comparable text form of a field value (same idea as backend services/concurrency.js)
+const normForCompare = (v) => {
+  if (v === null || v === undefined) return '';
+  if (typeof v === 'boolean') return v ? '1' : '0';
+  if (typeof v === 'number') return Number.isFinite(v) ? String(v) : '';
+  const s = String(v).trim();
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) return s.slice(0, 10);
+  if (/^-?\d+(\.\d+)?$/.test(s)) return String(Number(s));
+  return s;
+};
+
+// Checklist tab → the shape the backend expects
+const checklistPayload = (documentos, consentimientos) => ({
+  certificado_nacimiento_url: documentos.certificado_nacimiento?.name || null,
+  curp_url:                   documentos.curp?.name                   || null,
+  comprobante_domicilio_url:  documentos.comprobante_domicilio?.name  || null,
+  poliza_seguro_url:          documentos.poliza_seguro?.name          || null,
+  cita_entrega:               documentos.cita_entrega                 || null,
+  cita_firma:                 consentimientos.cita_firma              || null,
+  consentimiento_informado:     !!consentimientos.consentimiento_informado,
+  consentimiento_transferencia: !!consentimientos.consentimiento_transferencia,
+  aviso_privacidad:             !!consentimientos.aviso_privacidad,
+  informacion_personal:         !!consentimientos.informacion_personal,
+  regular:                      !!consentimientos.regular,
+  hiv:                          !!consentimientos.hiv,
+  gemelar:                      !!consentimientos.gemelar,
+  full_consent:                 !!consentimientos.full,
+});
+
+// API row → cita as kept on screen (Cita previa). Used on load and on create.
+const mapCita = (c) => ({
+  id:                    c.id,
+  tipo:                  c.tipo === 'laboratorio' ? 'laboratorio' : 'cita',
+  motivo:                c.motivo                || '',
+  sdg:                   c.sdg                   || '',
+  inicio_tratamiento:    toDateInputValue(c.inicio_tratamiento),
+  final:                 toDateInputValue(c.final),
+  diagnostico:           c.diagnostico ? 'true' : 'false',
+  fecha_cita:            toDateInputValue(c.fecha_cita),
+  dr_tratante:           c.dr_tratante           || '',
+  status:                c.status                || '',
+  comentario_solicitud:  c.comentario_solicitud  || '',
+  entrega_resultados:    toDateInputValue(c.entrega_resultados),
+  reportes:              c.reportes              || '',
+  status_resultados:     c.status_resultados     || '',
+  observaciones:         c.observaciones         || '',
+  resolucion:            c.resolucion            || '',
+  incidencia:            c.incidencia            || '',
+  no_acudio:             parseNoAcudio(c.no_acudio),
+});
+
 // ─────────────────────────────────────────────────────────────
 // Presentational wrappers — defined OUTSIDE SortGes on purpose.
 // A component defined inside SortGes is a brand-new component type on every
@@ -118,16 +190,46 @@ const toDateInputValue = (v) => {
 // and the cursor jumps out of the field.
 // ─────────────────────────────────────────────────────────────
 // Static (non-collapsible) section with a gray title bar
-const StaticSection = ({ title, children }) => (
-  <div className="border rounded mb-3 overflow-hidden">
-    <div className="px-3 py-2" style={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}>
-      <strong>{title}</strong>
+// accent / icon / subtitle / right are optional: without them the section looks
+// as before (gray header). With an accent the section gets a colored left bar,
+// a tinted header and a colored title, so neighbouring sections are easy to tell apart.
+const StaticSection = ({ title, children, accent, icon, subtitle, right }) => (
+  <div
+    className="border rounded mb-3 overflow-hidden"
+    style={accent ? { borderColor: `${accent}66`, borderLeft: `5px solid ${accent}` } : undefined}
+  >
+    <div
+      className="px-3 py-2 d-flex align-items-center justify-content-between flex-wrap gap-2"
+      style={{
+        backgroundColor: accent ? `${accent}1a` : '#f8f9fa',
+        borderBottom: `1px solid ${accent ? `${accent}55` : '#dee2e6'}`,
+      }}
+    >
+      <div className="d-flex align-items-center gap-2">
+        {icon && (
+          <span
+            className="d-inline-flex align-items-center justify-content-center rounded-circle flex-shrink-0"
+            style={{ width: 28, height: 28, backgroundColor: accent || '#6c757d', color: '#fff' }}
+          >
+            <CIcon icon={icon} size="sm" />
+          </span>
+        )}
+        <div>
+          <strong style={accent ? { color: accent, fontSize: '1.02rem' } : undefined}>{title}</strong>
+          {subtitle && <div className="text-muted" style={{ fontSize: '0.75rem', lineHeight: 1.2 }}>{subtitle}</div>}
+        </div>
+      </div>
+      {right}
     </div>
     <div className="p-3">
       {children}
     </div>
   </div>
 );
+
+// SEGURO MED: one color per insurance type
+const SEGURO_GMM_COLOR  = '#2e86c1'; // azul   — Seguro de Gastos Médicos Mayores
+const SEGURO_VIDA_COLOR = '#8e44ad'; // morado — Seguro de Vida
 
 const CitaDiagnosticoToggle = ({ locked, onClick }) => (
   <CButton
@@ -166,6 +268,8 @@ const SortGes = () => {
   const [uploadingFoto, setUploadingFoto]   = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const fotoInputRef                        = useRef(null);
+  // Values as last loaded/saved from the server (see saveAltaGesca / saveChecklist)
+  const baselineRef = useRef({ alta: null, checklist: null, locks: {} });
   // Payment scheme linked by CURP (Listado de pagos)
   const [paymentScheme, setPaymentScheme]         = useState(null);   // { id, gesca } | null
   const [paymentSchemeChecking, setPaymentSchemeChecking] = useState(false);
@@ -249,6 +353,11 @@ const SortGes = () => {
   const VIDA_EMPTY = { fecha_alta: '', aseguradora: '', gestor: '', cuotas: '1', valor: '', vencimiento: '', pago_monto: '', pago_fecha: '' };
   const [formVida, setFormVida] = useState(VIDA_EMPTY);
   const [detailVida, setDetailVida] = useState(null); // which record to show detail for
+  // SEGURO MED filters: 'todos' | 'proximos' | 'avisos' (one per section)
+  const [filtroMat, setFiltroMat]   = useState('todos');
+  const [filtroVida, setFiltroVida] = useState('todos');
+  const [deleteVidaTarget, setDeleteVidaTarget] = useState(null); // confirmation before deleting
+  const [deletingVida, setDeletingVida] = useState(false);
 
   // Edit-password gate for Seguro de Vida
   const [showVidaEditModal, setShowVidaEditModal] = useState(false);
@@ -276,16 +385,20 @@ const SortGes = () => {
   // Modal: 'new' | 'pago' | null
   const [modalMat, setModalMat] = useState(null);
   const [editingMatId, setEditingMatId] = useState(null);
-  const MAT_EMPTY = {
-    gestor: '', tipo_pago: '', valor_cuota: '', total_estimado: '',
-    fecha_solicitud: '', fecha_alta: '', fecha_liberacion: '', fecha_vencimiento: '',
-    aseguradora: '', numero_poliza: '',
-  };
-  const [formMat, setFormMat] = useState(MAT_EMPTY);
+  const [formMat, setFormMat] = useState(SEGURO_EMPTY);
+  const [matFormError, setMatFormError] = useState('');
+  const [savingMat, setSavingMat] = useState(false);
+  // Computed columns of Listado de seguros for this gestante, keyed by policy id
+  // ({ solicitud, status_gral, start_poliza, prox_pago, pago, liquidado, anio })
+  const [seguroStatus, setSeguroStatus] = useState({});
+  // Delete confirmation (same as Listado de seguros)
+  const [deleteMatTarget, setDeleteMatTarget] = useState(null);
+  const [deletingMat, setDeletingMat] = useState(false);
   // For "Añadir pago" modal: which policy + which cuota row
   const [pagoTarget, setPagoTarget] = useState({ polizaId: null, cuotaNum: null, valorSugerido: '' });
   const [fechaPagoInput, setFechaPagoInput] = useState('');
   const [montoPagoInput, setMontoPagoInput] = useState('');
+  const [conceptoPagoInput, setConceptoPagoInput] = useState('');
 
   const [savingSeguro, setSavingSeguro] = useState(false);
 
@@ -354,6 +467,11 @@ const SortGes = () => {
     // own catalog, citaStatusResultadosOpts (En curso / Repetición / Completado).
     status_resultados: '',
     observaciones: '',
+    // Redesigned form (Citas / Laboratorios)
+    tipo: 'cita',            // 'cita' | 'laboratorio'
+    resolucion: '',
+    incidencia: '',
+    no_acudio: [],           // [{ fecha_cita, remarcada }]
   };
   const [citaPreviaActiveTab, setCitaPreviaActiveTab] = useState(CITA_PREVIA_TABS[0].id);
   const [citasPorTab, setCitasPorTab] = useState(
@@ -546,6 +664,74 @@ const SortGes = () => {
   };
 
 
+  // ── SEGURO MED filters ──────────────────────────────────────
+  // Gastos Médicos Mayores (per register, looking at its pending cuotas):
+  //   Pagos próximos → a pending cuota is due in the next 30 days
+  //   Avisos de pago → a pending cuota is overdue or due in 10 days or less
+  //                    (same 10-day window as the cuota status)
+  // Seguro de Vida:
+  //   Pagos próximos → coverage ends in the next 30 days (renewal payment)
+  //   Avisos de pago → no payment registered, payment incomplete, or coverage expired
+  const DIAS_PROXIMOS = 30;
+  const DIAS_AVISO = 10;
+  const diasHasta = (fecha) => {
+    const m = String(fecha || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    return Math.round((new Date(+m[1], +m[2] - 1, +m[3]) - hoy) / 86400000);
+  };
+  const cuotaPendiente = (c) => c.status !== 'cancelado' && !c.fecha_pago;
+  const esCuotaProxima = (c) => {
+    const d = diasHasta(c.vencimiento);
+    return cuotaPendiente(c) && d !== null && d >= 0 && d <= DIAS_PROXIMOS;
+  };
+  const esCuotaAviso = (c) => {
+    const d = diasHasta(c.vencimiento);
+    return cuotaPendiente(c) && d !== null && d <= DIAS_AVISO;
+  };
+  const matCoincide = (poliza, filtro) =>
+    filtro === 'todos' || (poliza.pagos || []).some(filtro === 'proximos' ? esCuotaProxima : esCuotaAviso);
+  const cuotaResaltada = (cuota, filtro) =>
+    (filtro === 'proximos' && esCuotaProxima(cuota)) || (filtro === 'avisos' && esCuotaAviso(cuota));
+
+  const esVidaProxima = (seg) => {
+    const d = diasHasta(seg.vencimiento);
+    return d !== null && d >= 0 && d <= DIAS_PROXIMOS;
+  };
+  const esVidaAviso = (seg) => {
+    const valor = parseFloat(seg.valor) || 0;
+    const pagado = parseFloat(seg.pago_monto) || 0;
+    const d = diasHasta(seg.vencimiento);
+    return !seg.pago_fecha || (valor > 0 && pagado < valor) || (d !== null && d < 0);
+  };
+  const vidaCoincide = (seg, filtro) =>
+    filtro === 'todos' || (filtro === 'proximos' ? esVidaProxima(seg) : esVidaAviso(seg));
+
+  // Filter buttons with counts (one bar per section)
+  const renderFiltroPagos = (filtro, setFiltro, counts, ayuda) => (
+    <div className="d-flex align-items-center flex-wrap gap-2 mb-3">
+      <span className="text-muted small fw-semibold">Filtrar:</span>
+      {[
+        ['todos', 'Todos', 'secondary'],
+        ['proximos', 'Pagos próximos', 'info'],
+        ['avisos', 'Avisos de pago', 'warning'],
+      ].map(([key, label, color]) => (
+        <CButton
+          key={key}
+          size="sm"
+          color={color}
+          variant={filtro === key ? undefined : 'outline'}
+          className={filtro === key && color !== 'secondary' ? 'text-white' : ''}
+          onClick={() => setFiltro(key)}
+          aria-pressed={filtro === key}
+        >
+          {label} <CBadge color="light" textColor="dark" className="ms-1">{counts[key]}</CBadge>
+        </CButton>
+      ))}
+      <span className="text-muted" style={{ fontSize: '0.72rem' }}>{ayuda[filtro]}</span>
+    </div>
+  );
+
   // Compute total estimate label for the modal
   const computeMatTotal = (tipoPago, valorCuota) => {
     const cfg = TIPO_PAGO_CONFIG[tipoPago];
@@ -631,7 +817,7 @@ const SortGes = () => {
 
       // ── Alta GESCA ───────────────────────────────────────────
       const a = altaRes.data || {};
-      setRegistroInicial({
+      const riLoaded = {
         nombre_completo:     a.nombre_completo     || '',
         curp:                a.curp                || '',
         rfc:                 a.rfc                 || '',
@@ -651,8 +837,9 @@ const SortGes = () => {
         alcaldia_municipio:  a.alcaldia_municipio  || '',
         estado:              a.estado              || '',
         ocupacion:           a.ocupacion           || '',
-      });
-      setDatosSalud({
+      };
+      setRegistroInicial(riLoaded);
+      const dsLoaded = {
         tipo_sangre:               a.tipo_sangre               || '',
         peso:                      a.peso                      || '',
         fumador:                   !!a.fumador,
@@ -669,7 +856,8 @@ const SortGes = () => {
         fecha_ultima_menstruacion: toDateInputValue(a.fecha_ultima_menstruacion),
         hijos:                     a.hijos                     || '',
         ultima_cesarea:            toDateInputValue(a.ultima_cesarea),
-      });
+      };
+      setDatosSalud(dsLoaded);
       // Restore field lock state persisted in DB
       // These 4 fields are captured (and validated — required + duplicate
       // phone check) in the "Nuevo candidato" popup at creation time. Once
@@ -686,6 +874,7 @@ const SortGes = () => {
             if (a[field]) locks[`registroInicial.${field}`] = true;
           });
           setLockedFields(locks);
+          baselineRef.current.locks = { ...(parsed || {}) };   // as stored in DB
         } catch (_) {}
       } else {
         // No locked_fields in DB yet — still lock these fields if they exist
@@ -694,18 +883,21 @@ const SortGes = () => {
           if (a[field]) locks[`registroInicial.${field}`] = true;
         });
         setLockedFields(locks);
+        baselineRef.current.locks = {};
       }
+      baselineRef.current.alta = { ...riLoaded, ...dsLoaded };
 
       // ── Checklist ────────────────────────────────────────────
       const cl = checklistRes.data || {};
-      setDocumentos({
+      const docLoaded = {
         certificado_nacimiento: cl.certificado_nacimiento_url ? { name: cl.certificado_nacimiento_url } : null,
         curp:                   cl.curp_url                   ? { name: cl.curp_url }                   : null,
         comprobante_domicilio:  cl.comprobante_domicilio_url  ? { name: cl.comprobante_domicilio_url }  : null,
         poliza_seguro:          cl.poliza_seguro_url          ? { name: cl.poliza_seguro_url }          : null,
         cita_entrega:           cl.cita_entrega               || '',
-      });
-      setConsentimientos({
+      };
+      setDocumentos(docLoaded);
+      const consLoaded = {
         cita_firma:                   cl.cita_firma                      || '',
         consentimiento_informado:     !!cl.consentimiento_informado,
         consentimiento_transferencia: !!cl.consentimiento_transferencia,
@@ -715,7 +907,9 @@ const SortGes = () => {
         hiv:                          !!cl.hiv,
         gemelar:                      !!cl.gemelar,
         full:                         !!cl.full_consent,
-      });
+      };
+      setConsentimientos(consLoaded);
+      baselineRef.current.checklist = checklistPayload(docLoaded, consLoaded);
 
       // ── Seguro de Vida ───────────────────────────────────────
       setSegurosVida((vidaRes.data || []).map(v => ({
@@ -731,27 +925,8 @@ const SortGes = () => {
       })));
 
       // ── Seguro de Gastos Médicos Mayores ─────────────────────
-      setSegurosMat((matRes.data || []).map(p => ({
-        id:               p.id,
-        gestor:           p.gestor            || '',
-        tipo_pago:        p.tipo_pago         || '',
-        valor_cuota:      p.valor_cuota       || '',
-        total_estimado:   p.total_estimado    || '',
-        fecha_solicitud:  p.fecha_solicitud   || '',
-        fecha_alta:       p.fecha_alta        || '',
-        fecha_liberacion: p.fecha_liberacion  || '',
-        fecha_vencimiento:p.fecha_vencimiento || '',
-        aseguradora:      p.aseguradora       || '',
-        numero_poliza:    p.numero_poliza     || '',
-        pagos: (p.pagos || []).map(c => ({
-          cuota_num:  c.cuota_num,
-          total:      c.total_cuotas,
-          vencimiento:c.vencimiento || '',
-          fecha_pago: c.fecha_pago  || '',
-          monto_pago: c.monto_pago  || '',
-          status:     c.status      || 'pendiente',
-        })),
-      })));
+      setSegurosMat((matRes.data || []).map(mapPolizaMat));
+      refreshSeguroStatus();
 
       // ── Psico Inicial ────────────────────────────────────────
       const psicoRows = psicoRes.data || [];
@@ -787,22 +962,7 @@ const SortGes = () => {
       const grouped = CITA_PREVIA_TABS.reduce((acc, tab) => ({ ...acc, [tab.id]: [] }), {});
       (citaPreviaRes.data || []).forEach((c) => {
         const bucket = grouped[c.sub_tab] ? c.sub_tab : CITA_PREVIA_TABS[0].id;
-        grouped[bucket].push({
-          id:                    c.id,
-          motivo:                c.motivo                || '',
-          sdg:                   c.sdg                   || '',
-          inicio_tratamiento:    toDateInputValue(c.inicio_tratamiento),
-          final:                 toDateInputValue(c.final),
-          diagnostico:           c.diagnostico ? 'true' : 'false',
-          fecha_cita:            toDateInputValue(c.fecha_cita),
-          dr_tratante:           c.dr_tratante           || '',
-          status:                c.status                || '',
-          comentario_solicitud:  c.comentario_solicitud  || '',
-          entrega_resultados:    toDateInputValue(c.entrega_resultados),
-          reportes:              c.reportes              || '',
-          status_resultados:     c.status_resultados     || '',
-          observaciones:         c.observaciones         || '',
-        });
+        grouped[bucket].push(mapCita(c));
       });
       setCitasPorTab(grouped);
 
@@ -1222,102 +1382,121 @@ const SortGes = () => {
     setModalVida(null);
   };
 
-  const deleteVida = async (segId) => {
+  // Called from the confirmation modal (deleteVidaTarget)
+  const deleteVida = async () => {
+    const segId = deleteVidaTarget?.id;
+    if (!segId) return;
     try {
+      setDeletingVida(true);
       await api.delete(`/api/sort-ges/${id}/seguro-vida/${segId}`, { withCredentials: true });
       setSegurosVida(prev => prev.filter(s => s.id !== segId));
       if (detailVida === segId) setDetailVida(null);
-      showNotification('info', 'Seguro eliminado');
+      showNotification('info', 'Seguro de vida eliminado');
     } catch (err) {
       showNotification('danger', 'Error al eliminar el seguro');
+    } finally {
+      setDeletingVida(false);
+      setDeleteVidaTarget(null);
     }
   };
 
   // ── Seguro de Gastos Médicos Mayores CRUD ─────────────────────
+  // Same registers as Baby site → Listado de seguros (table sort_ges_seguro_mat):
+  // whatever is created/edited/deleted here shows up there, and vice versa.
+  const mapPolizaMat = (p) => ({
+    id: p.id,
+    ...policyToForm(p),
+    pagos: (p.pagos || []).map(c => ({
+      cuota_num:  c.cuota_num,
+      total:      c.total_cuotas,
+      vencimiento:c.vencimiento || '',
+      fecha_pago: c.fecha_pago  || '',
+      monto_pago: c.monto_pago  || '',
+      status:     c.status      || 'pendiente',
+      comprobante_url: c.comprobante_url || '',
+      concepto_pago: c.concepto_pago || '',
+    })),
+  });
+
+  // Listado de seguros columns (Solicitud, Status Gral, Prox pgto...) — computed by the backend
+  const refreshSeguroStatus = async () => {
+    try {
+      const res = await api.get('/api/sort-ges/seguros', { params: { candidate_id: id }, withCredentials: true });
+      setSeguroStatus(Object.fromEntries((res.data || []).map(r => [r.id, r])));
+    } catch (err) {
+      console.error('Error loading seguro status:', err);
+    }
+  };
+
+  const reloadSegurosMat = async () => {
+    const res = await api.get(`/api/sort-ges/${id}/seguro-mat`, { withCredentials: true });
+    setSegurosMat((res.data || []).map(mapPolizaMat));
+    refreshSeguroStatus();
+  };
+
+  const closeMatModal = () => { setModalMat(null); setEditingMatId(null); setMatFormError(''); };
+
   const openNuevoMat = () => {
-    setFormMat(MAT_EMPTY);
+    setFormMat({ ...SEGURO_EMPTY, fecha_solicitud: new Date().toLocaleDateString('en-CA') });
     setEditingMatId(null);
+    setMatFormError('');
     setModalMat('new');
   };
   const openEditMat = (poliza) => {
-    setFormMat({
-      gestor:           poliza.gestor || '',
-      tipo_pago:        poliza.tipo_pago || '',
-      valor_cuota:      poliza.valor_cuota || '',
-      total_estimado:   poliza.total_estimado || '',
-      fecha_solicitud:  poliza.fecha_solicitud || '',
-      fecha_alta:       poliza.fecha_alta || '',
-      fecha_liberacion: poliza.fecha_liberacion || '',
-      fecha_vencimiento:poliza.fecha_vencimiento || '',
-      aseguradora:      poliza.aseguradora || '',
-      numero_poliza:    poliza.numero_poliza || '',
-    });
+    setFormMat(policyToForm(poliza));
     setEditingMatId(poliza.id);
+    setMatFormError('');
     setModalMat('new');
   };
+  const editingMatOriginal = editingMatId !== null ? segurosMat.find(p => p.id === editingMatId) : null;
+
   const saveMat = async () => {
+    const invalid = validateSeguro(formMat);
+    if (invalid) { setMatFormError(invalid); return; }
     try {
+      setSavingMat(true);
+      setMatFormError('');
       const pagos = buildPagos(formMat.tipo_pago, formMat.valor_cuota, formMat.fecha_alta);
       if (editingMatId !== null) {
-        const oldPoliza = segurosMat.find(p => p.id === editingMatId);
-        const rebuildPagos = formMat.tipo_pago !== oldPoliza?.tipo_pago
-          || formMat.fecha_alta !== oldPoliza?.fecha_alta;
+        const rebuildPagos = willRebuildPagos(formMat, editingMatOriginal);
         await api.put(
           `/api/sort-ges/${id}/seguro-mat/${editingMatId}`,
           { ...formMat, rebuildPagos, pagos: rebuildPagos ? pagos : [] },
           { withCredentials: true }
         );
-        setSegurosMat(prev => prev.map(p =>
-          p.id === editingMatId
-            ? { ...p, ...formMat, pagos: rebuildPagos ? pagos : p.pagos }
-            : p
-        ));
-        showNotification('success', 'Póliza actualizada');
+        showNotification('success', 'Registro de seguro actualizado');
       } else {
-        const res = await api.post(
-          `/api/sort-ges/${id}/seguro-mat`,
-          { ...formMat, pagos },
-          { withCredentials: true }
-        );
-        const data = res.data;
-        setSegurosMat(prev => [...prev, {
-          id:               data.id,
-          gestor:           data.gestor            || '',
-          tipo_pago:        data.tipo_pago         || '',
-          valor_cuota:      data.valor_cuota       || '',
-          total_estimado:   data.total_estimado    || '',
-          fecha_solicitud:  data.fecha_solicitud   || '',
-          fecha_alta:       data.fecha_alta        || '',
-          fecha_liberacion: data.fecha_liberacion  || '',
-          fecha_vencimiento:data.fecha_vencimiento || '',
-          aseguradora:      data.aseguradora       || '',
-          numero_poliza:    data.numero_poliza     || '',
-          pagos: (data.pagos || []).map(c => ({
-            cuota_num:  c.cuota_num,
-            total:      c.total_cuotas,
-            vencimiento:c.vencimiento || '',
-            fecha_pago: c.fecha_pago  || '',
-            monto_pago: c.monto_pago  || '',
-            status:     c.status      || 'pendiente',
-          })),
-        }]);
-        showNotification('success', 'Seguro de gastos médicos mayores registrado');
+        await api.post(`/api/sort-ges/${id}/seguro-mat`, { ...formMat, pagos }, { withCredentials: true });
+        showNotification('success', 'Registro de seguro creado. También aparece en Seguros.');
       }
+      closeMatModal();
+      await reloadSegurosMat();
     } catch (err) {
       console.error(err);
-      showNotification('danger', 'Error al guardar el seguro de gastos médicos mayores');
+      // Keep the modal open so nothing typed is lost
+      setMatFormError(err.response?.data?.message || 'Error al guardar el registro de seguro');
+    } finally {
+      setSavingMat(false);
     }
-    setEditingMatId(null);
-    setModalMat(null);
   };
 
-  const deleteMat = async (polizaId) => {
+  // "Asignar" — shown only when the insurance is liberado. What it does is still to be defined.
+  const asignarMat = (poliza) => {
+    showNotification('info', `Asignar (${poliza.aseguradora || 'registro de seguro'}): esta acción aún no tiene una función definida.`);
+  };
+
+  const deleteMat = async () => {
     try {
-      await api.delete(`/api/sort-ges/${id}/seguro-mat/${polizaId}`, { withCredentials: true });
-      setSegurosMat(prev => prev.filter(p => p.id !== polizaId));
-      showNotification('info', 'Póliza eliminada');
+      setDeletingMat(true);
+      await api.delete(`/api/sort-ges/${id}/seguro-mat/${deleteMatTarget.id}`, { withCredentials: true });
+      setSegurosMat(prev => prev.filter(p => p.id !== deleteMatTarget.id));
+      refreshSeguroStatus();
+      showNotification('info', 'Registro de seguro eliminado');
     } catch (err) {
-      showNotification('danger', 'Error al eliminar la póliza');
+      showNotification('danger', err.response?.data?.message || 'Error al eliminar el registro de seguro');
+    } finally {
+      setDeletingMat(false);
+      setDeleteMatTarget(null);
     }
   };
 
@@ -1341,6 +1520,8 @@ const SortGes = () => {
     const { type, polizaId, cuotaNum, valorSugerido } = matPagoEditAction;
     if (type === 'edit') {
       openPagoModal(polizaId, cuotaNum, valorSugerido);
+    } else if (type === 'remove-doc') {
+      await deleteComprobante(polizaId, cuotaNum);
     } else if (type === 'remove') {
       try {
         await api.delete(
@@ -1353,11 +1534,12 @@ const SortGes = () => {
             ...p,
             pagos: p.pagos.map(c =>
               c.cuota_num === cuotaNum
-                ? { ...c, fecha_pago: '', monto_pago: '', status: 'pendiente' }
+                ? { ...c, fecha_pago: '', monto_pago: '', status: 'pendiente', comprobante_url: '', concepto_pago: '' }
                 : c
             ),
           };
         }));
+        refreshSeguroStatus();
         showNotification('info', 'Pago eliminado');
       } catch (err) {
         showNotification('danger', 'Error al eliminar el pago');
@@ -1376,7 +1558,124 @@ const SortGes = () => {
   };
 
   // Open "Pagar" modal for a specific cuota — pre-fill amount and today's date
+  // ── Comprobante (PDF) of each registered payment ────────────
+  // Stored on Cloudinary in sort-ges-seguros/gestante_<id>/poliza_<id>/ (see
+  // backend/services/seguroComprobantes.js); opened through the backend.
+  const [pagoFile, setPagoFile] = useState(null);             // optional PDF in "Registrar pago"
+  const [comprobanteProgress, setComprobanteProgress] = useState({}); // { 'polizaId-cuota': 0-100 }
+  const comprobanteInputRefs = useRef({});
+  const cuotaKey = (polizaId, cuotaNum) => `${polizaId}-${cuotaNum}`;
+
+  const checkPdf = (file) => {
+    if (!file) return false;
+    if (file.type !== 'application/pdf') { showNotification('danger', 'Por favor seleccione un archivo PDF'); return false; }
+    if (file.size > 10 * 1024 * 1024) { showNotification('danger', 'El PDF no debe superar 10MB'); return false; }
+    return true;
+  };
+
+  const setComprobanteUrl = (polizaId, cuotaNum, url) =>
+    setSegurosMat(prev => prev.map(p => p.id !== polizaId ? p : {
+      ...p,
+      pagos: p.pagos.map(c => c.cuota_num === cuotaNum ? { ...c, comprobante_url: url } : c),
+    }));
+
+  const uploadComprobante = async (polizaId, cuotaNum, file) => {
+    if (!checkPdf(file)) return;
+    const key = cuotaKey(polizaId, cuotaNum);
+    try {
+      setComprobanteProgress(prev => ({ ...prev, [key]: 0 }));
+      // 1. Signed params (backend decides folder and name from the payment)
+      const sigRes = await api.get('/api/upload/seguro-pago-signature', {
+        params: { polizaId, cuotaNum }, withCredentials: true,
+      });
+      const { timestamp, signature, publicId, assetFolder, cloudName, apiKey } = sigRes.data;
+      const fd = new FormData();
+      fd.append('file',          file);
+      fd.append('api_key',       apiKey);
+      fd.append('timestamp',     timestamp);
+      fd.append('signature',     signature);
+      fd.append('public_id',     publicId);
+      fd.append('asset_folder',  assetFolder);
+      fd.append('overwrite',     'true');
+      fd.append('resource_type', 'raw');
+      // 2. Upload straight to Cloudinary (with progress)
+      const secureUrl = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', `https://api.cloudinary.com/v1_1/${cloudName}/raw/upload`);
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setComprobanteProgress(prev => ({ ...prev, [key]: Math.round(e.loaded * 100 / e.total) }));
+        };
+        xhr.onload = () => (xhr.status === 200
+          ? resolve(JSON.parse(xhr.responseText).secure_url)
+          : reject(new Error('Upload failed')));
+        xhr.onerror = () => reject(new Error('Upload failed'));
+        xhr.send(fd);
+      });
+      // 3. Save the URL on the payment
+      await api.put('/api/upload/seguro-pago-doc', { polizaId, cuotaNum, url: secureUrl }, { withCredentials: true });
+      setComprobanteUrl(polizaId, cuotaNum, secureUrl);
+      showNotification('success', `Comprobante "${file.name}" subido`);
+    } catch (err) {
+      console.error('Error uploading comprobante:', err);
+      showNotification('danger', err.response?.data?.message || 'Error al subir el comprobante');
+    } finally {
+      setComprobanteProgress(prev => { const n = { ...prev }; delete n[key]; return n; });
+    }
+  };
+
+  const handleComprobanteInput = (polizaId, cuotaNum, event) => {
+    const file = event.target.files[0];
+    event.target.value = '';   // same file can be chosen again
+    if (file) uploadComprobante(polizaId, cuotaNum, file);
+  };
+
+  // "Ver PDF" → preview inside the app (no new tab, so no popup blocking).
+  // The PDF is downloaded with the session like every other API call; if it
+  // fails, the preview shows the reason sent by the backend.
+  const [pdfPreview, setPdfPreview] = useState(null); // { title, loading, url, error }
+
+  const closePdfPreview = () => {
+    if (pdfPreview?.url) URL.revokeObjectURL(pdfPreview.url);
+    setPdfPreview(null);
+  };
+
+  const verComprobante = async (polizaId, cuotaNum) => {
+    const title = `Comprobante — cuota ${cuotaNum}`;
+    setPdfPreview({ title, loading: true, url: null, error: '' });
+    try {
+      const res = await api.get('/api/upload/seguro-pago-stream', {
+        params: { polizaId, cuotaNum }, responseType: 'blob', withCredentials: true,
+      });
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      setPdfPreview({ title, loading: false, url, error: '' });
+    } catch (err) {
+      let message = err.response
+        ? `No se pudo abrir el comprobante (error ${err.response.status})`
+        : 'No se pudo conectar con el servidor para abrir el comprobante';
+      const data = err.response?.data;
+      if (data instanceof Blob) {
+        try { message = JSON.parse(await data.text()).message || message; } catch (_) { /* not JSON */ }
+      }
+      console.error('Error opening comprobante:', err);
+      setPdfPreview({ title, loading: false, url: null, error: message });
+    }
+  };
+
+  const deleteComprobante = async (polizaId, cuotaNum) => {
+    try {
+      await api.delete('/api/upload/seguro-pago-doc', { params: { polizaId, cuotaNum }, withCredentials: true });
+      setComprobanteUrl(polizaId, cuotaNum, '');
+      showNotification('info', 'Comprobante eliminado');
+    } catch (err) {
+      showNotification('danger', err.response?.data?.message || 'Error al eliminar el comprobante');
+    }
+  };
+
   const openPagoModal = (polizaId, cuotaNum, valorSugerido) => {
+    setPagoFile(null);
+    // Editing a registered payment keeps its concepto; a new payment starts empty
+    const cuotaActual = segurosMat.find(p => p.id === polizaId)?.pagos.find(c => c.cuota_num === cuotaNum);
+    setConceptoPagoInput(cuotaActual?.concepto_pago || '');
     setPagoTarget({ polizaId, cuotaNum, valorSugerido });
     setFechaPagoInput(new Date().toISOString().split('T')[0]);
     setMontoPagoInput(valorSugerido ? String(valorSugerido) : '');
@@ -1386,7 +1685,7 @@ const SortGes = () => {
     try {
       await api.put(
         `/api/sort-ges/${id}/seguro-mat/${pagoTarget.polizaId}/cuotas/${pagoTarget.cuotaNum}`,
-        { monto_pago: montoPagoInput, fecha_pago: fechaPagoInput, status: 'abonado' },
+        { monto_pago: montoPagoInput, fecha_pago: fechaPagoInput, status: 'abonado', concepto_pago: conceptoPagoInput.trim() },
         { withCredentials: true }
       );
       setSegurosMat(prev => prev.map(p => {
@@ -1395,13 +1694,16 @@ const SortGes = () => {
           ...p,
           pagos: p.pagos.map(c =>
             c.cuota_num === pagoTarget.cuotaNum
-              ? { ...c, fecha_pago: fechaPagoInput, monto_pago: montoPagoInput, status: 'abonado' }
+              ? { ...c, fecha_pago: fechaPagoInput, monto_pago: montoPagoInput, status: 'abonado', concepto_pago: conceptoPagoInput.trim() }
               : c
           ),
         };
       }));
       setModalMat(null);
+      refreshSeguroStatus();
       showNotification('success', 'Pago registrado');
+      // Optional PDF attached in the modal — uploaded once the payment exists
+      if (pagoFile) uploadComprobante(pagoTarget.polizaId, pagoTarget.cuotaNum, pagoFile);
     } catch (err) {
       showNotification('danger', 'Error al registrar el pago');
     }
@@ -1490,36 +1792,77 @@ const SortGes = () => {
   };
 
   // ── Cita Previa handlers ─────────────────────────────────────
-  const addCita = async (tabId) => {
+  const addCita = async (tabId, tipo = 'cita') => {
     try {
       const res = await api.post(
         `/api/sort-ges/${id}/cita-previa`,
-        { sub_tab: tabId, ...CITA_EMPTY },
+        { sub_tab: tabId, ...CITA_EMPTY, tipo },
         { withCredentials: true }
       );
-      const c = res.data;
-      setCitasPorTab(prev => ({
-        ...prev,
-        [tabId]: [...prev[tabId], {
-          id:                    c.id,
-          motivo:                c.motivo                || '',
-          sdg:                   c.sdg                   || '',
-          inicio_tratamiento:    toDateInputValue(c.inicio_tratamiento),
-          final:                 toDateInputValue(c.final),
-          diagnostico:           c.diagnostico ? 'true' : 'false',
-          fecha_cita:            toDateInputValue(c.fecha_cita),
-          dr_tratante:           c.dr_tratante           || '',
-          status:                c.status                || '',
-          comentario_solicitud:  c.comentario_solicitud  || '',
-          entrega_resultados:    toDateInputValue(c.entrega_resultados),
-          reportes:              c.reportes              || '',
-          status_resultados:     c.status_resultados     || '',
-          observaciones:         c.observaciones         || '',
-        }],
-      }));
+      setCitasPorTab(prev => ({ ...prev, [tabId]: [...prev[tabId], mapCita(res.data)] }));
     } catch (err) {
       console.error('Error creating cita:', err);
-      showNotification('danger', 'Error al crear la cita');
+      showNotification('danger', tipo === 'laboratorio' ? 'Error al crear el laboratorio' : 'Error al crear la cita');
+    }
+  };
+
+  // Several fields at once (used by "No acudió"), same full-row save as updateCita
+  const updateCitaFields = async (tabId, citaId, changes) => {
+    const current = citasPorTab[tabId].find(c => c.id === citaId);
+    const updated = { ...current, ...changes };
+    setCitasPorTab(prev => ({
+      ...prev,
+      [tabId]: prev[tabId].map(c => c.id === citaId ? { ...c, ...changes } : c),
+    }));
+    try {
+      await api.put(
+        `/api/sort-ges/${id}/cita-previa/${citaId}`,
+        { sub_tab: tabId, ...updated },
+        { withCredentials: true }
+      );
+      return true;
+    } catch (err) {
+      console.error('Error saving cita:', err);
+      showNotification('danger', 'Error al guardar la cita');
+      return false;
+    }
+  };
+
+  // ── "No acudió" ─────────────────────────────────────────────
+  // Adds { fecha_cita, remarcada: today } to the cita's history and clears the
+  // date so a new one is set (status → "Por agendar").
+  // From NO_ACUDIO_LIMIT no-shows on, the button asks first:
+  // "Agendar cita" or "Solicitar descarte".
+  const [noAcudioPrompt, setNoAcudioPrompt] = useState(null); // { tabId, citaId }
+
+  const registerNoAcudio = async (tabId, citaId) => {
+    const cita = citasPorTab[tabId].find(c => c.id === citaId);
+    if (!cita?.fecha_cita) {
+      showNotification('warning', 'Captura la fecha de la cita antes de marcar "No acudió"');
+      return false;
+    }
+    const history = [...(cita.no_acudio || []), { fecha_cita: cita.fecha_cita, remarcada: todayYmd() }];
+    return updateCitaFields(tabId, citaId, { no_acudio: history, fecha_cita: '', status: '' });
+  };
+
+  const handleNoAcudioClick = (tabId, cita) => {
+    if ((cita.no_acudio || []).length >= NO_ACUDIO_LIMIT) {
+      setNoAcudioPrompt({ tabId, citaId: cita.id });
+      return;
+    }
+    registerNoAcudio(tabId, cita.id);
+  };
+
+  const resolveNoAcudioPrompt = async (choice) => {
+    const prompt = noAcudioPrompt;
+    setNoAcudioPrompt(null);
+    if (!prompt) return;
+    const ok = await registerNoAcudio(prompt.tabId, prompt.citaId);
+    if (!ok) return;
+    if (choice === 'descarte') {
+      requestIndicarDescarte();   // same flow as "Indicar posible descarte"
+    } else {
+      showNotification('info', 'Captura la nueva fecha de la cita');
     }
   };
 
@@ -1641,33 +1984,15 @@ const SortGes = () => {
     lockField(section, field);
     setShowConfirmModal(false);
     setPendingFieldLock({ section: null, field: null, value: null });
-    // Auto-save immediately so date fields and all data persist to DB
+    // Auto-save immediately (only changed fields + this lock) so data persists to DB
     try {
       await Promise.all([
-        api.put(`/api/sort-ges/${id}/alta-gesca`, {
-          ...registroInicial,
-          ...datosSalud,
-          locked_fields: { ...lockedFields, [`${section}.${field}`]: true },
-        }, { withCredentials: true }),
-        api.put(`/api/sort-ges/${id}/checklist`, {
-          certificado_nacimiento_url: documentos.certificado_nacimiento?.name || null,
-          curp_url:                   documentos.curp?.name                   || null,
-          comprobante_domicilio_url:  documentos.comprobante_domicilio?.name  || null,
-          poliza_seguro_url:          documentos.poliza_seguro?.name          || null,
-          cita_entrega:               documentos.cita_entrega                 || null,
-          cita_firma:                 consentimientos.cita_firma              || null,
-          consentimiento_informado:     consentimientos.consentimiento_informado,
-          consentimiento_transferencia: consentimientos.consentimiento_transferencia,
-          aviso_privacidad:             consentimientos.aviso_privacidad,
-          informacion_personal:         consentimientos.informacion_personal,
-          regular:                      consentimientos.regular,
-          hiv:                          consentimientos.hiv,
-          gemelar:                      consentimientos.gemelar,
-          full_consent:                 consentimientos.full,
-        }, { withCredentials: true }),
+        saveAltaGesca({ ...lockedFields, [`${section}.${field}`]: true }),
+        saveChecklist(),
       ]);
       showNotification('success', 'Campo guardado y bloqueado');
     } catch (err) {
+      if (handleSaveConflict(err)) return;
       console.error('Error auto-saving on lock:', err);
       showNotification('warning', 'Campo bloqueado pero error al guardar — usa "Guardar cambios"');
     }
@@ -2008,6 +2333,186 @@ const SortGes = () => {
     );
   };
 
+  // ── Cita previa: one block (Citas or Laboratorios) of a sub-tab ─────────
+  // Row layout per cita (design):
+  //   1. Motivo de la cita · Médico tratante
+  //   2. Fecha cita · Status (automatic) · Status cita
+  //   3. "No acudió" button + history
+  //   4. Resolución
+  //   5. Incidencia (+ Si tratable / Posible descarte)
+  //   6. Observaciones
+  const renderCitaBlock = (tab, tipo) => {
+    const items = (citasPorTab[tab.id] || []).filter(c => (c.tipo || 'cita') === tipo);
+    const tipoInfo = CITA_TIPOS[tipo];
+    const motivoOpts = [{ value: '', label: 'Seleccionar...' }, ...getMotivos(tipo, tab.id).map(m => ({ value: m.value, label: m.label }))];
+    const incidencias = getIncidencias(tipo, tab.id);
+    const incidenciaOpts = [
+      { value: '', label: incidencias.length ? 'Seleccionar...' : 'Opciones por definir' },
+      ...incidencias.map(i => ({ value: i.value, label: i.label })),
+    ];
+    const resolucionOpts = [{ value: '', label: 'Seleccionar...' }, ...RESOLUCION_OPTIONS];
+    const statusCitaOpts = [{ value: '', label: 'Seleccionar...' }, ...STATUS_CITA_OPTIONS];
+    const label = (text) => <CFormLabel className="fw-semibold small text-muted">{text}</CFormLabel>;
+
+    return (
+      <div key={tipo} className="border rounded mb-3 overflow-hidden">
+        <div className="px-3 py-2 d-flex justify-content-between align-items-center"
+          style={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}>
+          <strong>{tipoInfo.label}</strong>
+          <CButton
+            onClick={() => addCita(tab.id, tipo)}
+            style={{ backgroundColor: '#a14567', borderColor: '#a14567', color: '#fff', borderRadius: '50%', width: '32px', height: '32px', padding: 0 }}
+            title={`Nuevo ${tipoInfo.singular}`}
+          >
+            <CIcon icon={cilPlus} />
+          </CButton>
+        </div>
+
+        <div className="p-3">
+          {items.length === 0 && (
+            <p className="text-muted small mb-0">No hay {tipoInfo.label.toLowerCase()} registrados.</p>
+          )}
+
+          {items.map((cita) => {
+            const status = computeCitaStatus(cita);
+            const categoria = getIncidenciaCategoria(cita.incidencia);
+            const history = cita.no_acudio || [];
+            const lab = tipo === 'laboratorio' ? getPrenatalLab(cita.motivo) : null;
+
+            return (
+              <div key={cita.id} className="border rounded mb-3 overflow-hidden">
+                {/* Header summary */}
+                <div className="d-flex align-items-center gap-4 flex-wrap px-3 py-2"
+                  style={{ backgroundColor: '#fdf6f9', borderBottom: '1px solid #dee2e6' }}>
+                  <div>
+                    <span className="text-muted small">{tipo === 'laboratorio' ? 'Laboratorio' : 'Cita'}</span>{' '}
+                    <span className="fw-semibold" style={{ fontStyle: 'italic', color: '#a14567' }}>
+                      {getMotivoLabel(cita.motivo) || '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-muted small">Dr. Tratante</span>{' '}
+                    <span className="fw-semibold" style={{ fontStyle: 'italic' }}>{cita.dr_tratante || '—'}</span>
+                  </div>
+                  <div>
+                    <span className="text-muted small">Prox Cita</span>{' '}
+                    <strong>{cita.fecha_cita || '—'}</strong>
+                  </div>
+                  <div className="ms-auto d-flex align-items-center gap-2">
+                    {categoria && <CBadge color={categoria.color}>{categoria.label}</CBadge>}
+                    <CBadge color={status.color}>{status.label}</CBadge>
+                    <CButton size="sm" color="danger" variant="ghost"
+                      onClick={() => deleteCita(tab.id, cita.id)} title={`Eliminar ${tipoInfo.singular}`}>
+                      <CIcon icon={cilTrash} />
+                    </CButton>
+                  </div>
+                </div>
+
+                <div className="p-3">
+                  {/* 1. Motivo de la cita · Médico tratante */}
+                  <CRow>
+                    <CCol md={6} className="mb-3">
+                      {label('Motivo de la cita:')}
+                      {renderCitaSelect(tab.id, cita.id, 'motivo', cita.motivo, motivoOpts)}
+                      {lab && (lab.protocolo || lab.adicionales) && (
+                        <div className="small mt-1">
+                          {lab.protocolo && <div style={{ color: '#198754' }}><strong>Protocolo:</strong> {lab.protocolo}</div>}
+                          {lab.adicionales && <div style={{ color: '#fd7e14' }}><strong>Adicionales (si es necesario):</strong> {lab.adicionales}</div>}
+                        </div>
+                      )}
+                    </CCol>
+                    <CCol md={6} className="mb-3">
+                      {label('Médico tratante:')}
+                      {renderCitaInput(tab.id, cita.id, 'dr_tratante', cita.dr_tratante, 'text', 'Nombre del médico')}
+                    </CCol>
+                  </CRow>
+
+                  {/* 2. Fecha cita · Status (automatic) · Status cita */}
+                  <CRow>
+                    <CCol md={4} className="mb-3">
+                      {label('Fecha cita:')}
+                      {renderCitaInput(tab.id, cita.id, 'fecha_cita', cita.fecha_cita, 'date')}
+                    </CCol>
+                    <CCol md={4} className="mb-3">
+                      {label('Status:')}
+                      <div><CBadge color={status.color} className="px-3 py-2">{status.label}</CBadge></div>
+                    </CCol>
+                    <CCol md={4} className="mb-3">
+                      {label('Status cita:')}
+                      {renderCitaSelect(tab.id, cita.id, 'status', cita.status, statusCitaOpts)}
+                    </CCol>
+                  </CRow>
+
+                  {/* 3. No acudió + history */}
+                  <CRow className="mb-3 align-items-start">
+                    <CCol md="auto" className="mb-2">
+                      <CButton
+                        size="sm" color="danger" variant="outline"
+                        onClick={() => handleNoAcudioClick(tab.id, cita)}
+                        title={history.length >= NO_ACUDIO_LIMIT
+                          ? `Ya no acudió ${history.length} veces: agendar cita o solicitar descarte`
+                          : 'Registrar que no acudió y remarcar la cita'}
+                      >
+                        No acudió{history.length ? ` (${history.length})` : ''}
+                      </CButton>
+                    </CCol>
+                    <CCol>
+                      {history.length === 0 ? (
+                        <span className="text-muted small">Sin inasistencias registradas</span>
+                      ) : (
+                        <ul className="list-unstyled small mb-0">
+                          {history.map((h, i) => (
+                            <li key={i}>
+                              No acudió <strong>{formatYmdShort(h.fecha_cita)}</strong>
+                              {' · '}Remarcada <strong>{formatYmdShort(h.remarcada)}</strong>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </CCol>
+                  </CRow>
+
+                  {/* 4. Resolución */}
+                  <CRow>
+                    <CCol md={6} className="mb-3">
+                      {label('Resolución:')}
+                      {renderCitaSelect(tab.id, cita.id, 'resolucion', cita.resolucion, resolucionOpts)}
+                    </CCol>
+                  </CRow>
+
+                  {/* 5. Incidencia (+ category) */}
+                  <CRow>
+                    <CCol md={6} className="mb-3">
+                      {label('Incidencia:')}
+                      {renderCitaSelect(tab.id, cita.id, 'incidencia', cita.incidencia, incidenciaOpts)}
+                    </CCol>
+                    <CCol md={6} className="mb-3 d-flex align-items-end">
+                      {categoria && <CBadge color={categoria.color} className="px-3 py-2">{categoria.label}</CBadge>}
+                    </CCol>
+                  </CRow>
+
+                  {/* 6. Observaciones */}
+                  <CRow>
+                    <CCol md={12}>
+                      {label('Observaciones:')}
+                      <CFormTextarea
+                        rows={3}
+                        size="sm"
+                        value={cita.observaciones || ''}
+                        placeholder="Observaciones"
+                        onChange={(e) => updateCita(tab.id, cita.id, 'observaciones', e.target.value)}
+                      />
+                    </CCol>
+                  </CRow>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   // ── Cita Previa select (scoped by tabId + citaId) ────────────
   const renderCitaSelect = (tabId, citaId, field, value, options) => {
     const section = `cita_${tabId}_${citaId}`;
@@ -2085,13 +2590,71 @@ const SortGes = () => {
     );
   };
 
-  // Tab 1 + Tab 2 — triggered by the global "Guardar cambios" button
-  const saveAltaGesca = () =>
-    api.put(`/api/sort-ges/${id}/alta-gesca`, {
-      ...registroInicial,
-      ...datosSalud,
-      locked_fields: lockedFields,
+  // ── Saving only what changed (two people can edit the same register) ──
+  // baselineRef holds the values as last loaded/saved from the server. Saves
+  // send only the fields that differ from it, plus their original values
+  // (_original); the backend refuses (409) if someone else changed one of
+  // those fields in the meantime, instead of overwriting their work.
+  const ALTA_DERIVED = ['edad'];   // computed on screen, not a DB column
+
+  const sameValue = (a, b) => normForCompare(a) === normForCompare(b);
+
+  const diffFields = (current, baseline, skip = []) => {
+    const changes = {}; const original = {};
+    Object.keys(current).forEach(k => {
+      if (skip.includes(k)) return;
+      if (!sameValue(current[k], baseline?.[k])) {
+        changes[k] = current[k];
+        original[k] = baseline?.[k] ?? '';
+      }
+    });
+    return { changes, original };
+  };
+
+  // Lock changes since the last load/save → { 'section.field': true|false }
+  const lockPatchFrom = (locks) => {
+    const base = baselineRef.current.locks || {};
+    const patch = {};
+    Object.keys(locks).forEach(k => { if (locks[k] && !base[k]) patch[k] = true; });
+    Object.keys(base).forEach(k => { if (base[k] && !locks[k]) patch[k] = false; });
+    return patch;
+  };
+
+  const handleSaveConflict = (err) => {
+    if (err?.response?.status !== 409) return false;
+    const fields = (err.response.data?.fields || []).join(', ');
+    showNotification('warning',
+      `${err.response.data?.message || 'Otro usuario modificó este registro.'}${fields ? ` (Campos: ${fields})` : ''}`);
+    fetchCandidate();
+    return true;
+  };
+
+  // Tab 1 + Tab 2 — only changed fields (+ lock changes)
+  const saveAltaGesca = async (locksOverride) => {
+    const current = { ...registroInicial, ...datosSalud };
+    const { changes, original } = diffFields(current, baselineRef.current.alta || {}, ALTA_DERIVED);
+    const locks = locksOverride || lockedFields;
+    const patch = lockPatchFrom(locks);
+    if (!Object.keys(changes).length && !Object.keys(patch).length) return null;
+    const res = await api.put(`/api/sort-ges/${id}/alta-gesca`, {
+      ...changes,
+      _original: original,
+      locked_fields_patch: patch,
     }, { withCredentials: true });
+    baselineRef.current.alta = { ...(baselineRef.current.alta || {}), ...changes };
+    baselineRef.current.locks = Object.fromEntries(Object.entries(locks).filter(([, v]) => v));
+    return res;
+  };
+
+  // Checklist — only changed fields
+  const saveChecklist = async () => {
+    const current = checklistPayload(documentos, consentimientos);
+    const { changes, original } = diffFields(current, baselineRef.current.checklist || {});
+    if (!Object.keys(changes).length) return null;
+    const res = await api.put(`/api/sort-ges/${id}/checklist`, { ...changes, _original: original }, { withCredentials: true });
+    baselineRef.current.checklist = { ...(baselineRef.current.checklist || {}), ...changes };
+    return res;
+  };
 
   // ── Payment scheme (Listado de pagos), linked by CURP ─────────────────────
   // Is there already a scheme for the typed CURP? (created here or in Listado de pagos)
@@ -2132,7 +2695,7 @@ const SortGes = () => {
       const res = await api.post(`/api/sort-ges/${id}/payment-scheme`, {}, { withCredentials: true });
       setPaymentScheme({ id: res.data.id, gesca: res.data.gesca });
       showNotification('success', res.data.created
-        ? 'Esquema de pagos generado. Ya aparece en Listado de pagos.'
+        ? 'Esquema de pagos generado. Ya aparece en Esquemas de pagos.'
         : 'Ya existía un esquema de pagos con esta CURP; quedó vinculado.');
     } catch (err) {
       console.error('Error generating payment scheme:', err);
@@ -2147,22 +2710,7 @@ const SortGes = () => {
       setSaving(true);
       await Promise.all([
         saveAltaGesca(),
-        api.put(`/api/sort-ges/${id}/checklist`, {
-          certificado_nacimiento_url: documentos.certificado_nacimiento?.name || null,
-          curp_url:                   documentos.curp?.name                   || null,
-          comprobante_domicilio_url:  documentos.comprobante_domicilio?.name  || null,
-          poliza_seguro_url:          documentos.poliza_seguro?.name          || null,
-          cita_entrega:               documentos.cita_entrega                 || null,
-          cita_firma:                 consentimientos.cita_firma              || null,
-          consentimiento_informado:     consentimientos.consentimiento_informado,
-          consentimiento_transferencia: consentimientos.consentimiento_transferencia,
-          aviso_privacidad:             consentimientos.aviso_privacidad,
-          informacion_personal:         consentimientos.informacion_personal,
-          regular:                      consentimientos.regular,
-          hiv:                          consentimientos.hiv,
-          gemelar:                      consentimientos.gemelar,
-          full_consent:                 consentimientos.full,
-        }, { withCredentials: true }),
+        saveChecklist(),
       ]);
       // A photo taken/selected but not yet saved with "Guardar foto" is saved here too
       if (fotoFile) {
@@ -2174,6 +2722,7 @@ const SortGes = () => {
       }
       showNotification('success', 'Datos guardados correctamente');
     } catch (err) {
+      if (handleSaveConflict(err)) return;
       console.error('Error saving:', err);
       showNotification('danger', 'Error al guardar los datos');
     } finally {
@@ -2307,6 +2856,7 @@ const SortGes = () => {
           await api.put(`/api/sort-ges/${id}/checklist`, {
             [dbColumn]: secure_url,
           }, { withCredentials: true });
+          baselineRef.current.checklist = { ...(baselineRef.current.checklist || {}), [dbColumn]: secure_url };
 
           // 5. Update local state — store the secure_url as the name so it persists on reload
           setDocumentos(prev => ({
@@ -2378,6 +2928,7 @@ const SortGes = () => {
   const saveChecklistField = async (field, value) => {
     try {
       await api.put(`/api/sort-ges/${id}/checklist`, { [field]: value || null }, { withCredentials: true });
+      baselineRef.current.checklist = { ...(baselineRef.current.checklist || {}), [field]: value || null };
     } catch (err) {
       console.error(`Error saving checklist.${field}:`, err);
       showNotification('danger', 'Error al guardar la fecha');
@@ -2747,7 +3298,7 @@ const SortGes = () => {
                                 style={{ whiteSpace: 'nowrap', backgroundColor: '#d97ea1', borderColor: '#d97ea1', color: '#fff' }}
                                 disabled={!!schemeBlockReason || generatingScheme || paymentSchemeChecking}
                                 onClick={() => setShowSchemeConfirm(true)}
-                                title={schemeBlockReason || 'Crear el registro en Listado de pagos'}
+                                title={schemeBlockReason || 'Crear el registro en Esquemas de pagos'}
                               >
                                 {generatingScheme
                                   ? <><CSpinner size="sm" className="me-1" />Generando...</>
@@ -2770,7 +3321,7 @@ const SortGes = () => {
                             <CModalTitle>Generar esquema de pagos</CModalTitle>
                           </CModalHeader>
                           <CModalBody>
-                            <p className="mb-2">Se creará el registro en <strong>Listado de pagos</strong> con:</p>
+                            <p className="mb-2">Se creará el registro en <strong>Esquemas de pagos</strong> con:</p>
                             <ul className="mb-2">
                               <li><strong>GESCA:</strong> {registroInicial.nombre_completo}</li>
                               <li><strong>CURP:</strong> {normalizeCurp(registroInicial.curp)}</li>
@@ -3260,14 +3811,428 @@ const SortGes = () => {
               <>
 
                 {/* ────────────────────────────────────────────
+                    SEGURO DE GASTOS MÉDICOS MAYORES
+                ──────────────────────────────────────────── */}
+                <StaticSection
+                  title="Seguro de Gastos Médicos Mayores"
+                  subtitle="Pólizas, cuotas y comprobantes de pago"
+                  accent={SEGURO_GMM_COLOR}
+                  icon={cilMedicalCross}
+                  right={
+                    <CBadge style={{ backgroundColor: SEGURO_GMM_COLOR }}>
+                      {segurosMat.length} registro{segurosMat.length === 1 ? '' : 's'}
+                    </CBadge>
+                  }
+                >
+
+                    {segurosMat.length > 0 && renderFiltroPagos(filtroMat, setFiltroMat, {
+                      todos: segurosMat.length,
+                      proximos: segurosMat.filter(p => matCoincide(p, 'proximos')).length,
+                      avisos: segurosMat.filter(p => matCoincide(p, 'avisos')).length,
+                    }, {
+                      todos: '',
+                      proximos: `Cuotas pendientes que vencen en los próximos ${DIAS_PROXIMOS} días (resaltadas en azul).`,
+                      avisos: `Cuotas vencidas sin pagar o que vencen en ${DIAS_AVISO} días o menos (resaltadas en naranja).`,
+                    })}
+                    {segurosMat.length > 0 && !segurosMat.some(p => matCoincide(p, filtroMat)) && (
+                      <p className="text-muted small mb-3">Ningún seguro coincide con este filtro.</p>
+                    )}
+
+                    {/* ── Registros de seguro: same registers and columns as Listado de seguros ── */}
+                    {segurosMat.some(p => matCoincide(p, filtroMat)) && (
+                      <CTable hover align="middle" responsive size="sm" className="mb-4"
+                        style={{ border: '1px solid #dee2e6', whiteSpace: 'nowrap' }}>
+                        <CTableHead color="light">
+                          <CTableRow>
+                            <CTableHeaderCell>Registro</CTableHeaderCell>
+                            <CTableHeaderCell>Solicitud de seguro</CTableHeaderCell>
+                            <CTableHeaderCell>Start Póliza</CTableHeaderCell>
+                            <CTableHeaderCell>Status Gral</CTableHeaderCell>
+                            <CTableHeaderCell>Prox pgto</CTableHeaderCell>
+                            <CTableHeaderCell>Pago</CTableHeaderCell>
+                            <CTableHeaderCell>Año</CTableHeaderCell>
+                            <CTableHeaderCell className="text-center">Acciones</CTableHeaderCell>
+                          </CTableRow>
+                        </CTableHead>
+                        <CTableBody>
+                          {segurosMat.filter(p => matCoincide(p, filtroMat)).map(poliza => {
+                            const st = seguroStatus[poliza.id] || {};
+                            return (
+                              <CTableRow key={poliza.id}>
+                                <CTableDataCell>
+                                  <strong>{poliza.aseguradora || 'Sin aseguradora'}</strong>
+                                  <div className="text-muted" style={{ fontSize: '0.75rem' }}>
+                                    {[poliza.numero_poliza && `Póliza ${poliza.numero_poliza}`, poliza.gestor && `Gestor: ${poliza.gestor}`]
+                                      .filter(Boolean).join(' · ') || 'Sin póliza'}
+                                  </div>
+                                </CTableDataCell>
+                                <CTableDataCell>
+                                  <CBadge color={st.solicitud?.color || 'secondary'}>{st.solicitud?.label || '—'}</CBadge>
+                                </CTableDataCell>
+                                <CTableDataCell>{formatFechaSeguro(poliza.fecha_alta)}</CTableDataCell>
+                                <CTableDataCell>
+                                  <CBadge color={st.status_gral?.color || 'secondary'}>{st.status_gral?.label || '—'}</CBadge>
+                                </CTableDataCell>
+                                <CTableDataCell>{formatFechaSeguro(st.prox_pago)}</CTableDataCell>
+                                <CTableDataCell>
+                                  {st.pago
+                                    ? <>{st.pago}{st.liquidado && <CBadge color="success" className="ms-2">Liquidado</CBadge>}</>
+                                    : '—'}
+                                </CTableDataCell>
+                                <CTableDataCell>{st.anio || '—'}</CTableDataCell>
+                                <CTableDataCell className="text-center">
+                                  <div className="d-inline-flex gap-1">
+                                    {/* Always visible; enabled only once the insurance is liberado
+                                        (same state as Admisiones → Alta seguro) */}
+                                    <span title={st.alta_seguro?.key === 'liberada' ? 'Asignar' : 'Disponible cuando el seguro esté liberado'}>
+                                      <CButton size="sm" color="success" className="text-white"
+                                        onClick={() => asignarMat(poliza)}
+                                        disabled={st.alta_seguro?.key !== 'liberada'}
+                                        aria-label="Asignar registro de seguro">
+                                        Asignar
+                                      </CButton>
+                                    </span>
+                                    <CButton size="sm" color="secondary" variant="ghost"
+                                      onClick={() => openEditMat(poliza)} title="Editar registro"
+                                      aria-label="Editar registro de seguro">
+                                      <CIcon icon={cilPencil} />
+                                    </CButton>
+                                    <CButton size="sm" color="danger" variant="ghost"
+                                      onClick={() => setDeleteMatTarget(poliza)} title="Eliminar registro"
+                                      aria-label="Eliminar registro de seguro">
+                                      <CIcon icon={cilTrash} />
+                                    </CButton>
+                                  </div>
+                                </CTableDataCell>
+                              </CTableRow>
+                            );
+                          })}
+                        </CTableBody>
+                      </CTable>
+                    )}
+
+                    {/* Polizas list — payment schedule of each register */}
+                    {segurosMat.filter(p => matCoincide(p, filtroMat)).map((poliza) => (
+                      <div key={poliza.id} className="mb-4">
+                        {/* ── Poliza header ── */}
+                        {(() => {
+                          const totalCuotas  = poliza.pagos.length;
+                          const pagadas      = poliza.pagos.filter(c => c.fecha_pago && c.status !== 'cancelado');
+                          const montoPagado  = pagadas.reduce((s, c) => s + (parseFloat(c.monto_pago) || 0), 0);
+                          const valorCuota   = parseFloat(poliza.valor_cuota) || 0;
+                          const totalEstimado = valorCuota * totalCuotas;
+                          const porPagar      = totalEstimado - montoPagado;
+                          return (
+                            <div
+                              className="d-flex align-items-center justify-content-between px-3 py-2"
+                              style={{
+                                backgroundColor: '#f8f9fa',
+                                borderRadius: '6px 6px 0 0',
+                                border: '1px solid #dee2e6',
+                              }}
+                            >
+                              <div className="d-flex align-items-center gap-3 flex-wrap">
+                                <strong>
+                                  {poliza.aseguradora || 'Sin aseguradora'}
+                                </strong>
+                                {poliza.numero_poliza && (
+                                  <span className="text-muted small">Póliza {poliza.numero_poliza}</span>
+                                )}
+                                {poliza.gestor && (
+                                  <span className="text-muted small">· Gestor: {poliza.gestor}</span>
+                                )}
+                                {poliza.tipo_pago && (
+                                  <CBadge color="light" textColor="dark" className="border">
+                                    {TIPO_PAGO_CONFIG[poliza.tipo_pago]?.label}
+                                  </CBadge>
+                                )}
+                                {poliza.valor_alta !== '' && poliza.valor_alta !== null && poliza.valor_alta !== undefined && (
+                                  <span className="text-muted small">
+                                    · Valor de alta: <strong>${Number(poliza.valor_alta).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong>
+                                  </span>
+                                )}
+                                {/* Computed totals */}
+                                <span className="text-muted small" style={{ borderLeft: '1px solid #dee2e6', paddingLeft: '0.75rem' }}>
+                                  Pagado:{' '}
+                                  <strong style={{ color: '#198754' }}>
+                                    ${montoPagado.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                  </strong>
+                                </span>
+                                {porPagar > 0 && (
+                                  <span className="text-muted small">
+                                    Por pagar:{' '}
+                                    <strong style={{ color: '#dc3545' }}>
+                                      ${porPagar.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                                    </strong>
+                                  </span>
+                                )}
+                                {porPagar <= 0 && totalEstimado > 0 && (
+                                  <CBadge color="success" style={{ fontSize: '0.75rem' }}>✓ Completado</CBadge>
+                                )}
+                              </div>
+                              <div className="d-flex gap-2 flex-shrink-0">
+                                <CButton
+                                  size="sm" color="danger" variant="outline"
+                                  onClick={() => setDeleteMatTarget(poliza)}
+                                  title="Eliminar este registro de seguro (con sus cuotas, pagos y comprobantes)"
+                                  aria-label="Eliminar registro de seguro"
+                                >
+                                  <CIcon icon={cilTrash} className="me-1" />Eliminar
+                                </CButton>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* ── Cuotas table ── */}
+                        <CTable
+                          responsive
+                          size="sm"
+                          style={{
+                            border: '1px solid #dee2e6',
+                            borderTop: 'none',
+                            borderRadius: '0 0 6px 6px',
+                            overflow: 'hidden',
+                            marginBottom: 0,
+                          }}
+                        >
+                          <CTableHead>
+                            <CTableRow style={{ backgroundColor: '#f8f9fa' }}>
+                              <CTableHeaderCell
+                                className="text-center"
+                                style={{ width: '70px', fontWeight: 700, fontSize: '0.82rem' }}
+                              >
+                                Cuota
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Valor de Pago
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Vencimiento
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Status
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Fecha de Pago
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Concepto
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Comprobante
+                              </CTableHeaderCell>
+                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                                Acciones
+                              </CTableHeaderCell>
+                            </CTableRow>
+                          </CTableHead>
+                          <CTableBody>
+                            {poliza.pagos.map((cuota) => {
+                              const st = getCuotaStatus(cuota);
+                              const esCancelado = cuota.status === 'cancelado';
+                              const esPagado = !!cuota.fecha_pago && cuota.status !== 'cancelado';
+
+                              const statusColor = {
+                                success:   '#198754',
+                                info:      '#0dcaf0',
+                                danger:    '#dc3545',
+                                warning:   '#fd7e14',
+                                dark:      '#6c757d',
+                                secondary: '#6c757d',
+                              }[st.color] || '#333';
+
+                              return (
+                                <CTableRow
+                                  key={cuota.cuota_num}
+                                  // Rows that match the active filter: blue = próximo, orange = aviso
+                                  color={cuotaResaltada(cuota, filtroMat) ? (filtroMat === 'avisos' ? 'warning' : 'info') : undefined}
+                                  style={{ borderBottom: '1px solid #f0f0f0' }}
+                                >
+                                  {/* Cuota N/Total */}
+                                  <CTableDataCell
+                                    className="text-center"
+                                    style={{ fontWeight: 600, fontSize: '0.85rem' }}
+                                  >
+                                    {cuota.cuota_num}/{cuota.total}
+                                  </CTableDataCell>
+
+                                  {/* Valor */}
+                                  <CTableDataCell style={{ fontSize: '0.85rem' }}>
+                                    {poliza.valor_cuota
+                                      ? `$${Number(poliza.valor_cuota).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+                                      : '—'}
+                                  </CTableDataCell>
+
+                                  {/* Vencimiento */}
+                                  <CTableDataCell style={{ fontSize: '0.85rem' }}>
+                                    {formatFechaDMY(cuota.vencimiento)}
+                                  </CTableDataCell>
+
+                                  {/* Status */}
+                                  <CTableDataCell
+                                    style={{ fontWeight: 600, color: statusColor, fontSize: '0.85rem' }}
+                                  >
+                                    {st.label}
+                                  </CTableDataCell>
+
+                                  {/* Fecha de pago */}
+                                  <CTableDataCell style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
+                                    {cuota.fecha_pago ? (
+                                      <>
+                                        {formatFechaDMY(cuota.fecha_pago)}
+                                        {cuota.monto_pago && (
+                                          <span className="text-muted ms-1">
+                                            (${Number(cuota.monto_pago).toLocaleString('es-MX', { minimumFractionDigits: 2 })})
+                                          </span>
+                                        )}
+                                      </>
+                                    ) : '—'}
+                                  </CTableDataCell>
+
+                                  {/* Concepto de pago */}
+                                  <CTableDataCell style={{ fontSize: '0.85rem', maxWidth: '220px' }}>
+                                    {esPagado && cuota.concepto_pago
+                                      ? <span className="d-inline-block text-truncate" style={{ maxWidth: '220px' }} title={cuota.concepto_pago}>{cuota.concepto_pago}</span>
+                                      : <span className="text-muted small">—</span>}
+                                  </CTableDataCell>
+
+                                  {/* Comprobante (PDF) — only for registered payments */}
+                                  <CTableDataCell style={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                                    {(() => {
+                                      if (!esPagado) return <span className="text-muted small">—</span>;
+                                      const progress = comprobanteProgress[cuotaKey(poliza.id, cuota.cuota_num)];
+                                      if (progress !== undefined) {
+                                        return <span className="text-muted small"><CSpinner size="sm" className="me-1" />{progress}%</span>;
+                                      }
+                                      if (cuota.comprobante_url) {
+                                        return (
+                                          <div className="d-flex gap-2 align-items-center">
+                                            <CButton size="sm" color="link" className="p-0"
+                                              style={{ color: '#0071b8', fontSize: '0.82rem', textDecoration: 'none' }}
+                                              onClick={() => verComprobante(poliza.id, cuota.cuota_num)}
+                                              title="Ver comprobante">
+                                              <CIcon icon={cilFile} className="me-1" />Ver PDF ↗
+                                            </CButton>
+                                            <CButton size="sm" color="link" className="p-0"
+                                              style={{ color: '#dc3545', fontSize: '0.82rem', textDecoration: 'none' }}
+                                              onClick={() => requestMatPagoAction('remove-doc', poliza.id, cuota.cuota_num, null)}
+                                              title="Eliminar comprobante (requiere contraseña)">
+                                              <CIcon icon={cilTrash} />
+                                            </CButton>
+                                          </div>
+                                        );
+                                      }
+                                      const refKey = cuotaKey(poliza.id, cuota.cuota_num);
+                                      return (
+                                        <>
+                                          <input
+                                            type="file" accept="application/pdf" style={{ display: 'none' }}
+                                            ref={el => { comprobanteInputRefs.current[refKey] = el; }}
+                                            onChange={e => handleComprobanteInput(poliza.id, cuota.cuota_num, e)}
+                                          />
+                                          <CButton size="sm" color="link" className="p-0"
+                                            style={{ color: '#899973', fontSize: '0.82rem', textDecoration: 'none' }}
+                                            onClick={() => comprobanteInputRefs.current[refKey]?.click()}
+                                            title="Subir comprobante en PDF">
+                                            <CIcon icon={cilCloudUpload} className="me-1" />Subir PDF
+                                          </CButton>
+                                        </>
+                                      );
+                                    })()}
+                                  </CTableDataCell>
+
+                                  {/* Acciones */}
+                                  <CTableDataCell>
+                                    <div className="d-flex gap-2 align-items-center">
+                                      {esCancelado ? (
+                                        <span className="text-muted small">—</span>
+                                      ) : esPagado ? (
+                                        <>
+                                          <CButton
+                                            size="sm" color="link" className="p-0"
+                                            style={{ color: '#0071b8', fontSize: '0.82rem', textDecoration: 'none' }}
+                                            onClick={() => requestMatPagoAction('edit', poliza.id, cuota.cuota_num, cuota.monto_pago || poliza.valor_cuota)}
+                                          >
+                                            Editar
+                                          </CButton>
+                                          <CButton
+                                            size="sm" color="link" className="p-0"
+                                            style={{ color: '#dc3545', fontSize: '0.82rem', textDecoration: 'none' }}
+                                            onClick={() => requestMatPagoAction('remove', poliza.id, cuota.cuota_num, null)}
+                                          >
+                                            Eliminar pago
+                                          </CButton>
+                                        </>
+                                      ) : (
+                                        <CButton
+                                          size="sm" color="link" className="p-0"
+                                          style={{ color: '#198754', fontSize: '0.82rem', textDecoration: 'none' }}
+                                          onClick={() => openPagoModal(poliza.id, cuota.cuota_num, poliza.valor_cuota)}
+                                        >
+                                          Pagar
+                                        </CButton>
+                                      )}
+                                    </div>
+                                  </CTableDataCell>
+                                </CTableRow>
+                              );
+                            })}
+                          </CTableBody>
+                        </CTable>
+                      </div>
+                    ))}
+
+                    {segurosMat.length === 0 && (
+                      <p className="text-muted small mb-3">No hay registros de seguro para esta gestante.</p>
+                    )}
+
+                    {/* Action buttons */}
+                    <div className="d-flex gap-2">
+                      <CButton
+                        color="primary"
+                        variant="outline"
+                        size="sm"
+                        onClick={openNuevoMat}
+                        style={{ borderColor: '#899973', color: '#899973' }}
+                      >
+                        <CIcon icon={cilPlus} className="me-1" />Nuevo registro de seguro
+                      </CButton>
+                    </div>
+                </StaticSection>
+
+                {/* ────────────────────────────────────────────
                     SEGURO DE VIDA
                 ──────────────────────────────────────────── */}
-                <StaticSection title="Seguro de Vida">
+                <StaticSection
+                  title="Seguro de Vida"
+                  subtitle="Cobertura anual y su pago"
+                  accent={SEGURO_VIDA_COLOR}
+                  icon={cilHeart}
+                  right={
+                    <CBadge style={{ backgroundColor: SEGURO_VIDA_COLOR }}>
+                      {segurosVida.length} registro{segurosVida.length === 1 ? '' : 's'}
+                    </CBadge>
+                  }
+                >
+
+                    {segurosVida.length > 0 && renderFiltroPagos(filtroVida, setFiltroVida, {
+                      todos: segurosVida.length,
+                      proximos: segurosVida.filter(s => esVidaProxima(s)).length,
+                      avisos: segurosVida.filter(s => esVidaAviso(s)).length,
+                    }, {
+                      todos: '',
+                      proximos: `Coberturas que vencen en los próximos ${DIAS_PROXIMOS} días (pago de renovación).`,
+                      avisos: 'Sin pago registrado, pago incompleto o cobertura vencida.',
+                    })}
+                    {segurosVida.length > 0 && !segurosVida.some(s => vidaCoincide(s, filtroVida)) && (
+                      <p className="text-muted small mb-3">Ningún seguro de vida coincide con este filtro.</p>
+                    )}
 
                     {/* ── Cards — each with its own inline detail panel ── */}
                     {segurosVida.length > 0 && (
                       <div className="mb-4">
-                        {segurosVida.map((seg) => {
+                        {segurosVida.filter(s => vidaCoincide(s, filtroVida)).map((seg) => {
                           const st = getVidaStatus(seg.vencimiento);
                           const isOpen = detailVida === seg.id;
                           const isEditingPago = editingPagoVidaId === seg.id;
@@ -3299,11 +4264,11 @@ const SortGes = () => {
                                   </div>
                                   <div>
                                     <div className="text-muted small">Fecha de alta</div>
-                                    <strong>{seg.fecha_alta || '—'}</strong>
+                                    <strong>{formatFechaDMY(seg.fecha_alta)}</strong>
                                   </div>
                                   <div>
                                     <div className="text-muted small">Vencimiento cobertura</div>
-                                    <strong>{seg.vencimiento || '—'}</strong>
+                                    <strong>{formatFechaDMY(seg.vencimiento)}</strong>
                                   </div>
                                   <div>
                                     <div className="text-muted small">Aseguradora</div>
@@ -3314,7 +4279,7 @@ const SortGes = () => {
                                     <div>
                                       <div className="text-muted small">Pago registrado</div>
                                       <CBadge color="success" style={{ fontSize: '0.78rem' }}>
-                                        {seg.pago_fecha}
+                                        {formatFechaDMY(seg.pago_fecha)}
                                         {seg.pago_monto ? ` · $${Number(seg.pago_monto).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : ''}
                                       </CBadge>
                                     </div>
@@ -3352,7 +4317,9 @@ const SortGes = () => {
                                   </CButton>
                                   <CButton
                                     size="sm" color="danger" variant="outline"
-                                    onClick={() => deleteVida(seg.id)}
+                                    onClick={() => setDeleteVidaTarget(seg)}
+                                    title="Eliminar este seguro de vida"
+                                    aria-label="Eliminar seguro de vida"
                                   >
                                     <CIcon icon={cilTrash} />
                                   </CButton>
@@ -3372,8 +4339,8 @@ const SortGes = () => {
                                       ['Gestor', seg.gestor],
                                       ['N° de cuotas', '1 (única)'],
                                       ['Valor', seg.valor ? `$${Number(seg.valor).toLocaleString('es-MX', { minimumFractionDigits: 2 })}` : '—'],
-                                      ['Fecha de alta', seg.fecha_alta],
-                                      ['Vencimiento', seg.vencimiento],
+                                      ['Fecha de alta', formatFechaDMY(seg.fecha_alta)],
+                                      ['Vencimiento', formatFechaDMY(seg.vencimiento)],
                                     ].map(([label, val]) => (
                                       <CCol md={4} className="mb-2" key={label}>
                                         <div className="text-muted small">{label}</div>
@@ -3403,7 +4370,7 @@ const SortGes = () => {
                                         </CCol>
                                         <CCol md={3}>
                                           <div className="text-muted small">Fecha de pago</div>
-                                          <strong>{seg.pago_fecha}</strong>
+                                          <strong>{formatFechaDMY(seg.pago_fecha)}</strong>
                                         </CCol>
                                         <CCol md={3}>
                                           <div className="text-muted small">Estado</div>
@@ -3574,241 +4541,6 @@ const SortGes = () => {
                     >
                       <CIcon icon={cilPlus} className="me-1" />Nuevo seguro
                     </CButton>
-                </StaticSection>
-
-                {/* ────────────────────────────────────────────
-                    SEGURO DE GASTOS MÉDICOS MAYORES
-                ──────────────────────────────────────────── */}
-                <StaticSection title="Seguro de Gastos Médicos Mayores">
-
-                    {/* Polizas list */}
-                    {segurosMat.map((poliza) => (
-                      <div key={poliza.id} className="mb-4">
-                        {/* ── Poliza header ── */}
-                        {(() => {
-                          const totalCuotas  = poliza.pagos.length;
-                          const pagadas      = poliza.pagos.filter(c => c.fecha_pago && c.status !== 'cancelado');
-                          const montoPagado  = pagadas.reduce((s, c) => s + (parseFloat(c.monto_pago) || 0), 0);
-                          const valorCuota   = parseFloat(poliza.valor_cuota) || 0;
-                          const totalEstimado = valorCuota * totalCuotas;
-                          const porPagar      = totalEstimado - montoPagado;
-                          return (
-                            <div
-                              className="d-flex align-items-center justify-content-between px-3 py-2"
-                              style={{
-                                backgroundColor: '#f8f9fa',
-                                borderRadius: '6px 6px 0 0',
-                                border: '1px solid #dee2e6',
-                              }}
-                            >
-                              <div className="d-flex align-items-center gap-3 flex-wrap">
-                                <strong>
-                                  {poliza.aseguradora || 'Sin aseguradora'}
-                                </strong>
-                                {poliza.numero_poliza && (
-                                  <span className="text-muted small">Póliza {poliza.numero_poliza}</span>
-                                )}
-                                {poliza.gestor && (
-                                  <span className="text-muted small">· Gestor: {poliza.gestor}</span>
-                                )}
-                                {poliza.tipo_pago && (
-                                  <CBadge color="light" textColor="dark" className="border">
-                                    {TIPO_PAGO_CONFIG[poliza.tipo_pago]?.label}
-                                  </CBadge>
-                                )}
-                                {/* Computed totals */}
-                                <span className="text-muted small" style={{ borderLeft: '1px solid #dee2e6', paddingLeft: '0.75rem' }}>
-                                  Pagado:{' '}
-                                  <strong style={{ color: '#198754' }}>
-                                    ${montoPagado.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                                  </strong>
-                                </span>
-                                {porPagar > 0 && (
-                                  <span className="text-muted small">
-                                    Por pagar:{' '}
-                                    <strong style={{ color: '#dc3545' }}>
-                                      ${porPagar.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                                    </strong>
-                                  </span>
-                                )}
-                                {porPagar <= 0 && totalEstimado > 0 && (
-                                  <CBadge color="success" style={{ fontSize: '0.75rem' }}>✓ Completado</CBadge>
-                                )}
-                              </div>
-                              <div className="d-flex gap-2 flex-shrink-0">
-                                <CButton
-                                  size="sm" color="warning" variant="outline"
-                                  onClick={() => openEditMat(poliza)}
-                                  style={{ fontSize: '0.78rem' }}
-                                >
-                                  <CIcon icon={cilLockLocked} className="me-1" />Editar
-                                </CButton>
-                                <CButton
-                                  size="sm" color="danger" variant="ghost"
-                                  onClick={() => deleteMat(poliza.id)}
-                                >
-                                  <CIcon icon={cilTrash} />
-                                </CButton>
-                              </div>
-                            </div>
-                          );
-                        })()}
-
-                        {/* ── Cuotas table ── */}
-                        <CTable
-                          responsive
-                          size="sm"
-                          style={{
-                            border: '1px solid #dee2e6',
-                            borderTop: 'none',
-                            borderRadius: '0 0 6px 6px',
-                            overflow: 'hidden',
-                            marginBottom: 0,
-                          }}
-                        >
-                          <CTableHead>
-                            <CTableRow style={{ backgroundColor: '#f8f9fa' }}>
-                              <CTableHeaderCell
-                                className="text-center"
-                                style={{ width: '70px', fontWeight: 700, fontSize: '0.82rem' }}
-                              >
-                                Cuota
-                              </CTableHeaderCell>
-                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
-                                Valor de Pago
-                              </CTableHeaderCell>
-                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
-                                Vencimiento
-                              </CTableHeaderCell>
-                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
-                                Status
-                              </CTableHeaderCell>
-                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
-                                Fecha de Pago
-                              </CTableHeaderCell>
-                              <CTableHeaderCell style={{ fontWeight: 700, fontSize: '0.82rem' }}>
-                                Acciones
-                              </CTableHeaderCell>
-                            </CTableRow>
-                          </CTableHead>
-                          <CTableBody>
-                            {poliza.pagos.map((cuota) => {
-                              const st = getCuotaStatus(cuota);
-                              const esCancelado = cuota.status === 'cancelado';
-                              const esPagado = !!cuota.fecha_pago && cuota.status !== 'cancelado';
-
-                              const statusColor = {
-                                success:   '#198754',
-                                info:      '#0dcaf0',
-                                danger:    '#dc3545',
-                                warning:   '#fd7e14',
-                                dark:      '#6c757d',
-                                secondary: '#6c757d',
-                              }[st.color] || '#333';
-
-                              return (
-                                <CTableRow
-                                  key={cuota.cuota_num}
-                                  style={{ borderBottom: '1px solid #f0f0f0' }}
-                                >
-                                  {/* Cuota N/Total */}
-                                  <CTableDataCell
-                                    className="text-center"
-                                    style={{ fontWeight: 600, fontSize: '0.85rem' }}
-                                  >
-                                    {cuota.cuota_num}/{cuota.total}
-                                  </CTableDataCell>
-
-                                  {/* Valor */}
-                                  <CTableDataCell style={{ fontSize: '0.85rem' }}>
-                                    {poliza.valor_cuota
-                                      ? `$${Number(poliza.valor_cuota).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
-                                      : '—'}
-                                  </CTableDataCell>
-
-                                  {/* Vencimiento */}
-                                  <CTableDataCell style={{ fontSize: '0.85rem' }}>
-                                    {cuota.vencimiento || '—'}
-                                  </CTableDataCell>
-
-                                  {/* Status */}
-                                  <CTableDataCell
-                                    style={{ fontWeight: 600, color: statusColor, fontSize: '0.85rem' }}
-                                  >
-                                    {st.label}
-                                  </CTableDataCell>
-
-                                  {/* Fecha de pago */}
-                                  <CTableDataCell style={{ fontSize: '0.85rem', whiteSpace: 'nowrap' }}>
-                                    {cuota.fecha_pago ? (
-                                      <>
-                                        {cuota.fecha_pago}
-                                        {cuota.monto_pago && (
-                                          <span className="text-muted ms-1">
-                                            (${Number(cuota.monto_pago).toLocaleString('es-MX', { minimumFractionDigits: 2 })})
-                                          </span>
-                                        )}
-                                      </>
-                                    ) : '—'}
-                                  </CTableDataCell>
-
-                                  {/* Acciones */}
-                                  <CTableDataCell>
-                                    <div className="d-flex gap-2 align-items-center">
-                                      {esCancelado ? (
-                                        <span className="text-muted small">—</span>
-                                      ) : esPagado ? (
-                                        <>
-                                          <CButton
-                                            size="sm" color="link" className="p-0"
-                                            style={{ color: '#0071b8', fontSize: '0.82rem', textDecoration: 'none' }}
-                                            onClick={() => requestMatPagoAction('edit', poliza.id, cuota.cuota_num, cuota.monto_pago || poliza.valor_cuota)}
-                                          >
-                                            Editar
-                                          </CButton>
-                                          <CButton
-                                            size="sm" color="link" className="p-0"
-                                            style={{ color: '#dc3545', fontSize: '0.82rem', textDecoration: 'none' }}
-                                            onClick={() => requestMatPagoAction('remove', poliza.id, cuota.cuota_num, null)}
-                                          >
-                                            Eliminar pago
-                                          </CButton>
-                                        </>
-                                      ) : (
-                                        <CButton
-                                          size="sm" color="link" className="p-0"
-                                          style={{ color: '#198754', fontSize: '0.82rem', textDecoration: 'none' }}
-                                          onClick={() => openPagoModal(poliza.id, cuota.cuota_num, poliza.valor_cuota)}
-                                        >
-                                          Pagar
-                                        </CButton>
-                                      )}
-                                    </div>
-                                  </CTableDataCell>
-                                </CTableRow>
-                              );
-                            })}
-                          </CTableBody>
-                        </CTable>
-                      </div>
-                    ))}
-
-                    {segurosMat.length === 0 && (
-                      <p className="text-muted small mb-3">No hay seguros de gastos médicos mayores registrados.</p>
-                    )}
-
-                    {/* Action buttons */}
-                    <div className="d-flex gap-2">
-                      <CButton
-                        color="primary"
-                        variant="outline"
-                        size="sm"
-                        onClick={openNuevoMat}
-                        style={{ borderColor: '#899973', color: '#899973' }}
-                      >
-                        <CIcon icon={cilPlus} className="me-1" />Nuevo seguro
-                      </CButton>
-                    </div>
                 </StaticSection>
               </>
             </CTabPane>
@@ -4142,176 +4874,8 @@ const SortGes = () => {
               <CTabContent>
                 {CITA_PREVIA_TABS.map((tab) => (
                   <CTabPane key={tab.id} visible={citaPreviaActiveTab === tab.id}>
-                    {(citasPorTab[tab.id] || []).length === 0 && (
-                      <p className="text-muted small mb-3">No hay citas registradas.</p>
-                    )}
-
-                    {(citasPorTab[tab.id] || []).map((cita) => {
-                      const section = `cita_${tab.id}_${cita.id}`;
-                      const drLocked = isFieldLocked(section, 'dr_tratante');
-                      const motivoLabel = citaMotivoOpts.find(o => o.value === cita.motivo)?.label;
-                      const statusLabel = citaStatusOpts.find(o => o.value === cita.status)?.label;
-
-                      return (
-                        <div key={cita.id} className="border rounded mb-3 overflow-hidden">
-                          {/* Header — permanently visible summary, no collapse toggle */}
-                          <div
-                            className="d-flex align-items-center gap-4 flex-wrap px-3 py-2"
-                            style={{ backgroundColor: '#f8f9fa', borderBottom: '1px solid #dee2e6' }}
-                          >
-                            <div>
-                              <span className="text-muted small">Cita</span>{' '}
-                              <span className="fw-semibold" style={{ fontStyle: 'italic', color: '#a14567' }}>
-                                {motivoLabel || '—'}
-                              </span>
-                            </div>
-                            <div className="d-flex align-items-center gap-1">
-                              {drLocked && <CIcon icon={cilLockLocked} size="sm" className="text-muted" />}
-                              <span className="text-muted small">Dr. Tratante</span>{' '}
-                              <span className="fw-semibold" style={{ fontStyle: 'italic' }}>
-                                {cita.dr_tratante || '—'}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="text-muted small">Prox Cita</span>{' '}
-                              <strong>{cita.fecha_cita || '—'}</strong>
-                            </div>
-                            <div>
-                              <span className="text-muted small">Final</span>{' '}
-                              <strong>{cita.final || '—'}</strong>
-                            </div>
-                            <div className="ms-auto d-flex align-items-center gap-2">
-                              <span className="text-muted small">Status</span>
-                              <span className="fw-semibold" style={{ fontStyle: 'italic' }}>
-                                {statusLabel || '—'}
-                              </span>
-                              <CButton
-                                size="sm" color="danger" variant="ghost"
-                                onClick={() => deleteCita(tab.id, cita.id)}
-                                title="Eliminar cita"
-                              >
-                                <CIcon icon={cilTrash} />
-                              </CButton>
-                            </div>
-                          </div>
-
-                          {/* Body — permanently visible, no toggle */}
-                          <div className="p-3">
-                            {/* Row 1: Motivo de la cita, SDG */}
-                            <CRow>
-                              <CCol md={6} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Motivo de la cita:</CFormLabel>
-                                {renderCitaSelect(tab.id, cita.id, 'motivo', cita.motivo, citaMotivoOpts)}
-                              </CCol>
-                              <CCol md={6} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">SDG:</CFormLabel>
-                                {renderCitaSelect(tab.id, cita.id, 'sdg', cita.sdg, citaSdgOpts)}
-                              </CCol>
-                            </CRow>
-
-                            {/* Row 2: Inicio tratamiento, Final, Diagnóstico */}
-                            <CRow>
-                              <CCol md={4} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Inicio Tratamiento:</CFormLabel>
-                                {renderCitaInput(tab.id, cita.id, 'inicio_tratamiento', cita.inicio_tratamiento, 'date')}
-                              </CCol>
-                              <CCol md={4} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Final:</CFormLabel>
-                                {renderCitaInput(tab.id, cita.id, 'final', cita.final, 'date')}
-                              </CCol>
-                              <CCol md={4} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Diagnóstico:</CFormLabel>
-                                <div>
-                                  <CitaDiagnosticoToggle
-                                    locked={cita.diagnostico === 'true'}
-                                    onClick={() => updateCita(tab.id, cita.id, 'diagnostico', cita.diagnostico === 'true' ? 'false' : 'true')}
-                                  />
-                                </div>
-                              </CCol>
-                            </CRow>
-
-                            {/* Row 3: Fecha cita (shown as "Prox Cita" in the header), Médico tratante */}
-                            <CRow>
-                              <CCol md={6} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Fecha Cita:</CFormLabel>
-                                {renderCitaInput(tab.id, cita.id, 'fecha_cita', cita.fecha_cita, 'date')}
-                              </CCol>
-                              <CCol md={6} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Médico Tratante:</CFormLabel>
-                                {renderCitaInput(tab.id, cita.id, 'dr_tratante', cita.dr_tratante, 'text', 'Nombre del médico')}
-                              </CCol>
-                            </CRow>
-
-                            {/* Row 4: Status cita */}
-                            <CRow>
-                              <CCol md={6} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Status cita:</CFormLabel>
-                                {renderCitaSelect(tab.id, cita.id, 'status', cita.status, citaStatusOpts)}
-                              </CCol>
-                            </CRow>
-
-                            {/* Row 5: Comentario de la solicitud */}
-                            <CRow>
-                              <CCol md={12} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Comentario de la solicitud:</CFormLabel>
-                                {renderCitaInput(tab.id, cita.id, 'comentario_solicitud', cita.comentario_solicitud, 'text', 'Comentario de la solicitud')}
-                              </CCol>
-                            </CRow>
-
-                            {/* Row 6: Entrega resultados, Reportes, Status */}
-                            <CRow>
-                              <CCol md={4} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Entrega resultados:</CFormLabel>
-                                {renderCitaInput(tab.id, cita.id, 'entrega_resultados', cita.entrega_resultados, 'date')}
-                              </CCol>
-                              <CCol md={4} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Reportes:</CFormLabel>
-                                <div>
-                                  {/* Placeholder for document upload — not wired up yet */}
-                                  <CButton
-                                    type="button"
-                                    color="secondary"
-                                    variant="outline"
-                                    size="sm"
-                                    disabled
-                                    title="Carga de documentos — próximamente"
-                                  >
-                                    <CIcon icon={cilFolder} className="me-1" />
-                                    Reportes
-                                  </CButton>
-                                </div>
-                              </CCol>
-                              <CCol md={4} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Status:</CFormLabel>
-                                {renderCitaSelect(tab.id, cita.id, 'status_resultados', cita.status_resultados, citaStatusResultadosOpts)}
-                              </CCol>
-                            </CRow>
-
-                            {/* Row 7: Observaciones */}
-                            <CRow>
-                              <CCol md={12} className="mb-3">
-                                <CFormLabel className="fw-semibold small text-muted">Observaciones:</CFormLabel>
-                                {renderCitaInput(tab.id, cita.id, 'observaciones', cita.observaciones, 'text', 'Observaciones')}
-                              </CCol>
-                            </CRow>
-                          </div>
-                        </div>
-                      );
-                    })}
-
-                    {/* "+" button — add a new cita to this sub-tab */}
-                    <div className="d-flex justify-content-end">
-                      <CButton
-                        onClick={() => addCita(tab.id)}
-                        style={{
-                          backgroundColor: '#a14567', borderColor: '#a14567', color: '#fff',
-                          borderRadius: '50%', width: '36px', height: '36px', padding: 0,
-                        }}
-                        title="Nueva cita"
-                      >
-                        <CIcon icon={cilPlus} />
-                      </CButton>
-                    </div>
+                    {/* Each sub-tab: a "Citas" block and a "Laboratorios" block */}
+                    {['cita', 'laboratorio'].map(tipo => renderCitaBlock(tab, tipo))}
                   </CTabPane>
                 ))}
               </CTabContent>
@@ -4534,171 +5098,27 @@ const SortGes = () => {
         </CModalFooter>
       </CModal>
 
-      {/* ── Modal: Nuevo Seguro de Gastos Médicos Mayores ─── */}
-      <CModal visible={modalMat === 'new'} onClose={() => { setModalMat(null); setEditingMatId(null); }} size="lg">
+      {/* ── Modal: Nuevo / Editar registro de seguro (Gastos Médicos Mayores) ───
+           Same fields as Listado de seguros; GESCA/GESTA = this register. */}
+      <CModal visible={modalMat === 'new'} onClose={closeMatModal} size="lg" alignment="center">
         <CModalHeader>
-          <CModalTitle>{editingMatId !== null ? 'Editar seguro de gastos médicos mayores' : 'Nuevo seguro de gastos médicos mayores'}</CModalTitle>
+          <CModalTitle>
+            {editingMatId !== null ? 'Editar registro de seguro' : 'Nuevo registro de seguro'}
+            <div className="text-muted fw-normal" style={{ fontSize: '0.78rem' }}>Seguro de Gastos Médicos Mayores</div>
+          </CModalTitle>
         </CModalHeader>
         <CModalBody>
-          <CRow>
-            {/* Gestor — required */}
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Gestor: <span className="text-danger">*</span></CFormLabel>
-              <CFormInput
-                placeholder="Nombre del gestor"
-                value={formMat.gestor}
-                onChange={e => setFormMat(p => ({ ...p, gestor: e.target.value }))}
-              />
-            </CCol>
-
-            {/* Tipo de pago */}
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Tipo de pago:</CFormLabel>
-              <CFormSelect
-                value={formMat.tipo_pago}
-                onChange={e => setFormMat(p => ({
-                  ...p,
-                  tipo_pago: e.target.value,
-                  total_estimado: p.valor_cuota && e.target.value
-                    ? (parseFloat(p.valor_cuota) * (TIPO_PAGO_CONFIG[e.target.value]?.cuotas || 0)).toFixed(2)
-                    : '',
-                }))}
-              >
-                <option value="">— Seleccionar —</option>
-                {Object.entries(TIPO_PAGO_CONFIG).map(([k, v]) => (
-                  <option key={k} value={k}>{v.label}</option>
-                ))}
-              </CFormSelect>
-            </CCol>
-
-            {/* Valor por cuota */}
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Valor por cuota:</CFormLabel>
-              <CInputGroup>
-                <CInputGroupText>$</CInputGroupText>
-                <CFormInput
-                  type="number" min="0" step="0.01" placeholder="0.00"
-                  value={formMat.valor_cuota}
-                  onChange={e => {
-                    const v = e.target.value;
-                    const cfg = TIPO_PAGO_CONFIG[formMat.tipo_pago];
-                    const newTotal = cfg && v ? (parseFloat(v) * cfg.cuotas).toFixed(2) : '';
-                    setFormMat(p => ({ ...p, valor_cuota: v, total_estimado: newTotal }));
-                  }}
-                />
-              </CInputGroup>
-            </CCol>
-
-            {/* Total estimado — editable, linked to valor_cuota */}
-            <CCol md={6} className="mb-3">
-              <CFormLabel>
-                Total estimado:
-                {formMat.tipo_pago && TIPO_PAGO_CONFIG[formMat.tipo_pago] && (
-                  <span className="text-muted ms-1" style={{ fontSize: '0.72rem' }}>
-                    ({TIPO_PAGO_CONFIG[formMat.tipo_pago].cuotas} cuota{TIPO_PAGO_CONFIG[formMat.tipo_pago].cuotas > 1 ? 's' : ''})
-                  </span>
-                )}
-              </CFormLabel>
-              <CInputGroup>
-                <CInputGroupText>$</CInputGroupText>
-                <CFormInput
-                  type="number" min="0" step="0.01" placeholder="0.00"
-                  value={formMat.total_estimado || ''}
-                  disabled={!formMat.tipo_pago}
-                  style={!formMat.tipo_pago ? { backgroundColor: '#e9ecef' } : {}}
-                  onChange={e => {
-                    const t = e.target.value;
-                    const cfg = TIPO_PAGO_CONFIG[formMat.tipo_pago];
-                    const newCuota = cfg && t && cfg.cuotas > 0
-                      ? (parseFloat(t) / cfg.cuotas).toFixed(2)
-                      : '';
-                    setFormMat(p => ({ ...p, total_estimado: t, valor_cuota: newCuota }));
-                  }}
-                />
-              </CInputGroup>
-              {!formMat.tipo_pago && (
-                <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '3px' }}>
-                  Seleccione tipo de pago primero
-                </div>
-              )}
-            </CCol>
-
-            {/* ── Fechas row 1: solicitud + alta ── */}
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Fecha de solicitud: <span className="text-danger">*</span></CFormLabel>
-              <CFormInput
-                type="date"
-                value={formMat.fecha_solicitud || ''}
-                onChange={e => setFormMat(p => ({ ...p, fecha_solicitud: e.target.value }))}
-              />
-            </CCol>
-
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Fecha de alta:</CFormLabel>
-              <CFormInput
-                type="date"
-                value={formMat.fecha_alta}
-                onChange={e => {
-                  const fa = e.target.value;
-                  const sugLib = computeMatLiberacion(fa);
-                  const sugVenc = computeVidaVencimiento(fa);
-                  setFormMat(p => ({
-                    ...p,
-                    fecha_alta: fa,
-                    fecha_liberacion: p.fecha_liberacion === computeMatLiberacion(p.fecha_alta) || !p.fecha_liberacion
-                      ? sugLib : p.fecha_liberacion,
-                    fecha_vencimiento: p.fecha_vencimiento === computeVidaVencimiento(p.fecha_alta) || !p.fecha_vencimiento
-                      ? sugVenc : p.fecha_vencimiento,
-                  }));
-                }}
-              />
-            </CCol>
-
-            {/* ── Fechas row 2: liberación + vencimiento ── */}
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Fecha de liberación:</CFormLabel>
-              <CFormInput
-                type="date"
-                value={formMat.fecha_liberacion}
-                onChange={e => setFormMat(p => ({ ...p, fecha_liberacion: e.target.value }))}
-              />
-            </CCol>
-
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Fecha de vencimiento:</CFormLabel>
-              <CFormInput
-                type="date"
-                value={formMat.fecha_vencimiento}
-                onChange={e => setFormMat(p => ({ ...p, fecha_vencimiento: e.target.value }))}
-              />
-            </CCol>
-
-            {/* Aseguradora — dropdown AXXA / BUPA */}
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Aseguradora:</CFormLabel>
-              <CFormSelect
-                value={formMat.aseguradora}
-                onChange={e => setFormMat(p => ({ ...p, aseguradora: e.target.value }))}
-              >
-                <option value="">— Seleccionar —</option>
-                <option value="AXXA">AXXA</option>
-                <option value="BUPA">BUPA</option>
-              </CFormSelect>
-            </CCol>
-
-            {/* Número de póliza */}
-            <CCol md={6} className="mb-3">
-              <CFormLabel>Número de póliza:</CFormLabel>
-              <CFormInput
-                placeholder="Ej. POL-000456"
-                value={formMat.numero_poliza}
-                onChange={e => setFormMat(p => ({ ...p, numero_poliza: e.target.value }))}
-              />
-            </CCol>
-          </CRow>
+          {matFormError && <CAlert color="danger" className="py-2">{matFormError}</CAlert>}
+          <SeguroFormFields
+            form={formMat}
+            setForm={setFormMat}
+            gestante={registroInicial.nombre_completo || candidate?.nombre_completo || `Candidato #${id}`}
+            original={editingMatOriginal}
+          />
 
           {/* ── Payment calendar preview ── */}
-          {formMat.tipo_pago && formMat.fecha_alta && (() => {
+          {formMat.tipo_pago && formMat.fecha_alta
+            && (editingMatId === null || willRebuildPagos(formMat, editingMatOriginal)) && (() => {
             const pagos = buildPagos(formMat.tipo_pago, formMat.valor_cuota, formMat.fecha_alta);
             const cfg = TIPO_PAGO_CONFIG[formMat.tipo_pago];
             const valorNum = parseFloat(formMat.valor_cuota) || 0;
@@ -4747,7 +5167,7 @@ const SortGes = () => {
                       <span style={{ width: '70px', fontWeight: 600, color: '#899973' }}>
                         {c.cuota_num}/{c.total}
                       </span>
-                      <span style={{ flex: 1 }}>{c.vencimiento}</span>
+                      <span style={{ flex: 1 }}>{formatFechaDMY(c.vencimiento)}</span>
                       <span style={{ width: '110px', textAlign: 'right' }}>
                         {valorNum > 0
                           ? `$${valorNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
@@ -4776,14 +5196,107 @@ const SortGes = () => {
           })()}
         </CModalBody>
         <CModalFooter>
-          <CButton color="secondary" onClick={() => { setModalMat(null); setEditingMatId(null); }}>Cancelar</CButton>
+          <CButton color="secondary" variant="outline" onClick={closeMatModal}>Cancelar</CButton>
           <CButton
             color="primary"
             onClick={saveMat}
-            disabled={!formMat.gestor || !formMat.fecha_solicitud}
+            disabled={savingMat || !formMat.fecha_solicitud}
             style={{ backgroundColor: '#899973', borderColor: '#899973' }}
           >
-            <CIcon icon={cilSave} className="me-1" />{editingMatId !== null ? 'Actualizar' : 'Registrar'}
+            {savingMat
+              ? <><CSpinner size="sm" className="me-2" />Guardando...</>
+              : <><CIcon icon={cilSave} className="me-1" />{editingMatId !== null ? 'Guardar cambios' : 'Crear registro'}</>}
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: Eliminar seguro de vida ── */}
+      <CModal visible={!!deleteVidaTarget} onClose={() => setDeleteVidaTarget(null)} alignment="center">
+        <CModalHeader>
+          <CModalTitle>Eliminar seguro de vida</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          {deleteVidaTarget && (
+            <>
+              <p className="mb-2">
+                ¿Eliminar el seguro de vida{deleteVidaTarget.aseguradora ? <> de <strong>{deleteVidaTarget.aseguradora}</strong></> : ''}
+                {deleteVidaTarget.fecha_alta ? <> con alta el <strong>{formatFechaDMY(deleteVidaTarget.fecha_alta)}</strong></> : ''}?
+              </p>
+              <p className="mb-0 text-danger small">También se elimina su pago registrado. Esta acción no se puede deshacer.</p>
+            </>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" variant="outline" onClick={() => setDeleteVidaTarget(null)}>Cancelar</CButton>
+          <CButton color="danger" className="text-white" onClick={deleteVida} disabled={deletingVida}>
+            {deletingVida ? <><CSpinner size="sm" className="me-2" />Eliminando...</> : <><CIcon icon={cilTrash} className="me-1" />Eliminar</>}
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: Eliminar registro de seguro (same as Listado de seguros) ── */}
+      <CModal visible={!!deleteMatTarget} onClose={() => setDeleteMatTarget(null)} alignment="center">
+        <CModalHeader>
+          <CModalTitle>Eliminar registro de seguro</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          {deleteMatTarget && (
+            <>
+              <p className="mb-2">
+                ¿Eliminar el registro de seguro {deleteMatTarget.aseguradora ? <>de <strong>{deleteMatTarget.aseguradora}</strong></> : ''}
+                {deleteMatTarget.numero_poliza ? <> (póliza <strong>{deleteMatTarget.numero_poliza}</strong>)</> : ''}?
+              </p>
+              <p className="mb-0 text-danger small">
+                También se eliminan sus cuotas y pagos registrados, y desaparece de Seguros.
+                Esta acción no se puede deshacer.
+              </p>
+            </>
+          )}
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" variant="outline" onClick={() => setDeleteMatTarget(null)}>Cancelar</CButton>
+          <CButton color="danger" className="text-white" onClick={deleteMat} disabled={deletingMat}>
+            {deletingMat ? <><CSpinner size="sm" className="me-2" />Eliminando...</> : <><CIcon icon={cilTrash} className="me-1" />Eliminar</>}
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
+      {/* ── Modal: Vista previa del comprobante (PDF) ─────── */}
+      <CModal visible={!!pdfPreview} onClose={closePdfPreview} size="xl" alignment="center">
+        <CModalHeader>
+          <CModalTitle>{pdfPreview?.title}</CModalTitle>
+        </CModalHeader>
+        <CModalBody className="p-0">
+          {pdfPreview?.loading && (
+            <div className="text-center py-5"><CSpinner size="sm" className="me-2" />Cargando comprobante...</div>
+          )}
+          {pdfPreview?.error && (
+            <CAlert color="danger" className="m-3">{pdfPreview.error}</CAlert>
+          )}
+          {pdfPreview?.url && (
+            <iframe
+              title={pdfPreview.title}
+              src={pdfPreview.url}
+              style={{ width: '100%', height: '75vh', border: 'none', display: 'block' }}
+            />
+          )}
+        </CModalBody>
+        <CModalFooter>
+          {pdfPreview?.url && (
+            <>
+              <CButton color="secondary" variant="outline" onClick={() => window.open(pdfPreview.url, '_blank')}>
+                Abrir en pestaña nueva ↗
+              </CButton>
+              <CButton
+                color="secondary" variant="outline"
+                href={pdfPreview.url} download={`${(pdfPreview.title || 'comprobante').replace(/[^\w-]+/g, '_')}.pdf`}
+              >
+                Descargar
+              </CButton>
+            </>
+          )}
+          <CButton color="primary" onClick={closePdfPreview} style={{ backgroundColor: '#899973', borderColor: '#899973' }}>
+            Cerrar
           </CButton>
         </CModalFooter>
       </CModal>
@@ -4823,6 +5336,30 @@ const SortGes = () => {
                 value={fechaPagoInput}
                 onChange={e => setFechaPagoInput(e.target.value)}
               />
+            </CCol>
+            <CCol xs={12} className="mb-3">
+              <CFormLabel>Concepto de pago:</CFormLabel>
+              <CFormInput
+                placeholder="Ej. Pago de cuota mensual, abono parcial..."
+                maxLength={255}
+                value={conceptoPagoInput}
+                onChange={e => setConceptoPagoInput(e.target.value)}
+              />
+            </CCol>
+            <CCol xs={12} className="mb-1">
+              <CFormLabel>Comprobante (PDF):</CFormLabel>
+              <CFormInput
+                type="file"
+                accept="application/pdf"
+                onChange={e => {
+                  const f = e.target.files[0] || null;
+                  if (f && !checkPdf(f)) { e.target.value = ''; setPagoFile(null); return; }
+                  setPagoFile(f);
+                }}
+              />
+              <div className="text-muted" style={{ fontSize: '0.72rem', marginTop: '3px' }}>
+                Opcional — máximo 10MB. También se puede subir después desde la tabla de cuotas.
+              </div>
             </CCol>
           </CRow>
         </CModalBody>
@@ -4876,14 +5413,15 @@ const SortGes = () => {
         <CModalHeader>
           <CModalTitle>
             <CIcon icon={cilLockLocked} className="me-2 text-warning" />
-            {matPagoEditAction?.type === 'remove' ? 'Eliminar pago' : 'Editar pago'}
+            {{ remove: 'Eliminar pago', 'remove-doc': 'Eliminar comprobante' }[matPagoEditAction?.type] || 'Editar pago'}
           </CModalTitle>
         </CModalHeader>
         <CModalBody>
           <p className="text-muted small mb-3">
-            {matPagoEditAction?.type === 'remove'
-              ? 'Ingrese la contraseña para eliminar la información de este pago.'
-              : 'Ingrese la contraseña para modificar la información de este pago.'}
+            {{
+              remove: 'Ingrese la contraseña para eliminar la información de este pago (también se elimina su comprobante).',
+              'remove-doc': 'Ingrese la contraseña para eliminar el comprobante PDF de este pago.',
+            }[matPagoEditAction?.type] || 'Ingrese la contraseña para modificar la información de este pago.'}
           </p>
           <CFormLabel>Contraseña:</CFormLabel>
           <CFormInput
@@ -4902,12 +5440,12 @@ const SortGes = () => {
         <CModalFooter>
           <CButton color="secondary" onClick={cancelMatPagoAction}>Cancelar</CButton>
           <CButton
-            color={matPagoEditAction?.type === 'remove' ? 'danger' : 'warning'}
+            color={['remove', 'remove-doc'].includes(matPagoEditAction?.type) ? 'danger' : 'warning'}
             onClick={confirmMatPagoAction}
             disabled={!matPagoEditPassword}
           >
             <CIcon icon={cilLockUnlocked} className="me-1" />
-            {matPagoEditAction?.type === 'remove' ? 'Eliminar' : 'Desbloquear'}
+            {['remove', 'remove-doc'].includes(matPagoEditAction?.type) ? 'Eliminar' : 'Desbloquear'}
           </CButton>
         </CModalFooter>
       </CModal>
@@ -5028,6 +5566,24 @@ const SortGes = () => {
           background-color: #fafafa;
         }
       `}</style>
+      {/* ── "No acudió" — from the 3rd no-show on ── */}
+      <CModal visible={!!noAcudioPrompt} onClose={() => setNoAcudioPrompt(null)} alignment="center">
+        <CModalHeader>
+          <CModalTitle>La gestante no acudió de nuevo</CModalTitle>
+        </CModalHeader>
+        <CModalBody>
+          Ya tiene {NO_ACUDIO_LIMIT} o más inasistencias registradas en esta cita. Se registrará esta
+          inasistencia. ¿Qué deseas hacer?
+        </CModalBody>
+        <CModalFooter>
+          <CButton color="secondary" variant="outline" onClick={() => setNoAcudioPrompt(null)}>Cancelar</CButton>
+          <CButton color="primary" onClick={() => resolveNoAcudioPrompt('agendar')}>Agendar cita</CButton>
+          <CButton color="danger" className="text-white" onClick={() => resolveNoAcudioPrompt('descarte')}>
+            Solicitar descarte
+          </CButton>
+        </CModalFooter>
+      </CModal>
+
     </CContainer>
   );
 };

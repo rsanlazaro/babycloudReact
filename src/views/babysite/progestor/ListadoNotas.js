@@ -173,7 +173,7 @@ const ListadoNotas = () => {
       <CCard className="mb-4 mx-3">
         <CCardHeader className="d-flex justify-content-between align-items-center">
           <div className="d-flex align-items-center gap-2">
-            <strong>Listado de Notas</strong>
+            <strong>Notas pendientes</strong>
             {unreadCount > 0 && (
               <CBadge color="danger" style={{ fontSize: '0.75rem' }}>
                 {unreadCount} sin leer
