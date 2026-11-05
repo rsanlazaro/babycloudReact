@@ -36,6 +36,7 @@ import {
   cilBan,
 } from '@coreui/icons';
 import { jsPDF } from 'jspdf';
+import { renderInvoiceLayout, TOTALS_Y } from '../../../utils/invoicePdfLayout';
 
 // Import template images for Dollar and Euro versions
 import TemplateDollar from '../../../assets/invoice/NexaTravel_dollar.jpg';
@@ -233,16 +234,13 @@ const InvoiceNexatravel = () => {
         format: 'letter',
       });
 
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-
       // Select template based on currency
       const template = formData.currency === 'dollar' ? TemplateDollar : TemplateEuro;
 
-      // Add template image as background
+      // Load the template image (it is drawn by renderInvoiceLayout below)
+      let templateBase64;
       try {
-        const templateBase64 = await getImageAsBase64(template);
-        doc.addImage(templateBase64, 'JPEG', 0, 0, pageWidth, pageHeight);
+        templateBase64 = await getImageAsBase64(template);
       } catch (e) {
         console.error('Could not load template:', e);
         showNotification('danger', 'Error al cargar la plantilla de factura');
@@ -252,6 +250,24 @@ const InvoiceNexatravel = () => {
 
       // Currency symbol
       const currencySymbol = formData.currency === 'dollar' ? '$' : '€';
+
+      // ========== TEMPLATE + PRODUCTS TABLE ==========
+      // Rows are sized by their content: long concepts wrap inside the
+      // DESCRIPTION column, the row grows and the totals/bank block moves down
+      // (or continues on another page). See utils/invoicePdfLayout.js
+      const money = (v) => (v ? `${currencySymbol} ${v}` : '');
+      const items = [1, 2, 3, 4].map((n) => {
+        const description = formData[`product${n}Description`] || '';
+        return description.trim()
+          ? {
+            description,
+            quantity: formData[`product${n}Quantity`] || '',
+            price: money(formData[`product${n}Price`]),
+            total: money(formData[`product${n}Total`]),
+          }
+          : { description: '' };
+      });
+      const { lowerPage, offset } = renderInvoiceLayout(doc, templateBase64, items);
 
       // Set text color to match the template (dark blue)
       const blueColor = [0, 70, 127];
@@ -289,62 +305,14 @@ const InvoiceNexatravel = () => {
       const balanceText = formData.balanceDue ? `${currencySymbol} ${formData.balanceDue}` : '';
       doc.text(balanceText, 196, 70, { align: 'right' });
 
-      // ========== PRODUCTS TABLE ==========
-
-      // Table row positions (adjust based on template)
-      const tableStartY = 97;
-      const rowHeight = 14;
-      const descriptionX = 15;
-      const quantityX = 106;
-      const priceX = 150;
-      const totalX = 195;
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.setTextColor(60, 60, 60);
-
-      // Product 1
-      if (formData.product1Description) {
-        const y = tableStartY;
-        doc.text(formData.product1Description, descriptionX, y);
-        doc.text(formData.product1Quantity || '', quantityX, y, { align: 'center' });
-        doc.text(formData.product1Price ? `${currencySymbol} ${formData.product1Price}` : '', priceX, y, { align: 'center' });
-        doc.text(formData.product1Total ? `${currencySymbol} ${formData.product1Total}` : '', totalX, y, { align: 'right' });
-      }
-
-      // Product 2
-      if (formData.product2Description) {
-        const y = tableStartY + rowHeight;
-        doc.text(formData.product2Description, descriptionX, y);
-        doc.text(formData.product2Quantity || '', quantityX, y, { align: 'center' });
-        doc.text(formData.product2Price ? `${currencySymbol} ${formData.product2Price}` : '', priceX, y, { align: 'center' });
-        doc.text(formData.product2Total ? `${currencySymbol} ${formData.product2Total}` : '', totalX, y, { align: 'right' });
-      }
-
-      // Product 3
-      if (formData.product3Description) {
-        const y = tableStartY + rowHeight * 2 + 1;
-        doc.text(formData.product3Description, descriptionX, y);
-        doc.text(formData.product3Quantity || '', quantityX, y, { align: 'center' });
-        doc.text(formData.product3Price ? `${currencySymbol} ${formData.product3Price}` : '', priceX, y, { align: 'center' });
-        doc.text(formData.product3Total ? `${currencySymbol} ${formData.product3Total}` : '', totalX, y, { align: 'right' });
-      }
-
-      // Product 4
-      if (formData.product4Description) {
-        const y = tableStartY + rowHeight * 3 + 2;
-        doc.text(formData.product4Description, descriptionX, y);
-        doc.text(formData.product4Quantity || '', quantityX, y, { align: 'center' });
-        doc.text(formData.product4Price ? `${currencySymbol} ${formData.product4Price}` : '', priceX, y, { align: 'center' });
-        doc.text(formData.product4Total ? `${currencySymbol} ${formData.product4Total}` : '', totalX, y, { align: 'right' });
-      }
-
       // ========== TOTALS SECTION ==========
 
+      // The totals block may have moved down / to another page with the rows
+      doc.setPage(lowerPage);
       const totalsX = 195;
-      const subtotalY = 155;
-      const taxY = 166;
-      const totalY = 177;
+      const subtotalY = TOTALS_Y.subtotal + offset;
+      const taxY = TOTALS_Y.tax + offset;
+      const totalY = TOTALS_Y.total + offset;
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(12);
