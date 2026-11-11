@@ -35,6 +35,7 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
 import pdfAvisoPrivacidad         from '../documents/aviso-privacidad-simplificado.pdf';
 import pdfObligaciones            from '../documents/obligaciones-cuidados-limitaciones-embarazo.pdf';
 import pdfEsquema                 from '../documents/esquema-remuneracion.pdf';
+import pdfEsquema450k             from '../documents/esquema-remuneracion-450k.pdf';
 import pdfConsentimientoTransf    from '../documents/consentimiento-transferencia-embrionaria.pdf';
 import pdfConsentimientoInfo      from '../documents/consentimiento-informado.pdf';
 import pdfAvisoImagen             from '../documents/aviso-uso-explotacion-imagen.pdf';
@@ -61,8 +62,16 @@ const LEGAL_DOCS = [
   },
   {
     id: 'esquema-remuneracion',
-    title: 'Esquema de remuneración',
+    title: 'Esquema de remuneración (475k)',
     file: pdfEsquema,
+    color: 'success',
+    permissionKey: 'esquemaRemuneracion',
+  },
+  {
+    // Same permission as the 475k scheme (access_87): whoever can see/download one, can see/download the other
+    id: 'esquema-remuneracion-450k',
+    title: 'Esquema de remuneración (450k)',
+    file: pdfEsquema450k,
     color: 'success',
     permissionKey: 'esquemaRemuneracion',
   },

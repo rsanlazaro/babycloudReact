@@ -45,6 +45,8 @@ import TemplateEuro from '../../../assets/invoice/Travelmedicalcare_euro.jpg';
 
 import usePermissions from '../../../hooks/usePermissions';
 import { logActivity } from '../../../utils/activityLog';
+import { saveInvoiceHistory, historyErrorMessage } from '../../../utils/invoiceHistoryApi';
+import InvoiceHistory from './InvoiceHistory';
 
 const InvoiceTravelmedicalcare = () => {
   const navigate = useNavigate();
@@ -60,6 +62,9 @@ const InvoiceTravelmedicalcare = () => {
   // PDF Preview state
   const [showPreview, setShowPreview] = useState(false);
   const [pdfBlobUrl, setPdfBlobUrl] = useState(null);
+
+  // Invoice history (reloaded after every generated PDF)
+  const [historyKey, setHistoryKey] = useState(0);
 
   // Form data
   const [formData, setFormData] = useState({
@@ -105,6 +110,25 @@ const InvoiceTravelmedicalcare = () => {
   const showNotification = (type, message) => {
     setAlert({ show: true, type, message });
     setTimeout(() => setAlert({ show: false, type: '', message: '' }), 5000);
+  };
+
+  // Saves the generated invoice in the history (same number → register updated)
+  const registerInHistory = async () => {
+    try {
+      await saveInvoiceHistory('travelmedicalcare', formData);
+      setHistoryKey((k) => k + 1);
+    } catch (err) {
+      console.error('Invoice history error:', err);
+      showNotification('warning', `PDF generado, pero no se pudo guardar en el historial (${historyErrorMessage(err)})`);
+    }
+  };
+
+  // "Cargar" in the history → puts that invoice back into the form
+  const handleLoadFromHistory = (datos) => {
+    if (!datos) return;
+    setFormData((prev) => ({ ...prev, ...datos }));
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showNotification('info', `Factura ${datos.invoiceNumber || ''} cargada en el formulario`);
   };
 
   // Calculate product totals and subtotal/total
@@ -351,6 +375,7 @@ const InvoiceTravelmedicalcare = () => {
         const fileName = `Factura_Travelmedicalcare_${invoiceNum}_${currencyLabel}.pdf`;
         doc.save(fileName);
         showNotification('success', 'PDF generado exitosamente');
+        registerInHistory();
         logActivity({
           activityType: 'generate',
           entityType: 'progestor',
@@ -375,6 +400,7 @@ const InvoiceTravelmedicalcare = () => {
       link.download = `Factura_Travelmedicalcare_${invoiceNum}_${currencyLabel}.pdf`;
       link.click();
       showNotification('success', 'PDF descargado exitosamente');
+      registerInHistory();
       logActivity({
         activityType: 'generate',
         entityType: 'progestor',
@@ -945,6 +971,14 @@ const InvoiceTravelmedicalcare = () => {
           </CButton>
         </CCol>
       </CRow>
+
+      {/* History of the generated invoices */}
+      <InvoiceHistory
+        empresa="travelmedicalcare"
+        refreshKey={historyKey}
+        canEdit={canEdit}
+        onLoad={canEdit ? handleLoadFromHistory : undefined}
+      />
 
       {/* PDF Preview Modal */}
       <CModal

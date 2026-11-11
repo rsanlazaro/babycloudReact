@@ -56,7 +56,7 @@ const accessNames = [
     { key: 84, name: 'Documentos legales (sección completa)', module: 'Progestor', section: 'Reportes y facturas' },
     { key: 85, name: 'Doc: Aviso de privacidad simplificado', module: 'Progestor', section: 'Reportes y facturas' },
     { key: 86, name: 'Doc: Obligaciones, cuidados y limitaciones durante el embarazo', module: 'Progestor', section: 'Reportes y facturas' },
-    { key: 87, name: 'Doc: Esquema de remuneración', module: 'Progestor', section: 'Reportes y facturas' },
+    { key: 87, name: 'Doc: Esquema de remuneración (475k y 450k)', module: 'Progestor', section: 'Reportes y facturas' },
     { key: 88, name: 'Doc: Consentimiento informado para transferencia embrionaria y selección de programa', module: 'Progestor', section: 'Reportes y facturas' },
     { key: 89, name: 'Doc: Consentimiento informado', module: 'Progestor', section: 'Reportes y facturas' },
     { key: 90, name: 'Doc: Aviso de uso y explotación de imagen', module: 'Progestor', section: 'Reportes y facturas' },

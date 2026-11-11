@@ -121,7 +121,12 @@ const DefaultLayout = () => {
       {!user?.isGuest && <AppSidebar />}
       <div className="wrapper d-flex flex-column min-vh-100">
         <AppHeader />
-        <div className="body flex-grow-1 app-container">
+        {/* Bottom padding while the round button is shown, so it never covers
+            the end of the page (button: 56px high, up to 70px from the bottom) */}
+        <div
+          className="body flex-grow-1 app-container"
+          style={shouldShowButton ? { paddingBottom: '104px' } : undefined}
+        >
           <AppContent />
         </div>
         <Outlet />
