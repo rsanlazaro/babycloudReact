@@ -1,7 +1,8 @@
 // frontend/src/components/sortip/IpChecklist.js
 // Sort_IPS → Check list: two columns (Primer Viaje / Segundo Viaje).
 // Each item has a PDF (saved immediately, section "docs") and a date (saved
-// with "Guardar cambios"). Pasaportes and Serologías use an EXPIRY date: an
+// with "Guardar cambios"; the upload button accepts several PDFs, merged into
+// one before uploading). Pasaportes and Serologías use an EXPIRY date: an
 // alert shows when it is past or fewer than VIGENCIA_MESES_ALERTA months away.
 
 import React from 'react';
@@ -65,7 +66,7 @@ const IpChecklist = ({ data = {}, docs = {}, setField, docProps, disabled = fals
                   <div key={item.key} className="ip-chk-row">
                     <label htmlFor={inputId} className="ip-chk-label">{item.label}</label>
                     <span className="ip-chk-doc">
-                      <IpDocControls label={item.label} disabled={disabled} {...docProps(checklistDocKey(item), item.label)} />
+                      <IpDocControls label={item.label} disabled={disabled} multiple {...docProps(checklistDocKey(item), item.label)} />
                     </span>
                     <span className="ip-chk-date">
                       <span className="ip-chk-date-label">{item.vence ? 'Vence' : 'Fecha'}</span>

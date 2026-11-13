@@ -2,15 +2,21 @@
 // Upload / view / delete buttons for one PDF of a Sort_IPS register
 // (Check list items, Crio embrio results). The parent does the actual work
 // (SortIP.js → uploadIpDoc / viewIpDoc / deleteIpDoc).
+//
+// multiple → the upload button opens PdfMergeModal: several PDFs can be chosen,
+// they are merged into one and that single PDF is what onPick receives.
 
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { CButton, CSpinner } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
 import { cilCloudUpload, cilTrash } from '@coreui/icons';
+import PdfMergeModal from './PdfMergeModal';
 
-const IpDocControls = ({ label, doc, progress, onPick, onView, onDelete, disabled = false }) => {
+const slug = (s) => String(s || 'documento').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'documento';
+const IpDocControls = ({ label, doc, progress, onPick, onView, onDelete, disabled = false, multiple = false }) => {
   const inputRef = useRef(null);
-
+  const [mergeOpen, setMergeOpen] = useState(false);
   if (progress !== undefined) {
     return (
       <span className="text-muted small d-inline-flex align-items-center" aria-live="polite">
@@ -28,7 +34,7 @@ const IpDocControls = ({ label, doc, progress, onPick, onView, onDelete, disable
       {!disabled && (
         <CButton
           size="sm" color="secondary" variant="ghost" className="px-1 py-0"
-          onClick={() => inputRef.current?.click()}
+          onClick={() => (multiple ? setMergeOpen(true) : inputRef.current?.click())}
           title={doc?.url ? `Reemplazar PDF: ${label}` : `Subir PDF: ${label}`}
           aria-label={doc?.url ? `Reemplazar PDF de ${label}` : `Subir PDF de ${label}`}
         >
@@ -52,6 +58,15 @@ const IpDocControls = ({ label, doc, progress, onPick, onView, onDelete, disable
             </CButton>
           )}
         </>
+      )}
+      {multiple && (
+        <PdfMergeModal
+          visible={mergeOpen}
+          title={`${doc?.url ? 'Reemplazar' : 'Subir'} PDF — ${label}`}
+          fileName={slug(label)}
+          onClose={() => setMergeOpen(false)}
+          onConfirm={(file) => { setMergeOpen(false); onPick(file); }}
+        />
       )}
       <style>{`
         .ip-doc-pdf {

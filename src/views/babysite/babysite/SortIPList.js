@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   CContainer, CCard, CCardBody, CAlert, CButton, CBadge, CSpinner,
   CTable, CTableHead, CTableRow, CTableHeaderCell, CTableBody, CTableDataCell,
-  CInputGroup, CInputGroupText, CFormInput, CFormLabel, CFormSelect,
+  CInputGroup, CInputGroupText, CFormInput, CFormLabel, CFormSelect, CFormCheck,
   CModal, CModalHeader, CModalTitle, CModalBody, CModalFooter, CRow, CCol,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
 import { useUser } from '../../../context/AuthContext';
 import PendingDocsDot from '../../../components/sortip/PendingDocsDot';
+import { IpCategoriaSelect, IpCategoriaBadge, IP_CATEGORIA_CSS } from '../../../components/sortip/IpCategoria';
 import CrioListTables from '../../../components/sortip/CrioListTables';
 import PdfPreviewModal from '../../../components/PdfPreviewModal';
 import PERMISSIONS from '../../../config/permissions';
@@ -24,7 +25,19 @@ import {
 } from '../../../config/sortIpSections';
 
 const PINK = '#d97ea1';
-const EMPTY_FORM = { nombre_completo: '', pasaporte: '', email: '', telefono: '', pais: '', guest_id: '' };
+const EMPTY_FORM = {
+  nombre_completo: '', pasaporte: '', email: '', telefono: '', pais: '', categoria: '', guest_id: '',
+  // Without an existing account: create it in Guests (profile IP) with this password
+  crear_cuenta: true, cuenta_password: '',
+};
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// Same password rule as Guests
+const accountPasswordError = (p) => {
+  if (!p) return 'Escribe la contraseña de su cuenta';
+  if (p.length < 6) return 'La contraseña debe tener al menos 6 caracteres';
+  if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(p)) return 'La contraseña debe contener una mayúscula, una minúscula y un número';
+  return '';
+};
 
 // Deposit shown in "Depósitos": number + Agendar / Programado / where it was made
 const DEPOSITO_STYLE = {
@@ -51,6 +64,8 @@ const renderCell = (col, ip) => {
       </span>
     );
   }
+  // Name + information balloon with the explanation
+  if (col.type === 'categoria') return <IpCategoriaBadge value={v} />;
   if (col.type === 'badge') return <CBadge color="light" textColor="dark" className="border">{String(v)}</CBadge>;
   // { text, color } — e.g. "Vigencias" (pasaporte / serologías about to expire)
   if (col.type === 'alert') return <CBadge color={v.color} textColor={v.color === 'warning' ? 'dark' : undefined}>⚠ {v.text}</CBadge>;
@@ -180,14 +195,24 @@ const SortIPList = () => {
 
   // ── Passport: live check while typing in "Nuevo IP" ─────────────────────
   const [pasaporteDup, setPasaporteDup] = useState(null);   // { id, nombre_completo } | null
+  // Guests account with the typed passport → it is linked (no new account)
+  const [passportGuest, setPassportGuest] = useState(null);  // { id, username, mail, linked, profile } | null
+  // The backend links it even if no profile was picked above
+  const passportLinkable = !!passportGuest && !passportGuest.linked && passportGuest.profile === 'ip';
   useEffect(() => {
     const p = normalizePasaporte(form.pasaporte);
-    if (!showCreate || !isValidPasaporte(p)) { setPasaporteDup(null); return undefined; }
+    if (!showCreate || !isValidPasaporte(p)) { setPasaporteDup(null); setPassportGuest(null); return undefined; }
     const t = setTimeout(async () => {
       try {
         const res = await api.get(`/api/sort-ip/pasaporte/${encodeURIComponent(p)}`, { withCredentials: true });
         setPasaporteDup(res.data?.ip || null);
-      } catch { setPasaporteDup(null); }
+        const g = res.data?.guest || null;
+        setPassportGuest(g);
+        // Same passport as an existing IP account → start from it (fills name, email, phone)
+        if (g && !g.linked && g.profile === 'ip' && !res.data?.ip) {
+          if (guests.some(x => String(x.id) === String(g.id))) pickGuestProfile(String(g.id));
+        }
+      } catch { setPasaporteDup(null); setPassportGuest(null); }
     }, 350);
     return () => clearTimeout(t);
   }, [form.pasaporte, showCreate]);
@@ -207,6 +232,7 @@ const SortIPList = () => {
         nombre_completo: take('nombre_completo', next?.username, prev?.username),
         email:           take('email', next?.mail, prev?.mail),
         telefono:        take('telefono', next?.phone, prev?.phone),
+        pasaporte:       take('pasaporte', next?.pasaporte, prev?.pasaporte),
       };
     });
   };
@@ -220,6 +246,13 @@ const SortIPList = () => {
     if (!pasaporte) { setFormError('El pasaporte es obligatorio'); return; }
     if (!isValidPasaporte(pasaporte)) { setFormError(PASAPORTE_FORMAT_MESSAGE); return; }
     if (pasaporteDup) { setFormError(`Ya existe un registro IP con este pasaporte: ${pasaporteDup.nombre_completo}`); return; }
+    if (!form.categoria) { setFormError('Selecciona la categoría del IP'); return; }
+    const createAccount = !form.guest_id && !passportLinkable && form.crear_cuenta;
+    if (createAccount) {
+      if (!EMAIL_REGEX.test(form.email.trim())) { setFormError('Para crear su cuenta escribe un correo electrónico válido (es su usuario)'); return; }
+      const pwdErr = accountPasswordError(form.cuenta_password);
+      if (pwdErr) { setFormError(pwdErr); return; }
+    }
     try {
       setSaving(true);
       setFormError('');
@@ -227,7 +260,8 @@ const SortIPList = () => {
         nombre_completo: form.nombre_completo.trim(),
         pasaporte,
         guest_id: form.guest_id || null,
-        alta: { email: form.email.trim(), telefono: form.telefono.trim(), pais: form.pais.trim() },
+        cuenta: createAccount ? { password: form.cuenta_password } : undefined,
+        alta: { email: form.email.trim(), telefono: form.telefono.trim(), pais: form.pais.trim(), categoria: form.categoria },
       }, { withCredentials: true });
       setShowCreate(false);
       navigate(`/babysite/ips/${res.data.id}`);
@@ -471,12 +505,62 @@ const SortIPList = () => {
               <CFormInput value={form.pais} onChange={e => setForm(f => ({ ...f, pais: e.target.value }))} />
             </CCol>
             <CCol md={6} className="mb-3">
-              <CFormLabel>Cuenta Cloud IPS</CFormLabel>
-              <CFormInput
-                readOnly disabled
-                value={guests.find(g => String(g.id) === String(form.guest_id))?.username || 'Sin vincular'}
+              <CFormLabel htmlFor="new-ip-categoria">Categoría *</CFormLabel>
+              <IpCategoriaSelect
+                id="new-ip-categoria"
+                value={form.categoria}
+                invalid={formError === 'Selecciona la categoría del IP'}
+                onChange={v => setForm(f => ({ ...f, categoria: v }))}
               />
-              <small className="text-muted">Se elige arriba, en "Generar desde perfil IP".</small>
+              <small className="text-muted">Se puede cambiar después en Alta IP.</small>
+            </CCol>
+            {/* ── Baby Cloud account (Guests, profile IP) — linked through the passport ── */}
+            <CCol xs={12} className="mb-3">
+              <div className="p-2 rounded border" style={{ backgroundColor: '#f3fafb', borderColor: '#bfe3e9' }}>
+                <CFormLabel className="mb-1 fw-semibold">Cuenta Baby Cloud (Guests)</CFormLabel>
+                {form.guest_id || passportLinkable ? (
+                  <div className="small">
+                    Se vinculará con la cuenta{' '}
+                    <strong>{guests.find(g => String(g.id) === String(form.guest_id))?.username || passportGuest?.username}</strong>
+                    {!form.guest_id || String(passportGuest?.id) === String(form.guest_id) ? ' (mismo número de pasaporte)' : ''}.
+                    {' '}No se crea una cuenta nueva.
+                  </div>
+                ) : passportGuest && (passportGuest.linked || passportGuest.profile !== 'ip') ? (
+                  <div className="small text-danger">
+                    El pasaporte ya lo tiene la cuenta {passportGuest.username}
+                    {passportGuest.linked ? ', vinculada a otro registro IP.' : ', que no tiene perfil IP.'}
+                  </div>
+                ) : (
+                  <>
+                    <CFormCheck
+                      id="new-ip-crear-cuenta"
+                      label="Crear su cuenta en Guests (perfil IP)"
+                      checked={form.crear_cuenta}
+                      onChange={e => setForm(f => ({ ...f, crear_cuenta: e.target.checked }))}
+                    />
+                    {form.crear_cuenta && (
+                      <CRow className="mt-2">
+                        <CCol md={6}>
+                          <CFormLabel htmlFor="new-ip-cuenta-pwd" className="small mb-1">Contraseña *</CFormLabel>
+                          <CFormInput
+                            id="new-ip-cuenta-pwd" type="password" autoComplete="new-password"
+                            value={form.cuenta_password}
+                            invalid={!!form.cuenta_password && !!accountPasswordError(form.cuenta_password)}
+                            onChange={e => setForm(f => ({ ...f, cuenta_password: e.target.value }))}
+                          />
+                          {form.cuenta_password && accountPasswordError(form.cuenta_password) && (
+                            <small className="text-danger">{accountPasswordError(form.cuenta_password)}</small>
+                          )}
+                        </CCol>
+                        <CCol md={6} className="small text-muted d-flex align-items-end">
+                          Usuario: su correo electrónico. Se guardan también su nombre, teléfono y pasaporte.
+                        </CCol>
+                      </CRow>
+                    )}
+                    {!form.crear_cuenta && <small className="text-muted d-block">Podrás crearla después en Alta IP → "Cuenta vinculada".</small>}
+                  </>
+                )}
+              </div>
             </CCol>
           </CRow>
           <small className="text-muted">El resto de la información se captura en las pestañas del registro.</small>
@@ -491,6 +575,7 @@ const SortIPList = () => {
 
       <style>{`
         .nowrap-table th, .nowrap-table td { white-space: nowrap; vertical-align: middle; }
+        ${IP_CATEGORIA_CSS}
 
         /* ── Data IP statuses (Itinerario, Viaje 1, Depósitos, Status General) ── */
         .ip-st { font-weight: 700; font-style: italic; }

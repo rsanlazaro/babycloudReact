@@ -5,7 +5,8 @@
 // ⚠ PROVISIONAL FIELDS — replace them with the real ones when defined.
 // Fields are stored per tab as JSON (backend table sort_ip_sections), so
 // adding, removing or renaming a field here needs NO database change.
-// Field types: text | email | tel | number | date | textarea | select | check | gestante
+// Field types: text | email | tel | number | date | textarea | select | check | gestante | categoria
+//   - categoria → IP_CATEGORIAS (name + description while choosing)
 //   - select   → needs `options`
 //   - check    → checkbox (used by the Check list tab)
 //   - gestante → picks a Sort_GESCA register (links IP ↔ gestante)
@@ -18,7 +19,23 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 // Categoría and Status General of each IP (Alta IP → Registro Inicial)
 // ─────────────────────────────────────────────────────────────────────────────
-export const IP_CATEGORIAS = ['Regular', 'VIP', 'Premium', 'Royal', 'Diamante', 'Elite'];
+// Chosen when the IP is created ("Nuevo IP") and editable in Alta IP. Only the
+// name is stored; the description is shown while choosing and, in the list, in
+// an information balloon next to the name.
+export const IP_CATEGORIAS = [
+  { value: 'Embrio', descripcion: 'Es un cliente' },
+  { value: 'Baby',   descripcion: 'Tiene un bebé Babyboom' },
+  { value: 'Child',  descripcion: 'Hizo un programa, pero no en Babyboom' },
+  { value: 'Teen',   descripcion: 'Conflictivo' },
+  { value: 'Adult',  descripcion: 'Recomendación de otro programa o pareja' },
+  { value: 'Mayor',  descripcion: 'VIP' },
+];
+
+/** { value, descripcion } of a category, or null (empty / old value not in the list) */
+export const ipCategoria = (value) => IP_CATEGORIAS.find(c => c.value === value) || null;
+
+/** Text of an option while choosing: "Embrio — Es un cliente" */
+export const ipCategoriaOptionLabel = (c) => `${c.value} — ${c.descripcion}`;
 
 // Status General — chosen in Alta IP, shown in the Data IP list with its color
 export const IP_STATUS_GENERAL = [
@@ -50,6 +67,10 @@ export const IP_SECTIONS = [
       // Not stored in Sort_IPS: it is the password of the linked Guests account
       // (read/written through /api/sort-ip/:id/guest-password)
       { name: 'guest_password', label: 'Contraseña (Guests)', type: 'guestPassword', col: 6, virtual: true },
+      // Guests account of the IP, linked through the passport (create / link / unlink)
+      { name: 'cuenta_cloud', label: 'Cuenta vinculada', type: 'guestAccount', col: 6, virtual: true },
+      // On/off saved at once in the Alta IP data (vista_babycloud) + "Ir al registro"
+      { name: 'vista_babycloud', label: 'Vista en Baby Cloud', type: 'cloudView', col: 6, virtual: true },
       // "telefono" keeps its name: it is synced with Guests → phone
       { name: 'telefono', label: 'Teléfono 1', type: 'tel', col: 4 },
       { name: 'telefono_2', label: 'Teléfono 2', type: 'tel', col: 4 },
@@ -63,7 +84,7 @@ export const IP_SECTIONS = [
       { name: 'direccion', label: 'Residencia / Calle No', type: 'text', col: 6 },
       { name: 'barrio', label: 'Barrio', type: 'text', col: 4 },
       { name: 'cp', label: 'CP', type: 'text', col: 2 },
-      { name: 'categoria', label: 'Categoría', type: 'select', col: 4, options: IP_CATEGORIAS },
+      { name: 'categoria', label: 'Categoría', type: 'categoria', col: 4 },
       { name: 'status_general', label: 'Status General', type: 'select', col: 4, options: IP_STATUS_GENERAL.map(o => o.label) },
       { name: 'notas', label: 'Notas', type: 'textarea', col: 12 },
     ],
@@ -257,7 +278,7 @@ export const IP_LIST_TABS = [
       { label: 'Vuelo vuelta', value: ip => (sec(ip, 'alta').sin_viaje ? 'Sin viaje' : viajeActivo(sec(ip, 'alta'))?.salida_fecha), type: 'date' },
       { label: 'Itinerario', value: ip => itinerarioStatus(sec(ip, 'alta')), type: 'status' },
       { label: 'Viaje 1', value: ip => viaje1Status(sec(ip, 'alta')), type: 'status' },
-      { label: 'Categoría', value: ip => sec(ip, 'alta').categoria, type: 'badge' },
+      { label: 'Categoría', value: ip => sec(ip, 'alta').categoria, type: 'categoria' },
       { label: 'Depósitos', value: ip => depositosResumen(sec(ip, 'crio')), type: 'depositos' },
       { label: 'Selec Dona', value: ip => ip, type: 'selecDona' },
       { label: 'Status General', value: ip => statusGeneral(sec(ip, 'alta')), type: 'status' },

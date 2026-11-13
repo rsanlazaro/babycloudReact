@@ -305,6 +305,10 @@ const PaymentsGestForm = () => {
   const [curpInfo, setCurpInfo] = useState(null);
   const [curpChecking, setCurpChecking] = useState(false);
   const curpPrefilledRef = useRef('');
+  // CURP as it is SAVED in the database for this register ('' while not registered).
+  // "Agregar a Sort_GESCA" unlocks only when the CURP is registered.
+  const [savedCurp, setSavedCurp] = useState('');
+  const [sortGesAdding, setSortGesAdding] = useState(false);
   const [alert, setAlert] = useState({ show: false, type: '', message: '' });
 
   const recordIdRef = useRef(isEditMode ? id : null);
@@ -967,6 +971,7 @@ const PaymentsGestForm = () => {
       setLoading(true);
       const res = await api.get(`/api/payments-gest/${id}`, { withCredentials: true });
       const data = res.data;
+      setSavedCurp(normalizeCurp(data.curp));
       setFormData({
         gesca: data.gesca || '', curp: data.curp || '', ip: data.ip || '', banco: data.banco || '',
         clabe: data.clabe || '',
@@ -1056,6 +1061,37 @@ const PaymentsGestForm = () => {
   const curpDuplicate = curpInfo?.scheme && String(curpInfo.scheme.id) !== String(recordIdRef.current)
     ? curpInfo.scheme : null;
   const curpCandidate = curpInfo?.candidate || null;
+
+  // "Agregar a Sort_GESCA": available when the register exists and the CURP in
+  // the field is valid, has no duplicate and is already saved (registered).
+  const curpRegistered = !!recordIdRef.current && !!savedCurp && isValidCurp(savedCurp)
+    && normalizeCurp(formData.curp) === savedCurp && !curpDuplicate;
+  const sortGesLockReason = !recordIdRef.current
+    ? 'Disponible cuando el esquema se haya creado'
+    : !curpRegistered
+      ? 'Disponible cuando la CURP esté registrada (guardada) en este esquema'
+      : !canEditForm ? 'Solo lectura' : '';
+
+  const handleAddToSortGes = async () => {
+    if (!curpRegistered || !canEditForm || sortGesAdding) return;
+    setSortGesAdding(true);
+    try {
+      const res = await api.post(`/api/payments-gest/${recordIdRef.current}/sort-ges`, {}, { withCredentials: true });
+      const sg = res.data;
+      setCurpInfo(prev => ({
+        ...(prev || {}),
+        curp: savedCurp,
+        valid: true,
+        candidate: { id: sg.id, nombre_completo: sg.nombre_completo || formData.gesca },
+      }));
+      setAlert({ show: true, type: 'success', message: sg.message || 'Registro agregado a Sort_GESCA' });
+      // (the backend records the creation in the activity log)
+    } catch (err) {
+      setAlert({ show: true, type: 'danger', message: err.response?.data?.message || 'No se pudo agregar a Sort_GESCA' });
+    } finally {
+      setSortGesAdding(false);
+    }
+  };
 
   // New register + CURP found in SORT_GES → fill empty fields from the candidate (once per CURP)
   useEffect(() => {
@@ -2165,6 +2201,7 @@ const PaymentsGestForm = () => {
       }
       dirtySectionsRef.current = new Set();
       setLastSaved(new Date());
+      if (curpNow) setSavedCurp(curpNow); // the CURP is now registered
     } catch (err) {
       setSaveError(err.response?.data?.message || 'Error al guardar');
     } finally {
@@ -2619,8 +2656,24 @@ const PaymentsGestForm = () => {
                     </CButton>
                   </div>
                 )}
-                {!curpChecking && curpInfo?.valid && !curpDuplicate && !curpCandidate && (
-                  <small className="text-muted d-block mt-1">Sin candidata en Sort_GESCA con esta CURP (se vinculará si se registra después).</small>
+                {!curpChecking && !curpDuplicate && !curpCandidate && formData.curp && (
+                  <div className="small mt-1 d-flex align-items-center gap-2 flex-wrap">
+                    <span className="text-warning-emphasis">
+                      <CIcon icon={cilWarning} size="sm" /> Aún no está en Sort_GESCA
+                    </span>
+                    <span title={sortGesLockReason} style={{ display: 'inline-block' }}>
+                      <CButton
+                        size="sm" color="success" style={{ padding: '0 8px', color: '#fff' }}
+                        disabled={!curpRegistered || !canEditForm || sortGesAdding}
+                        onClick={handleAddToSortGes}
+                      >
+                        {sortGesAdding
+                          ? <><CSpinner size="sm" className="me-1" />Agregando…</>
+                          : <><CIcon icon={curpRegistered ? cilPlus : cilLockLocked} size="sm" className="me-1" />Agregar a Sort_GESCA</>}
+                      </CButton>
+                    </span>
+                    {!curpRegistered && <span className="text-muted">({sortGesLockReason.charAt(0).toLowerCase() + sortGesLockReason.slice(1)})</span>}
+                  </div>
                 )}
               </div>
             </div>

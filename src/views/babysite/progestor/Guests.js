@@ -28,6 +28,7 @@ import {
   CModalBody,
   CModalFooter,
   CFormFeedback,
+  CBadge,
   CTooltip,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
@@ -106,6 +107,7 @@ const Guests = () => {
     password: '',
     profile: 'ip',
     phone: '',
+    pasaporte: '', // IP profile: links the account with its Sort_IPS register
   });
 
   // Profile options
@@ -188,8 +190,17 @@ const Guests = () => {
     return '';
   };
 
+  // Passport (IP profile, optional): same format as Sort_IPS
+  const normalizePasaporte = (v) => String(v || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const validatePasaporte = (v) => {
+    const p = normalizePasaporte(v);
+    if (!p) return '';
+    return /^[A-Z0-9]{5,20}$/.test(p) ? '' : 'El pasaporte debe tener entre 5 y 20 letras o números';
+  };
+
   const validateNewGuestField = (name, value) => {
     switch (name) {
+      case 'pasaporte': return validatePasaporte(value);
       case 'username': return validateUsername(value);
       case 'email': return validateEmail(value);
       case 'password': return validatePassword(value);
@@ -206,6 +217,7 @@ const Guests = () => {
     errors.password = validatePassword(newGuest.password);
     errors.profile = validateProfile(newGuest.profile);
     errors.phone = validatePhone(newGuest.phone);
+    errors.pasaporte = newGuest.profile === 'ip' ? validatePasaporte(newGuest.pasaporte) : '';
     Object.keys(errors).forEach((key) => { if (!errors[key]) delete errors[key]; });
     setNewGuestErrors(errors);
     return Object.keys(errors).length === 0;
@@ -241,7 +253,8 @@ const Guests = () => {
       result = result.filter((guest) =>
         guest.username?.toLowerCase().includes(term) ||
         guest.mail?.toLowerCase().includes(term) ||
-        guest.profile?.toLowerCase().includes(term)
+        guest.profile?.toLowerCase().includes(term) ||
+        guest.pasaporte?.toLowerCase().includes(term)
       );
     }
     result.sort((a, b) => {
@@ -318,12 +331,24 @@ const Guests = () => {
         return;
       }
     }
+    let value = editValue;
+    if (field === 'pasaporte') {
+      const error = validatePasaporte(editValue);
+      if (error) {
+        showNotification('danger', error);
+        return;
+      }
+      value = normalizePasaporte(editValue) || null;
+    }
 
     try {
-      const updateData = { [field]: editValue };
-      await api.put(`/api/guests/${guestId}`, updateData, { withCredentials: true });
-      setGuests((prev) => prev.map((guest) => guest.id === guestId ? { ...guest, [field]: editValue } : guest));
-      showNotification('success', 'Invitado actualizado correctamente');
+      const updateData = { [field]: value };
+      const res = await api.put(`/api/guests/${guestId}`, updateData, { withCredentials: true });
+      const link = res.data?.sort_ip_id ? { sort_ip_id: res.data.sort_ip_id, sort_ip_nombre: res.data.sort_ip_nombre } : {};
+      setGuests((prev) => prev.map((guest) => guest.id === guestId ? { ...guest, [field]: value, ...link } : guest));
+      showNotification('success', res.data?.sort_ip_id
+        ? `Invitado actualizado y vinculado por pasaporte con el registro Sort_IPS de ${res.data.sort_ip_nombre}`
+        : 'Invitado actualizado correctamente');
       cancelEditing();
     } catch (err) {
       console.error('Error updating guest:', err);
@@ -413,7 +438,7 @@ const Guests = () => {
   };
 
   const resetNewGuestForm = () => {
-    setNewGuest({ username: '', email: '', password: '', profile: 'ip', phone: '' });
+    setNewGuest({ username: '', email: '', password: '', profile: 'ip', phone: '', pasaporte: '' });
     setNewGuestErrors({});
     setNewGuestTouched({});
   };
@@ -422,14 +447,17 @@ const Guests = () => {
     // Only allow if has create permission level 2
     if (!guestPerms.create.editable) return;
     
-    setNewGuestTouched({ username: true, email: true, password: true, profile: true, phone: true });
+    setNewGuestTouched({ username: true, email: true, password: true, profile: true, phone: true, pasaporte: true });
     if (!validateNewGuestForm()) {
       showNotification('danger', 'Por favor corrija los errores antes de continuar');
       return;
     }
     
     try {
-      const res = await api.post('/api/guests', newGuest, { withCredentials: true });
+      const res = await api.post('/api/guests', {
+        ...newGuest,
+        pasaporte: newGuest.profile === 'ip' ? (normalizePasaporte(newGuest.pasaporte) || null) : null,
+      }, { withCredentials: true });
       setGuests((prev) => [...prev, res.data]);
       setShowNewGuestModal(false);
       resetNewGuestForm();
@@ -437,7 +465,9 @@ const Guests = () => {
         'success',
         res.data?.codigo
           ? `Invitado creado correctamente. Código asignado: ${res.data.codigo}`
-          : 'Invitado creado correctamente'
+          : res.data?.sort_ip_id
+            ? `Invitado creado y vinculado por pasaporte con el registro Sort_IPS de ${res.data.sort_ip_nombre}`
+            : 'Invitado creado correctamente'
       );
     } catch (err) {
       console.error('Error creating guest:', err);
@@ -700,6 +730,7 @@ const Guests = () => {
                   <SortableHeader label="Perfil" sortKey="profile" />
                   <SortableHeader label="Código" sortKey="codigo" />
                   <SortableHeader label="Teléfono" sortKey="phone" />
+                  <SortableHeader label="Pasaporte" sortKey="pasaporte" />
                   <SortableHeader label="Fecha de creación" sortKey="created_on" />
                   {/* Status column - only if edit permission level >= 1 */}
                   {guestPerms.edit.visible && <CTableHeaderCell>Estado</CTableHeaderCell>}
@@ -710,7 +741,7 @@ const Guests = () => {
               <CTableBody>
                 {filteredAndSortedGuests.length === 0 ? (
                   <CTableRow>
-                    <CTableDataCell colSpan={10} className="text-center py-4">
+                    <CTableDataCell colSpan={11} className="text-center py-4">
                       {searchTerm ? 'No se encontraron invitados' : 'No hay invitados registrados'}
                     </CTableDataCell>
                   </CTableRow>
@@ -749,6 +780,21 @@ const Guests = () => {
 
                       {/* Teléfono */}
                       <CTableDataCell>{renderEditableCell(guest, 'phone')}</CTableDataCell>
+
+                      {/* Pasaporte — IP profile: links the account with its Sort_IPS register.
+                          Once linked it is changed from Sort_IPS → Alta IP. */}
+                      <CTableDataCell>
+                        {guest.profile !== 'ip' && !guest.pasaporte
+                          ? <span className="text-muted">-</span>
+                          : guest.sort_ip_id
+                            ? (
+                              <span className="d-inline-flex align-items-center gap-1" title={`Vinculada con el registro Sort_IPS de ${guest.sort_ip_nombre}. El pasaporte se cambia desde Sort_IPS → Alta IP.`}>
+                                {guest.pasaporte || '-'}
+                                <CBadge color="info" className="ms-1">Sort_IPS</CBadge>
+                              </span>
+                            )
+                            : renderEditableCell(guest, 'pasaporte')}
+                      </CTableDataCell>
 
                       {/* Created date */}
                       <CTableDataCell>{formatDate(guest.created_on)}</CTableDataCell>
@@ -883,6 +929,28 @@ const Guests = () => {
               </small>
             )}
           </div>
+          {newGuest.profile === 'ip' && (
+            <div className="mb-3">
+              <label className="form-label" htmlFor="new-guest-pasaporte">Pasaporte</label>
+              <CFormInput
+                id="new-guest-pasaporte"
+                name="pasaporte"
+                value={newGuest.pasaporte}
+                maxLength={24}
+                autoComplete="off"
+                onChange={(e) => handleNewGuestChange({ target: { name: 'pasaporte', value: normalizePasaporte(e.target.value) } })}
+                onBlur={handleNewGuestBlur}
+                placeholder="Número de pasaporte"
+                invalid={newGuestTouched.pasaporte && !!newGuestErrors.pasaporte}
+              />
+              {newGuestTouched.pasaporte && newGuestErrors.pasaporte && (
+                <CFormFeedback invalid style={{ display: 'block' }}>{newGuestErrors.pasaporte}</CFormFeedback>
+              )}
+              <small className="text-muted">
+                Si ya existe un registro en Sort_IPS con este pasaporte, la cuenta se vincula automáticamente.
+              </small>
+            </div>
+          )}
           <div className="mb-3">
             <label className="form-label">Teléfono</label>
             <CFormInput

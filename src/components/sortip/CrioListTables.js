@@ -4,6 +4,7 @@
 //   2. Creación Embrionaria (same first columns + crio date, result, XX/XY/NI,
 //      PDFs of the PGTA result and of the estimated transfer)
 // Values come from config/sortIpSections.js → crioListRow.
+// Each table is limited to ~10 rows high; more rows scroll vertically.
 
 import React, { useState } from 'react';
 import CIcon from '@coreui/icons-react';
@@ -89,7 +90,7 @@ const CrioListTables = ({ ips = [], onOpen, onViewDoc, ipName = () => '' }) => {
         <span className="crio-list-count">{rowsEst.length} de {rows.length}</span>
         <TableSearch id="crio-search-est" value={qEst} onChange={setQEst} label="Estimulación y Captura" />
       </div>
-      <div className="table-responsive">
+      <div className="table-responsive crio-list-scroll">
         <table className="crio-list-table">
           <thead>
             <tr>
@@ -110,7 +111,7 @@ const CrioListTables = ({ ips = [], onOpen, onViewDoc, ipName = () => '' }) => {
         <span className="crio-list-count">{rowsCrea.length} de {rows.length}</span>
         <TableSearch id="crio-search-crea" value={qCrea} onChange={setQCrea} label="Creación Embrionaria" />
       </div>
-      <div className="table-responsive">
+      <div className="table-responsive crio-list-scroll">
         <table className="crio-list-table">
           <thead>
             <tr>
@@ -157,6 +158,9 @@ const CrioListTables = ({ ips = [], onOpen, onViewDoc, ipName = () => '' }) => {
         .crio-list-title.is-green { color: #0f6b55; }
         .crio-list-title.is-red { color: #d0453a; font-style: italic; }
         .crio-list-table { width: 100%; border-collapse: collapse; white-space: nowrap; }
+        /* Each table shows ~10 rows; the rest scroll vertically (header stays visible) */
+        .crio-list-scroll { max-height: 430px; overflow-y: auto; }
+        .crio-list-scroll thead th { position: sticky; top: 0; z-index: 1; }
         .crio-list-table thead th { background: #f6d5e1; color: #4a4f55; font-weight: 500; padding: 8px 10px; }
         .crio-list-table tbody td { padding: 6px 10px; color: #33393f; }
         .crio-list-table tbody tr { cursor: pointer; }

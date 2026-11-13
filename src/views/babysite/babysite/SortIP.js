@@ -10,11 +10,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   CContainer, CCard, CCardHeader, CCardBody, CAlert, CButton, CBadge, CSpinner,
   CNav, CNavItem, CNavLink, CTabContent, CTabPane, CRow, CCol,
-  CFormLabel, CFormInput, CFormSelect, CFormTextarea, CFormCheck, CProgress, CInputGroup,
+  CFormLabel, CFormInput, CFormSelect, CFormTextarea, CFormCheck, CFormSwitch, CProgress, CInputGroup,
   CModal, CModalHeader, CModalTitle, CModalBody, CModalFooter,
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
-import { cilArrowLeft, cilSave, cilTrash, cilLink, cilLowVision } from '@coreui/icons';
+import { cilArrowLeft, cilArrowRight, cilSave, cilTrash, cilLink, cilLowVision } from '@coreui/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
 import PhotoPicker from '../../../components/PhotoPicker';
@@ -23,6 +23,7 @@ import IpChecklist from '../../../components/sortip/IpChecklist';
 import CrioEmbrio from '../../../components/sortip/CrioEmbrio';
 import PdfPreviewModal from '../../../components/PdfPreviewModal';
 import PendingDocsDot from '../../../components/sortip/PendingDocsDot';
+import { IpCategoriaSelect } from '../../../components/sortip/IpCategoria';
 import { useUser } from '../../../context/AuthContext';
 import PERMISSIONS from '../../../config/permissions';
 import {
@@ -98,8 +99,7 @@ const SortIP = () => {
   const [drafts, setDrafts] = useState({});   // what's on screen per section
   const [saving, setSaving] = useState(false);
 
-  // Cuenta Cloud IPS link (register-level, shown in Alta IP)
-  const [guests, setGuests]         = useState([]);
+  // Linked Guests account (Alta IP → "Cuenta vinculada"; linked through the passport)
   const [guestDraft, setGuestDraft] = useState('');
 
   // "Contraseña (Guests)" — password of the linked Guests account (not stored in Sort_IPS)
@@ -122,10 +122,73 @@ const SortIP = () => {
 
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting]     = useState(false);
-
+  const [cloudViewSaving, setCloudViewSaving] = useState(false);
+  // Account of the IP (Guests) — created / linked from Alta IP through the passport
+  const [newAccountPwd, setNewAccountPwd] = useState('');
+  const [accountBusy, setAccountBusy] = useState(false);
   const showNotification = (type, message) => {
     setAlert({ show: true, type, message });
     setTimeout(() => setAlert({ show: false, type: '', message: '' }), 4000);
+  };
+
+  // Alta IP → "Vista en Baby Cloud": saved at once (not with "Guardar cambios").
+  // Stored in the Alta IP data as vista_babycloud (false = hidden for the IP).
+  const cloudViewOn = saved.alta?.vista_babycloud !== false;
+  const toggleCloudView = async (enabled) => {
+    try {
+      setCloudViewSaving(true);
+      await api.put(`/api/sort-ip/${id}/cloud-view`, { enabled }, { withCredentials: true });
+      // Same value in saved and drafts → it never counts as an unsaved change
+      setSaved(prev => ({ ...prev, alta: { ...(prev.alta || {}), vista_babycloud: enabled } }));
+      setDrafts(prev => ({ ...prev, alta: { ...(prev.alta || {}), vista_babycloud: enabled } }));
+      showNotification('success', enabled
+        ? 'Vista activada: el IP ya puede ver su registro en Baby Cloud'
+        : 'Vista desactivada: el IP ya no puede ver su registro en Baby Cloud');
+    } catch (err) {
+      showNotification('danger', err.response?.data?.message || 'No se pudo cambiar la vista en Baby Cloud');
+    } finally {
+      setCloudViewSaving(false);
+    }
+  };
+
+  // ── Cuenta vinculada (Guests, profile IP) ──────────────────────────────
+  const accountAction = async (request, okMessage) => {
+    try {
+      setAccountBusy(true);
+      await request();
+      setNewAccountPwd('');
+      await loadIp();
+      showNotification('success', okMessage);
+    } catch (err) {
+      showNotification('danger', err.response?.data?.message || 'No se pudo completar la acción');
+      if (err.response?.data?.code === 'GUEST_MATCH') await loadIp();
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+  // Creates the account from the SAVED Alta IP data (name, email, phone, passport)
+  const createAccount = () => accountAction(
+    () => api.post(`/api/sort-ip/${id}/guest-account`, { password: newAccountPwd }, { withCredentials: true }),
+    'Cuenta creada en Guests y vinculada. El IP ya puede entrar a Baby Cloud con su correo y contraseña.'
+  );
+  // Links the Guests account that has the same passport
+  const linkAccountByPasaporte = () => accountAction(
+    () => api.post(`/api/sort-ip/${id}/link-guest`, {}, { withCredentials: true }),
+    'Cuenta vinculada por número de pasaporte'
+  );
+  const unlinkAccount = () => {
+    if (!window.confirm('¿Desvincular la cuenta de Guests de este IP? La cuenta no se elimina.')) return;
+    accountAction(
+      () => api.put(`/api/sort-ip/${id}`, { guest_id: null }, { withCredentials: true }),
+      'Cuenta desvinculada'
+    );
+  };
+
+  // Opens this IP's register in Baby Cloud → Cloud IPS (edited by staff)
+  const goToCloudRegister = () => {
+    if (!ip?.guest_id) return;
+    if (anyDirty && !window.confirm('Hay cambios sin guardar. ¿Salir sin guardarlos?')) return;
+    navigate(`/babycloud/cloud-ips/register/${ip.guest_id}`);
   };
 
   const loadIp = async () => {
@@ -170,12 +233,6 @@ const SortIP = () => {
     }, 350);
     return () => clearTimeout(t);
   }, [draftPasaporte, id]);
-
-  useEffect(() => {
-    api.get(`/api/sort-ip/guests-available?except=${id}`, { withCredentials: true })
-      .then(res => setGuests(res.data || []))
-      .catch(() => setGuests([]));
-  }, [id]);
 
   useEffect(() => {
     if (activeTab !== 'crio' || otherIps) return;
@@ -380,23 +437,28 @@ const SortIP = () => {
         );
       case 'guestPassword': {
         // Password of the linked Guests account (same value as in Guests)
+        // Without account it is the password of the account to create ("Crear cuenta")
         const noAccount = !ip?.guest_id;
-        const pwdDisabled = disabled || noAccount || guestChanged;
-        const pwdError = passwordChanged ? guestPasswordError(passwordDraft) : '';
+        const hasMatch = noAccount && !!ip?.guest_match;
+        const pwdDisabled = disabled || guestChanged || hasMatch;
+        const pwdValue = noAccount ? newAccountPwd : passwordDraft;
+        const pwdError = noAccount
+          ? (newAccountPwd ? guestPasswordError(newAccountPwd) : '')
+          : (passwordChanged ? guestPasswordError(passwordDraft) : '');
         return (
           <>{label}
             <CInputGroup>
               <CFormInput
                 type={showPassword ? 'text' : 'password'}
-                value={noAccount ? '' : passwordDraft}
+                value={hasMatch ? '' : pwdValue}
                 disabled={pwdDisabled}
                 autoComplete="new-password"
-                placeholder={noAccount ? 'Sin cuenta de Guests vinculada' : 'Contraseña'}
+                placeholder={hasMatch ? 'La cuenta ya existe: vincúlala' : noAccount ? 'Contraseña para la nueva cuenta' : 'Contraseña'}
                 invalid={!!pwdError}
-                onChange={e => setPasswordDraft(e.target.value)}
+                onChange={e => (noAccount ? setNewAccountPwd(e.target.value) : setPasswordDraft(e.target.value))}
               />
               <CButton
-                type="button" color="secondary" variant="outline" disabled={noAccount}
+                type="button" color="secondary" variant="outline" disabled={hasMatch}
                 onClick={() => setShowPassword(v => !v)}
                 title={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
                 aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
@@ -407,8 +469,10 @@ const SortIP = () => {
             </CInputGroup>
             {pwdError && <small className="text-danger d-block">{pwdError}</small>}
             <small className="text-muted d-block">
-              {noAccount
-                ? 'Vincula una cuenta en "Cuenta Cloud IPS" (abajo) para asignar la contraseña.'
+              {hasMatch
+                ? 'Ya existe una cuenta con este pasaporte: vincúlala en "Cuenta vinculada".'
+                : noAccount
+                ? 'Escribe la contraseña de su nueva cuenta y usa "Crear cuenta" en "Cuenta vinculada".'
                 : guestChanged
                   ? 'Guarda el cambio de cuenta para ver y editar su contraseña.'
                   : 'Es la misma contraseña de la cuenta en Guests: cambiarla aquí la cambia allá.'}
@@ -416,6 +480,101 @@ const SortIP = () => {
           </>
         );
       }
+      case 'guestAccount': {
+        // Linked through the passport: create the account, link the one with the
+        // same passport, or unlink
+        if (ip?.guest_id) {
+          return (
+            <>{label}
+              <CInputGroup>
+                <CFormInput readOnly value={`${ip.guest_username || 'Cuenta'}${ip.guest_mail ? ` (${ip.guest_mail})` : ''}`} />
+                {canEditIp && (
+                  <CButton type="button" color="danger" variant="outline" disabled={accountBusy} onClick={unlinkAccount}>
+                    Desvincular
+                  </CButton>
+                )}
+              </CInputGroup>
+              <small className="text-muted d-block">
+                Cuenta de Guests (perfil IP) vinculada por el pasaporte {ip.pasaporte}. El IP entra a Baby Cloud con su correo y la contraseña de arriba.
+              </small>
+            </>
+          );
+        }
+        if (ip?.guest_match) {
+          return (
+            <>{label}
+              <CInputGroup>
+                <CFormInput readOnly value={`${ip.guest_match.username}${ip.guest_match.mail ? ` (${ip.guest_match.mail})` : ''}`} />
+                <CButton type="button" color="info" className="text-white" disabled={!canEditIp || accountBusy} onClick={linkAccountByPasaporte}>
+                  {accountBusy ? <CSpinner size="sm" /> : 'Vincular'}
+                </CButton>
+              </CInputGroup>
+              <small className="text-muted d-block">Ya existe en Guests una cuenta con el pasaporte {ip.pasaporte}: vincúlala, no hace falta crear otra.</small>
+            </>
+          );
+        }
+        // No account → create it from the SAVED Alta IP data
+        const savedEmail = String(saved.alta?.email || '').trim();
+        const reason = !canEditIp ? 'Solo lectura'
+          : isDirty('alta') ? 'Guarda los cambios de Alta IP antes de crear la cuenta'
+          : !savedEmail ? 'Captura y guarda el correo electrónico: es su usuario'
+          : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(savedEmail) ? 'El correo electrónico no es válido'
+          : !newAccountPwd ? 'Escribe la contraseña de la nueva cuenta'
+          : guestPasswordError(newAccountPwd) || '';
+        return (
+          <>{label}
+            <CInputGroup>
+              <CFormInput readOnly value="Sin cuenta" className="text-muted" />
+              <span title={reason} style={{ display: 'inline-flex' }}>
+                <CButton type="button" color="success" className="text-white" disabled={!!reason || accountBusy} onClick={createAccount}
+                  style={{ borderTopLeftRadius: 0, borderBottomLeftRadius: 0 }}>
+                  {accountBusy ? <CSpinner size="sm" /> : 'Crear cuenta'}
+                </CButton>
+              </span>
+            </CInputGroup>
+            <small className="text-muted d-block">
+              {reason && canEditIp ? `${reason}. ` : ''}Se crea en Guests (perfil IP) con su nombre, correo, teléfono y pasaporte.
+            </small>
+          </>
+        );
+      }
+      case 'cloudView':
+        return (
+          <>{label}
+            <div className="d-flex align-items-center gap-3 flex-wrap" style={{ minHeight: 38 }}>
+              <div className="d-flex align-items-center gap-2">
+                <CFormSwitch
+                  id="ip-cloud-view"
+                  size="lg"
+                  checked={cloudViewOn}
+                  disabled={!canEditIp || cloudViewSaving}
+                  onChange={e => toggleCloudView(e.target.checked)}
+                  aria-label="Vista del IP en Baby Cloud"
+                />
+                {cloudViewSaving
+                  ? <CSpinner size="sm" />
+                  : <CBadge color={cloudViewOn ? 'success' : 'secondary'}>{cloudViewOn ? 'Activa' : 'Desactivada'}</CBadge>}
+              </div>
+              <CButton
+                color="info" variant="outline" size="sm"
+                disabled={!ip?.guest_id}
+                title={!ip?.guest_id ? 'Crea o vincula su cuenta primero' : 'Abrir su registro en Cloud IPS'}
+                onClick={goToCloudRegister}
+              >
+                Ir al registro<CIcon icon={cilArrowRight} className="ms-1" />
+              </CButton>
+            </div>
+            <small className="text-muted d-block">
+              {!ip?.guest_id
+                ? 'Sin cuenta vinculada: el IP aún no puede entrar a Baby Cloud.'
+                : cloudViewOn
+                  ? 'El IP puede ver los contenidos de su registro en Baby Cloud.'
+                  : 'El IP entra a Baby Cloud, pero no puede ver los contenidos de su registro.'}
+            </small>
+          </>
+        );
+      case 'categoria':
+        return <>{label}<IpCategoriaSelect id={`ip-${sectionKey}-${f.name}`} value={value} disabled={disabled} onChange={v => setField(sectionKey, f.name, v)} /></>;
       case 'textarea':
         return <>{label}<CFormTextarea rows={3} value={value} disabled={disabled} onChange={e => setField(sectionKey, f.name, e.target.value)} /></>;
       case 'select':
@@ -671,22 +830,6 @@ const SortIP = () => {
                   </StaticSection>
                 )}
 
-                {s.key === 'alta' && (
-                  <StaticSection title="Cuenta Cloud IPS">
-                    <CRow>
-                      <CCol md={6}>
-                        <CFormLabel className="mb-1">Cuenta vinculada:</CFormLabel>
-                        <CFormSelect value={guestDraft} disabled={!canEditIp} onChange={e => setGuestDraft(e.target.value)}>
-                          <option value="">Sin vincular</option>
-                          {guests.map(g => <option key={g.id} value={g.id}>{g.username}{g.mail ? ` (${g.mail})` : ''}</option>)}
-                        </CFormSelect>
-                        <small className="text-muted">
-                          La cuenta con la que el IP entra a ver su vista de Cloud IPS. Solo aparecen cuentas de Guests con perfil IP que no están vinculadas a otro registro.
-                        </small>
-                      </CCol>
-                    </CRow>
-                  </StaticSection>
-                )}
               </CTabPane>
             ))}
           </CTabContent>

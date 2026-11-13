@@ -5,6 +5,8 @@
 //                        teléfono, contraseña). Saved in Guests AND in their
 //                        Sort_IPS register (backend: /api/guest-portal/me).
 //   2. Ver mi registro → their current view (/babycloud/cloud-ips/preview/:id).
+//      Only while Sort_IPS → Alta IP → "Vista en Baby Cloud" is active
+//      (me.cloud_view_enabled); otherwise the option shows as not available.
 
 import React, { useEffect, useState } from 'react';
 import {
@@ -110,7 +112,8 @@ const GuestHome = () => {
     }
   };
 
-  const goPreview = () => navigate(`/babycloud/cloud-ips/preview/${user?.id}`);
+  const viewEnabled = me?.cloud_view_enabled !== false;
+  const goPreview = () => { if (viewEnabled) navigate(`/babycloud/cloud-ips/preview/${user?.id}`); };
 
   if (loading) {
     return <div className="text-center py-5"><CSpinner size="sm" className="me-2" />Cargando...</div>;
@@ -150,18 +153,22 @@ const GuestHome = () => {
             },
             {
               key: 'preview', icon: cilNotes, title: 'Ver mi registro',
-              text: 'Consulta el avance actual de tu proceso.',
-              action: goPreview, cta: 'Ver registro',
+              text: viewEnabled
+                ? 'Consulta el avance actual de tu proceso.'
+                : 'Tu registro aún no está disponible. Te avisaremos cuando puedas consultarlo.',
+              action: goPreview, cta: viewEnabled ? 'Ver registro' : 'Aún no disponible',
+              disabled: !viewEnabled,
             },
           ].map(opt => (
             <CCol md={6} key={opt.key}>
               <CCard
-                className="h-100 guest-home-option"
+                className={`h-100${opt.disabled ? '' : ' guest-home-option'}`}
                 role="button"
-                tabIndex={0}
-                onClick={opt.action}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); opt.action(); } }}
-                style={{ cursor: 'pointer', borderTop: `4px solid ${PINK}` }}
+                tabIndex={opt.disabled ? -1 : 0}
+                aria-disabled={opt.disabled || undefined}
+                onClick={opt.disabled ? undefined : opt.action}
+                onKeyDown={e => { if (!opt.disabled && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); opt.action(); } }}
+                style={{ cursor: opt.disabled ? 'not-allowed' : 'pointer', borderTop: `4px solid ${opt.disabled ? '#c4c9d0' : PINK}`, opacity: opt.disabled ? 0.75 : 1 }}
               >
                 <CCardBody className="d-flex flex-column align-items-center text-center py-5">
                   <div
@@ -172,8 +179,8 @@ const GuestHome = () => {
                   </div>
                   <h5 className="mb-2">{opt.title}</h5>
                   <p className="text-muted mb-4" style={{ maxWidth: 320 }}>{opt.text}</p>
-                  <span className="btn btn-sm text-white mt-auto" style={{ backgroundColor: PINK, borderColor: PINK }}>
-                    {opt.cta} <CIcon icon={cilArrowRight} className="ms-1" />
+                  <span className="btn btn-sm text-white mt-auto" style={{ backgroundColor: opt.disabled ? '#9da5b1' : PINK, borderColor: opt.disabled ? '#9da5b1' : PINK }}>
+                    {opt.cta} {!opt.disabled && <CIcon icon={cilArrowRight} className="ms-1" />}
                   </span>
                 </CCardBody>
               </CCard>
@@ -191,7 +198,7 @@ const GuestHome = () => {
               </CButton>
               <strong>Mis datos</strong>
             </div>
-            <CButton color="link" size="sm" className="p-0" onClick={goPreview}>Ver mi registro ↗</CButton>
+            {viewEnabled && <CButton color="link" size="sm" className="p-0" onClick={goPreview}>Ver mi registro ↗</CButton>}
           </CCardHeader>
           <CCardBody>
             {notice && (

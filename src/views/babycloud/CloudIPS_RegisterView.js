@@ -383,6 +383,8 @@ const CloudIPS_RegisterView = () => {
   const [phaseCounts, setPhaseCounts] = useState({ count_1: 1, count_2: 1, count_3: 1 })
   const [loading, setLoading]       = useState(true)
   const [error, setError]           = useState(null)
+  // Sort_IPS → Alta IP → "Vista en Baby Cloud" is off for this IP
+  const [viewDisabled, setViewDisabled] = useState(false)
   const [modal, setModal]           = useState({ visible: false, content: '' })
 
   useEffect(() => {
@@ -397,6 +399,7 @@ const CloudIPS_RegisterView = () => {
         setData(res.data.fields || {})
         setPhaseCounts(res.data.counts || { count_1: 1, count_2: 1, count_3: 1 })
       } catch (err) {
+        if (err.response?.data?.code === 'CLOUD_VIEW_DISABLED') setViewDisabled(true)
         setError(err.response?.data?.message || err.message)
       } finally {
         setLoading(false)
@@ -449,10 +452,11 @@ const CloudIPS_RegisterView = () => {
         </CCard>
 
         {error && (
-          <CAlert color="danger" dismissible onClose={() => setError(null)}>{error}</CAlert>
+          <CAlert color={viewDisabled ? 'info' : 'danger'} dismissible={!viewDisabled} onClose={() => setError(null)}>{error}</CAlert>
         )}
 
-        {/* Preview tables */}
+        {/* Preview tables (hidden while the view is disabled) */}
+        {!viewDisabled && (
         <CCard>
           <CCardBody className="p-2">
             <div className="table-responsive">
@@ -468,6 +472,7 @@ const CloudIPS_RegisterView = () => {
             </div>
           </CCardBody>
         </CCard>
+        )}
       </CCol>
 
       {/* Info / note modal (read-only) */}

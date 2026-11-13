@@ -20,10 +20,13 @@ import {
   CBadge,
   CContainer,
   CButton,
+  CFormSwitch,
 } from '@coreui/react'
 import CIcon from '@coreui/icons-react'
 import { cilSearch, cilCloudUpload } from '@coreui/icons'
 import api from '../../../services/api'
+import { useUser } from '../../../context/AuthContext'
+import PERMISSIONS from '../../../config/permissions'
 
 const CloudIPS_List = () => {
   const navigate = useNavigate()
@@ -31,6 +34,13 @@ const CloudIPS_List = () => {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [searchTerm, setSearchTerm] = useState('')
+  // "Vista" column: guest_id → { ip_id, nombre_completo, enabled }. It is the same
+  // switch as Sort_IPS → Alta IP → "Vista en Baby Cloud" (stored in the IP register).
+  const [views, setViews] = useState({})
+  const [viewsError, setViewsError] = useState('')
+  const [savingViewId, setSavingViewId] = useState(null)
+  const { canView } = useUser()
+  const canEditView = canView(PERMISSIONS.EDIT_SORT_IP)
 
   useEffect(() => {
     fetchGuests()
@@ -39,8 +49,22 @@ const CloudIPS_List = () => {
   const fetchGuests = async () => {
     try {
       setLoading(true)
-      const res = await api.get('/api/guests', { withCredentials: true })
+      const [res, viewsRes] = await Promise.all([
+        api.get('/api/guests', { withCredentials: true }),
+        api.get('/api/sort-ip/cloud-views', { withCredentials: true }).catch((err) => {
+          console.error('Error fetching cloud views:', err)
+          return null
+        }),
+      ])
       setGuests(res.data)
+      if (viewsRes) {
+        const map = {}
+        ;(viewsRes.data || []).forEach((v) => { map[v.guest_id] = v })
+        setViews(map)
+        setViewsError('')
+      } else {
+        setViewsError('No se pudo cargar el estado de la vista de cada IP')
+      }
       setError(null)
     } catch (err) {
       console.error('Error fetching guests:', err)
@@ -48,6 +72,46 @@ const CloudIPS_List = () => {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Turns the IP's view of their register in Baby Cloud on / off
+  const toggleView = async (guestId, enabled) => {
+    const v = views[guestId]
+    if (!v) return
+    setSavingViewId(guestId)
+    try {
+      await api.put(`/api/sort-ip/${v.ip_id}/cloud-view`, { enabled }, { withCredentials: true })
+      setViews((prev) => ({ ...prev, [guestId]: { ...prev[guestId], enabled } }))
+    } catch (err) {
+      setError(err.response?.data?.message || 'No se pudo cambiar la vista del IP')
+    } finally {
+      setSavingViewId(null)
+    }
+  }
+
+  const viewCell = (guest) => {
+    const v = views[guest.id]
+    if (!v) {
+      return guest.profile === 'ip'
+        ? <CBadge color="light" textColor="dark" className="border" title="Vincula esta cuenta a un registro en Sort_IPS → Alta IP para controlar su vista">Sin registro IP</CBadge>
+        : <span className="text-muted">—</span>
+    }
+    const saving = savingViewId === guest.id
+    return (
+      <div className="d-flex align-items-center gap-2" title={`Registro Sort_IPS: ${v.nombre_completo}`}>
+        <CFormSwitch
+          id={`cloud-view-${guest.id}`}
+          checked={v.enabled}
+          disabled={!canEditView || saving}
+          onChange={(e) => toggleView(guest.id, e.target.checked)}
+          aria-label={`Vista en Baby Cloud de ${guest.username}`}
+          className="mb-0"
+        />
+        {saving
+          ? <CSpinner size="sm" />
+          : <CBadge color={v.enabled ? 'success' : 'secondary'}>{v.enabled ? 'Activa' : 'Desactivada'}</CBadge>}
+      </div>
+    )
   }
 
   const filteredGuests = useMemo(() => {
@@ -94,6 +158,11 @@ const CloudIPS_List = () => {
           {error}
         </CAlert>
       )}
+      {viewsError && (
+        <CAlert color="warning" dismissible onClose={() => setViewsError('')}>
+          {viewsError}
+        </CAlert>
+      )}
 
       <CCard className="mb-4">
         <CCardHeader className="d-flex align-items-center justify-content-between">
@@ -124,13 +193,14 @@ const CloudIPS_List = () => {
                   <CTableHeaderCell>Contraseña</CTableHeaderCell>
                   <CTableHeaderCell>Perfil</CTableHeaderCell>
                   <CTableHeaderCell>Fecha de creación</CTableHeaderCell>
+                  <CTableHeaderCell title="Si el IP puede ver los contenidos de su registro en Baby Cloud">Vista del IP</CTableHeaderCell>
                   <CTableHeaderCell className="text-center">Upload</CTableHeaderCell>
                 </CTableRow>
               </CTableHead>
               <CTableBody>
                 {filteredGuests.length === 0 ? (
                   <CTableRow>
-                    <CTableDataCell colSpan={7} className="text-center py-4">
+                    <CTableDataCell colSpan={8} className="text-center py-4">
                       {searchTerm ? 'No se encontraron invitados' : 'No hay invitados registrados'}
                     </CTableDataCell>
                   </CTableRow>
@@ -153,6 +223,7 @@ const CloudIPS_List = () => {
                       <CTableDataCell className="text-muted" style={{ fontSize: '0.85rem' }}>
                         {formatDate(guest.created_on)}
                       </CTableDataCell>
+                      <CTableDataCell>{viewCell(guest)}</CTableDataCell>
                       <CTableDataCell className="text-center">
                         <CButton
                           color="primary"

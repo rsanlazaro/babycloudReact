@@ -108,6 +108,8 @@ const PaymentsGest = () => {
 
   const [searchTerm,   setSearchTerm]   = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  // Sort_GESCA: 'all' | 'pending' (still not in /babysite/sortGes) | 'linked'
+  const [sortGesFilter, setSortGesFilter] = useState('all');
   const [sortConfig,   setSortConfig]   = useState({ key: 'created_at', direction: 'desc' });
 
   const [showDeleteModal,         setShowDeleteModal]         = useState(false);
@@ -175,11 +177,17 @@ const PaymentsGest = () => {
       result = result.filter(p => p.status === statusFilter);
     }
 
+    if (sortGesFilter === 'pending') result = result.filter(p => !p.sort_ges_id);
+    if (sortGesFilter === 'linked')  result = result.filter(p => !!p.sort_ges_id);
+
     result.sort((a, b) => {
       let aVal, bVal;
       if (sortConfig.key === 'sdg') {
         aVal = getStageIndex(a);
         bVal = getStageIndex(b);
+      } else if (sortConfig.key === 'sort_ges') {
+        aVal = a.sort_ges_id ? 1 : 0;
+        bVal = b.sort_ges_id ? 1 : 0;
       } else if (sortConfig.key === 'created_at') {
         aVal = new Date(a[sortConfig.key] || '');
         bVal = new Date(b[sortConfig.key] || '');
@@ -193,7 +201,10 @@ const PaymentsGest = () => {
     });
 
     return result;
-  }, [payments, searchTerm, statusFilter, sortConfig]);
+  }, [payments, searchTerm, statusFilter, sortGesFilter, sortConfig]);
+
+  // Schemes that still have to be migrated to Sort_GESCA
+  const pendingSortGes = useMemo(() => payments.filter(p => !p.sort_ges_id).length, [payments]);
 
   // ── Edit handlers ──────────────────────────────────────────────────────────
   const handleViewClick = (payment) => {
@@ -314,7 +325,20 @@ const PaymentsGest = () => {
 
       <CCard className="mb-4">
         <CCardHeader className="d-flex justify-content-between align-items-center">
-          <strong>Esquemas de pagos (Gestantes)</strong>
+          <div className="d-flex align-items-center gap-2 flex-wrap">
+            <strong>Esquemas de pagos (Gestantes)</strong>
+            {pendingSortGes > 0 && (
+              <CBadge
+                color="warning" textColor="dark" shape="rounded-pill" role="button"
+                style={{ cursor: 'pointer' }}
+                title="Ver los esquemas que aún no aparecen en Sort_GESCA"
+                onClick={() => setSortGesFilter('pending')}
+              >
+                <CIcon icon={cilWarning} size="sm" className="me-1" />
+                {pendingSortGes} por migrar a Sort_GESCA
+              </CBadge>
+            )}
+          </div>
           {paymentsPerms.create.visible && (
             <CButton
               color="primary"
@@ -347,6 +371,13 @@ const PaymentsGest = () => {
                 {statusOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </CFormSelect>
             </CCol>
+            <CCol md={3}>
+              <CFormSelect value={sortGesFilter} onChange={e => setSortGesFilter(e.target.value)} aria-label="Filtrar por Sort_GESCA">
+                <option value="all">Sort_GESCA: todos</option>
+                <option value="pending">Por migrar a Sort_GESCA ({pendingSortGes})</option>
+                <option value="linked">Ya en Sort_GESCA ({payments.length - pendingSortGes})</option>
+              </CFormSelect>
+            </CCol>
           </CRow>
 
           {/* Table */}
@@ -356,6 +387,7 @@ const PaymentsGest = () => {
                 <CTableRow>
                   <SortableHeader label="GESCA"   sortKey="gesca"      />
                   <SortableHeader label="CURP"     sortKey="curp"       />
+                  <SortableHeader label="Sort_GESCA" sortKey="sort_ges" />
                   <SortableHeader label="IP"       sortKey="ip"         />
                   <SortableHeader label="Estado"   sortKey="status"     />
                   <CTableHeaderCell>Programa</CTableHeaderCell>
@@ -367,8 +399,8 @@ const PaymentsGest = () => {
               <CTableBody>
                 {filteredAndSortedPayments.length === 0 ? (
                   <CTableRow>
-                    <CTableDataCell colSpan={8} className="text-center py-4">
-                      {searchTerm || statusFilter !== 'all'
+                    <CTableDataCell colSpan={9} className="text-center py-4">
+                      {searchTerm || statusFilter !== 'all' || sortGesFilter !== 'all'
                         ? 'No se encontraron esquemas con los filtros aplicados'
                         : 'No hay esquemas de pago. Crea uno nuevo para comenzar.'}
                     </CTableDataCell>
@@ -383,6 +415,26 @@ const PaymentsGest = () => {
                         {payment.curp
                           ? <span style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>{payment.curp}</span>
                           : <CBadge color="warning" title="Captura la CURP en el esquema para vincularlo con SORT_GES">Sin CURP</CBadge>}
+                      </CTableDataCell>
+                      <CTableDataCell>
+                        {payment.sort_ges_id ? (
+                          <CBadge
+                            color="success" role="button" style={{ cursor: 'pointer' }}
+                            title="Abrir su registro en Sort_GESCA"
+                            onClick={() => navigate(`/babysite/sortGes/${payment.sort_ges_id}`)}
+                          >
+                            ✓ En Sort_GESCA
+                          </CBadge>
+                        ) : (
+                          <CBadge
+                            color="danger"
+                            title={payment.curp
+                              ? 'Aún no aparece en Sort_GESCA — ábrelo y usa "Agregar a Sort_GESCA" junto a la CURP'
+                              : 'Aún no aparece en Sort_GESCA — primero registra su CURP'}
+                          >
+                            <CIcon icon={cilWarning} size="sm" className="me-1" />Por migrar
+                          </CBadge>
+                        )}
                       </CTableDataCell>
                       <CTableDataCell>{payment.ip || '-'}</CTableDataCell>
                       <CTableDataCell>{getStatusBadge(payment.status)}</CTableDataCell>
