@@ -4,6 +4,7 @@
 // if it fails, the reason sent by the backend is shown.
 //
 // <PdfPreviewModal visible title endpoint="/api/upload/ip-doc-stream" params={{ ipId, docKey }} onClose />
+//   bilingual → texts in Spanish / French (Baby Cloud, IP form)
 
 import React, { useEffect, useState } from 'react';
 import {
@@ -11,7 +12,8 @@ import {
 } from '@coreui/react';
 import api from '../services/api';
 
-const PdfPreviewModal = ({ visible, title, endpoint, params, onClose, color = '#1ba3b8' }) => {
+const PdfPreviewModal = ({ visible, title, endpoint, params, onClose, color = '#1ba3b8', bilingual = false }) => {
+  const t = (es, fr) => (bilingual ? `${es} / ${fr}` : es);
   const [state, setState] = useState({ loading: false, url: null, error: '' });
   const paramsKey = JSON.stringify(params || {});
 
@@ -27,8 +29,8 @@ const PdfPreviewModal = ({ visible, title, endpoint, params, onClose, color = '#
         if (!cancelled) setState({ loading: false, url: objectUrl, error: '' });
       } catch (err) {
         let message = err.response
-          ? `No se pudo abrir el documento (error ${err.response.status})`
-          : 'No se pudo conectar con el servidor para abrir el documento';
+          ? t(`No se pudo abrir el documento (error ${err.response.status})`, `Impossible d'ouvrir le document (erreur ${err.response.status})`)
+          : t('No se pudo conectar con el servidor para abrir el documento', 'Impossible de joindre le serveur pour ouvrir le document');
         const data = err.response?.data;
         if (data instanceof Blob) {
           try { message = JSON.parse(await data.text()).message || message; } catch (_) { /* not JSON */ }
@@ -44,7 +46,7 @@ const PdfPreviewModal = ({ visible, title, endpoint, params, onClose, color = '#
     <CModal visible={visible} onClose={onClose} size="xl" alignment="center">
       <CModalHeader><CModalTitle>{title}</CModalTitle></CModalHeader>
       <CModalBody className="p-0">
-        {state.loading && <div className="text-center py-5"><CSpinner size="sm" className="me-2" />Cargando documento...</div>}
+        {state.loading && <div className="text-center py-5"><CSpinner size="sm" className="me-2" />{t('Cargando documento...', 'Chargement du document...')}</div>}
         {state.error && <CAlert color="danger" className="m-3">{state.error}</CAlert>}
         {state.url && (
           <iframe title={title} src={state.url} style={{ width: '100%', height: '75vh', border: 'none', display: 'block' }} />
@@ -53,11 +55,11 @@ const PdfPreviewModal = ({ visible, title, endpoint, params, onClose, color = '#
       <CModalFooter>
         {state.url && (
           <>
-            <CButton color="secondary" variant="outline" onClick={() => window.open(state.url, '_blank')}>Abrir en pestaña nueva ↗</CButton>
-            <CButton color="secondary" variant="outline" href={state.url} download={`${String(title || 'documento').replace(/[^\w-]+/g, '_')}.pdf`}>Descargar</CButton>
+            <CButton color="secondary" variant="outline" onClick={() => window.open(state.url, '_blank')}>{t('Abrir en pestaña nueva', 'Ouvrir dans un nouvel onglet')} ↗</CButton>
+            <CButton color="secondary" variant="outline" href={state.url} download={`${String(title || 'documento').replace(/[^\w-]+/g, '_')}.pdf`}>{t('Descargar', 'Télécharger')}</CButton>
           </>
         )}
-        <CButton style={{ backgroundColor: color, borderColor: color, color: '#fff' }} onClick={onClose}>Cerrar</CButton>
+        <CButton style={{ backgroundColor: color, borderColor: color, color: '#fff' }} onClick={onClose}>{t('Cerrar', 'Fermer')}</CButton>
       </CModalFooter>
     </CModal>
   );

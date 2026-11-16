@@ -4,6 +4,10 @@
 
 const loadPdfLib = () => import('pdf-lib');
 
+// Errors carry .code (ENCRYPTED | INVALID | READ) and .fileName so the UI can
+// show them in another language too
+const pdfError = (message, code, fileName) => Object.assign(new Error(message), { code, fileName });
+
 /**
  * Reads one PDF and returns its page count. Throws a readable error when the
  * file is not a valid PDF or is password-protected.
@@ -15,9 +19,9 @@ export const countPdfPages = async (file) => {
     return pdf.getPageCount();
   } catch (err) {
     if (/encrypt/i.test(String(err?.message))) {
-      throw new Error(`"${file.name}" está protegido con contraseña; quítale la protección antes de subirlo`);
+      throw pdfError(`"${file.name}" está protegido con contraseña; quítale la protección antes de subirlo`, 'ENCRYPTED', file.name);
     }
-    throw new Error(`"${file.name}" no es un PDF válido o está dañado`);
+    throw pdfError(`"${file.name}" no es un PDF válido o está dañado`, 'INVALID', file.name);
   }
 };
 
@@ -36,7 +40,7 @@ export const mergePdfFiles = async (files, name = 'documento.pdf') => {
     try {
       src = await PDFDocument.load(await file.arrayBuffer());
     } catch {
-      throw new Error(`No se pudo leer "${file.name}"`);
+      throw pdfError(`No se pudo leer "${file.name}"`, 'READ', file.name);
     }
     const pages = await merged.copyPages(src, src.getPageIndices());
     pages.forEach(p => merged.addPage(p));

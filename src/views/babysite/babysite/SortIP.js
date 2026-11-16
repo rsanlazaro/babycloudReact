@@ -6,7 +6,7 @@
 // Tabs: Alta IP · Check list · Crio embrio · Preparación · Programa
 // Fields come from src/config/sortIpSections.js.
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   CContainer, CCard, CCardHeader, CCardBody, CAlert, CButton, CBadge, CSpinner,
   CNav, CNavItem, CNavLink, CTabContent, CTabPane, CRow, CCol,
@@ -15,20 +15,22 @@ import {
 } from '@coreui/react';
 import CIcon from '@coreui/icons-react';
 import { cilArrowLeft, cilArrowRight, cilSave, cilTrash, cilLink, cilLowVision } from '@coreui/icons';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import api from '../../../services/api';
 import PhotoPicker from '../../../components/PhotoPicker';
 import ViajesRegistro from '../../../components/sortip/ViajesRegistro';
 import IpChecklist from '../../../components/sortip/IpChecklist';
 import CrioEmbrio from '../../../components/sortip/CrioEmbrio';
 import PdfPreviewModal from '../../../components/PdfPreviewModal';
-import PendingDocsDot from '../../../components/sortip/PendingDocsDot';
+import IpWarningsBadge, { WarningCount } from '../../../components/sortip/IpWarningsBadge';
 import { IpCategoriaSelect } from '../../../components/sortip/IpCategoria';
+import ProyectoParental from '../../../components/sortip/ProyectoParental';
 import { useUser } from '../../../context/AuthContext';
 import PERMISSIONS from '../../../config/permissions';
 import {
   IP_SECTIONS, CHECKLIST_ITEMS, formatDate, normalizePasaporte, isValidPasaporte, PASAPORTE_FORMAT_MESSAGE,
-  isChecklistDone, vigenciaAlerts, vigenciaText, crioRowErrors, pendingDocs,
+  isChecklistDone, vigenciaAlerts, vigenciaText, crioRowErrors, estimulacionErrors, crioEstimOptions,
+  ipWarnings, warningsBySection, statusGeneralIp,
 } from '../../../config/sortIpSections';
 
 const PINK = '#d97ea1';
@@ -123,12 +125,39 @@ const SortIP = () => {
   const [showDelete, setShowDelete] = useState(false);
   const [deleting, setDeleting]     = useState(false);
   const [cloudViewSaving, setCloudViewSaving] = useState(false);
+  // Alta IP → "Linkar pareja": search another IP register by passport
+  const [parejaQuery, setParejaQuery] = useState('');
+  const [parejaResult, setParejaResult] = useState(null);   // null | { ip } | { none: true } | { error }
+  const [parejaSearching, setParejaSearching] = useState(false);
+  const searchPareja = async () => {
+    const p = String(parejaQuery || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (!p) return;
+    try {
+      setParejaSearching(true);
+      const res = await api.get(`/api/sort-ip/pasaporte/${encodeURIComponent(p)}`, { params: { except: id }, withCredentials: true });
+      setParejaResult(res.data?.ip ? { ip: res.data.ip } : { none: true });
+    } catch (err) {
+      setParejaResult({ error: err.response?.data?.message || 'No se pudo buscar' });
+    } finally {
+      setParejaSearching(false);
+    }
+  };
   // Account of the IP (Guests) — created / linked from Alta IP through the passport
   const [newAccountPwd, setNewAccountPwd] = useState('');
   const [accountBusy, setAccountBusy] = useState(false);
-  const showNotification = (type, message) => {
-    setAlert({ show: true, type, message });
-    setTimeout(() => setAlert({ show: false, type: '', message: '' }), 4000);
+  // Errors and warnings stay until closed and the page scrolls to them (to the
+  // row with the problem when `target` is given, e.g. 'crio-cre-0'); only
+  // success / info messages close by themselves.
+  const alertTimer = useRef(null);
+  const alertRef = useRef(null);
+  const [alertTarget, setAlertTarget] = useState(null);
+  const showNotification = (type, message, target = null) => {
+    clearTimeout(alertTimer.current);
+    setAlert({ show: true, type, message, seq: Date.now() });
+    setAlertTarget(target);
+    if (type === 'success' || type === 'info') {
+      alertTimer.current = setTimeout(() => setAlert({ show: false, type: '', message: '' }), 4000);
+    }
   };
 
   // Alta IP → "Vista en Baby Cloud": saved at once (not with "Guardar cambios").
@@ -184,6 +213,10 @@ const SortIP = () => {
     );
   };
 
+  // Alta IP → a trip "Con Material Genético (Sin Viaje)" → Crio embrio is locked
+  // except XX, XY and NI (uses what is on screen, saved or not)
+  const materialGenetico = (drafts.alta?.viajes || []).some(v => v?.con_material_genetico);
+
   // Opens this IP's register in Baby Cloud → Cloud IPS (edited by staff)
   const goToCloudRegister = () => {
     if (!ip?.guest_id) return;
@@ -218,7 +251,16 @@ const SortIP = () => {
     }
   };
 
-  useEffect(() => { loadIp(); }, [id]);
+  // Another IP opened (e.g. the Owner / Spliter link in Crio embrio): the list of
+  // other IPs and their splits belongs to the previous register → load it again
+  useEffect(() => { setOtherIps(null); loadIp(); }, [id]);
+
+  // Opened with a tab to show (e.g. Sort IPS list → Selec Dona → "Selec" opens Crio embrio)
+  const location = useLocation();
+  const tabFromState = location.state?.tab;
+  useEffect(() => {
+    if (tabFromState && IP_SECTIONS.some(s => s.key === tabFromState)) setActiveTab(tabFromState);
+  }, [id, tabFromState]);
 
   // Live check: is the passport typed in Alta IP already used by another IP?
   const draftPasaporte = drafts.alta?.pasaporte;
@@ -235,14 +277,24 @@ const SortIP = () => {
   }, [draftPasaporte, id]);
 
   useEffect(() => {
-    if (activeTab !== 'crio' || otherIps) return;
+    // Loaded with the register (not only in Crio embrio): the warnings count the
+    // splits received from other IPs
+    if (otherIps) return undefined;
+    let current = true;   // a reply for a register that is no longer open is ignored
     api.get('/api/sort-ip', { withCredentials: true })
-      .then(res => setOtherIps((res.data || [])
+      .then(res => current && setOtherIps((res.data || [])
         .filter(i => String(i.id) !== String(id))
-        .map(i => ({ id: i.id, nombre_completo: i.nombre_completo }))
+        // codigos → egg donor codes of each IP (Estimulaciones → Donor: codes of the whole platform)
+        .map(i => ({
+          id: i.id, nombre_completo: i.nombre_completo,
+          codigos: [...new Set((i.sections?.crio?.egg_donors || []).map(d => String(d.codigo || '').trim()).filter(Boolean))],
+          // its estimulaciones split with THIS IP (shown here in yellow, read only)
+          splitsWithMe: (i.sections?.crio?.estimulaciones || []).filter(e => e.split && String(e.spliter_ip_id) === String(id)),
+        }))
         .sort((a, b) => a.nombre_completo.localeCompare(b.nombre_completo, 'es'))))
-      .catch(() => setOtherIps([]));
-  }, [activeTab, otherIps, id]);
+      .catch(() => current && setOtherIps([]));
+    return () => { current = false; };
+  }, [otherIps, id]);
 
   useEffect(() => {
     if (activeTab !== 'programa' || gestantes) return;
@@ -329,6 +381,18 @@ const SortIP = () => {
   });
 
   // ── "Guardar cambios": saves every tab that has changes ─────────────────
+  // Take the user to the error: the row with the problem, or the message itself
+  useEffect(() => {
+    if (!alert.show || !['danger', 'warning'].includes(alert.type)) return undefined;
+    const t = setTimeout(() => {
+      const el = (alertTarget && document.getElementById(alertTarget)) || alertRef.current;
+      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (el && el === alertRef.current) el.focus({ preventScroll: true });
+      if (el && el !== alertRef.current) { el.classList.add('sortip-flash'); setTimeout(() => el.classList.remove('sortip-flash'), 2200); }
+    }, 120);   // after the tab with the error is shown
+    return () => clearTimeout(t);
+  }, [alert.seq, alert.show, alert.type, alertTarget]);
+
   const handleSave = async () => {
     if (!anyDirty) { showNotification('info', 'No hay cambios por guardar'); return; }
     for (const s of dirtySections) {
@@ -340,10 +404,24 @@ const SortIP = () => {
       }
     }
     if (isDirty('crio')) {
-      const bad = (drafts.crio?.crios || []).map((c, i) => ({ i, errs: crioRowErrors(c) })).find(r => r.errs.length);
+      // FIV Total limit = Owner (own estimulación) / Spliter (received split)
+      const splitsWithMe = (otherIps || []).flatMap(i => (i.splitsWithMe || []).map(e => ({ owner: i, e })));
+      const estimOpts = crioEstimOptions(drafts.crio?.estimulaciones || [], splitsWithMe);
+      const bad = (drafts.crio?.crios || [])
+        .map((c, i) => {
+          const o = estimOpts.find(x => x.value === c.estim_ref);
+          return { i, errs: crioRowErrors(c, o?.max ?? null, o?.split ? 'Spliter' : 'Owner') };
+        })
+        .find(r => r.errs.length);
       if (bad) {
         setActiveTab('crio');
-        showNotification('danger', `Crio Embrio ${bad.i + 1}: ${bad.errs.join('. ')}`);
+        showNotification('danger', `Crio Embrio ${bad.i + 1}: ${bad.errs.join('. ')}`, `crio-cre-${bad.i}`);
+        return;
+      }
+      const badStim = (drafts.crio?.estimulaciones || []).map((e, i) => ({ i, errs: estimulacionErrors(e) })).find(r => r.errs.length);
+      if (badStim) {
+        setActiveTab('crio');
+        showNotification('danger', `Estimulación ${badStim.i + 1}: ${badStim.errs.join('. ')}`, `crio-estim-${badStim.i}`);
         return;
       }
     }
@@ -373,7 +451,13 @@ const SortIP = () => {
       for (const s of dirtySections) {
         const { changes, original } = tabChanges(drafts[s.key], saved[s.key]);
         if (Object.keys(changes).length) {
-          await api.put(`/api/sort-ip/${id}/sections/${s.key}`, { changes, _original: original }, { withCredentials: true });
+          try {
+            await api.put(`/api/sort-ip/${id}/sections/${s.key}`, { changes, _original: original }, { withCredentials: true });
+          } catch (e) {
+            e.sectionLabel = s.label;   // the message says which tab could not be saved
+            e.sectionKey = s.key;
+            throw e;
+          }
         }
       }
       await loadIp();
@@ -391,7 +475,12 @@ const SortIP = () => {
         return;
       }
       console.error('Error saving IP:', err);
-      showNotification('danger', err.response?.data?.message || 'Error al guardar los cambios');
+      // Always say why: server message, or the HTTP status / connection problem
+      const why = err.response?.data?.message
+        || (err.response ? `el servidor respondió ${err.response.status}${err.response.statusText ? ` (${err.response.statusText})` : ''}` : 'sin conexión con el servidor')
+        || err.message;
+      if (err.sectionKey) setActiveTab(err.sectionKey);
+      showNotification('danger', `No se guardaron los cambios${err.sectionLabel ? ` de ${err.sectionLabel}` : ''}: ${why}`);
     } finally {
       setSaving(false);
     }
@@ -425,6 +514,13 @@ const SortIP = () => {
       </CFormLabel>
     );
     switch (f.type) {
+      case 'heading':   // sub-title inside a tab (no data)
+        return (
+          <div style={{ fontWeight: 700, color: '#1ba3b8', borderBottom: '2px solid #d3eef2', paddingBottom: 4 }}>
+            <span>{f.label}</span>
+            {f.hint && <small className="text-muted fw-normal ms-2">{f.hint}</small>}
+          </div>
+        );
       case 'check':
         return (
           <CFormCheck
@@ -573,6 +669,67 @@ const SortIP = () => {
             </small>
           </>
         );
+      case 'parejaLink': {
+        // Linked: partner's name + passport (saved with "Guardar cambios")
+        const a = drafts.alta || {};
+        if (a.pareja_ip_id) {
+          return (
+            <>{label}
+              <CInputGroup>
+                <CFormInput readOnly value={`${a.pareja_ip_nombre || `IP #${a.pareja_ip_id}`}${a.pareja_link ? ` — pasaporte ${a.pareja_link}` : ''}`} />
+                <CButton type="button" color="info" variant="outline" onClick={() => {
+                  if (anyDirty && !window.confirm('Hay cambios sin guardar. ¿Salir sin guardarlos?')) return;
+                  navigate(`/babysite/ips/${a.pareja_ip_id}`);
+                }}>Ver</CButton>
+                {canEditIp && (
+                  <CButton type="button" color="danger" variant="outline" onClick={() => {
+                    setDrafts(d => ({ ...d, alta: { ...d.alta, pareja_ip_id: '', pareja_link: '', pareja_ip_nombre: '' } }));
+                    setParejaResult(null); setParejaQuery('');
+                  }}>Desenlazar</CButton>
+                )}
+              </CInputGroup>
+              <small className="text-muted d-block">Enlace mutuo: el registro de la pareja también apunta a este IP.</small>
+            </>
+          );
+        }
+        return (
+          <>{label}
+            <CInputGroup style={{ maxWidth: 520 }}>
+              <CFormInput
+                placeholder="Pasaporte de la pareja" value={parejaQuery} disabled={disabled} maxLength={24}
+                onChange={e => { setParejaQuery(e.target.value.toUpperCase()); setParejaResult(null); }}
+                onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); searchPareja(); } }}
+              />
+              <CButton type="button" color="secondary" variant="outline" disabled={disabled || !parejaQuery || parejaSearching} onClick={searchPareja}>
+                {parejaSearching ? <CSpinner size="sm" /> : 'Buscar'}
+              </CButton>
+            </CInputGroup>
+            {parejaResult?.ip && (
+              <div className="mt-1 d-flex align-items-center gap-2 flex-wrap small">
+                <span>IP encontrado: <strong>{parejaResult.ip.nombre_completo}</strong></span>
+                <CButton size="sm" color="info" className="text-white py-0" onClick={() => {
+                  setDrafts(d => ({ ...d, alta: { ...d.alta, pareja_ip_id: parejaResult.ip.id, pareja_link: parejaQuery.replace(/[^A-Z0-9]/g, ''), pareja_ip_nombre: parejaResult.ip.nombre_completo } }));
+                  setParejaResult(null);
+                }}>Enlazar</CButton>
+              </div>
+            )}
+            {parejaResult?.none && <small className="text-danger d-block mt-1">No existe un IP registrado con ese número de pasaporte.</small>}
+            {parejaResult?.error && <small className="text-danger d-block mt-1">{parejaResult.error}</small>}
+          </>
+        );
+      }
+      case 'statusGeneral': {
+        // Calculated from the whole register (what is on screen), not chosen
+        const st = statusGeneralIp(drafts, (otherIps || []).flatMap(i => (i.splitsWithMe || []).map(e => ({ owner: i, e }))));
+        return (
+          <>{label}
+            <div className="form-control d-flex align-items-center" style={{ background: 'var(--cui-secondary-bg, #f3f4f7)' }}
+              title="Se calcula solo: viaje, depósito, Crio embrio, asignación, preparación y seguimiento en Programa">
+              <span className="fw-bold" style={{ color: st.color }}>{st.text}</span>
+            </div>
+          </>
+        );
+      }
       case 'categoria':
         return <>{label}<IpCategoriaSelect id={`ip-${sectionKey}-${f.name}`} value={value} disabled={disabled} onChange={v => setField(sectionKey, f.name, v)} /></>;
       case 'textarea':
@@ -654,12 +811,22 @@ const SortIP = () => {
   const alta = saved.alta || {};
   const checklistSaved = checklistDone;
   const vigencias = vigenciaAlerts(saved.checklist || {});
-
+  // Occurrences / warnings (saved data) → red number next to the name and on each tab
+  const warnings = ipWarnings({ ...saved, docs },
+    (otherIps || []).flatMap(i => (i.splitsWithMe || []).map(e => ({ owner: i, e }))));
+  const warnCount = warningsBySection(warnings);
   return (
     <CContainer fluid>
       {alert.show && (
-        <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>{alert.message}</CAlert>
+        <div ref={alertRef} tabIndex={-1} role={['danger', 'warning'].includes(alert.type) ? 'alert' : 'status'} style={{ outline: 'none', scrollMarginTop: 90 }}>
+          <CAlert color={alert.type} dismissible onClose={() => setAlert({ show: false })}>{alert.message}</CAlert>
+        </div>
       )}
+      <style>{`
+        .sortip-flash { animation: sortip-flash 1.1s ease-in-out 2; border-radius: 4px; }
+        @keyframes sortip-flash { 0%, 100% { box-shadow: none; } 50% { box-shadow: 0 0 0 3px #e55353; } }
+        @media (prefers-reduced-motion: reduce) { .sortip-flash { animation: none; outline: 3px solid #e55353; } }
+      `}</style>
 
       {/* ── Botón superior: volver a la lista ── */}
       <div className="mb-3">
@@ -684,13 +851,8 @@ const SortIP = () => {
             <CCol md={8}>
               <h3 className="mb-1 d-flex align-items-center" style={{ color: NAME_COLOR }}>
                 {ip.nombre_completo}
-                {/* Flight already registered but documents incomplete */}
-                <PendingDocsDot
-                  pending={saved.alta?.sin_viaje ? [] : pendingDocs(saved.alta?.viajes, docs)}
-                  ipName={ip.nombre_completo}
-                  actionLabel="Ir al Check list"
-                  onAction={() => setActiveTab('checklist')}
-                />
+                {/* Number of occurrences / warnings (click → detail, with a link to each tab) */}
+                <IpWarningsBadge warnings={warnings} ipName={ip.nombre_completo} onGo={(k) => k && setActiveTab(k)} />
               </h3>
               <p className="text-muted mb-1">{alta.direccion || ''}</p>
               <p className="text-muted mb-1">{[alta.pais, alta.idioma].filter(Boolean).join(' - ')}</p>
@@ -763,6 +925,7 @@ const SortIP = () => {
                     }}
                   >
                     <CIcon icon={s.icon} />{s.label.toUpperCase()}
+                    <WarningCount n={warnCount[s.key] || 0} title={`${warnCount[s.key] || 0} alerta(s) en ${s.label}`} />
                     {isDirty(s.key) && <span aria-hidden="true" style={{ color: active ? '#fff' : PINK }}>●</span>}
                   </CNavLink>
                 </CNavItem>
@@ -792,10 +955,19 @@ const SortIP = () => {
                       docProps={docProps}
                     />
                   ) : s.custom === 'crio' ? (
+                    <>
+                    {/* Proyecto parental — first in the tab (also filled by the IP in Baby Cloud) */}
+                    <ProyectoParental
+                      data={drafts.crio || {}}
+                      disabled={!canEditIp || materialGenetico}
+                      setField={(name, value) => setField('crio', name, value)}
+                    />
                     <CrioEmbrio
+                      soloResultados={materialGenetico}
                       data={drafts.crio || {}}
                       disabled={!canEditIp}
                       ips={otherIps || []}
+                      currentIpId={id}
                       setField={(name, value) => setField('crio', name, value)}
                       docProps={docProps}
                       onOpenIp={(ipId) => {
@@ -803,10 +975,11 @@ const SortIP = () => {
                         navigate(`/babysite/ips/${ipId}`);
                       }}
                     />
+                    </>
                   ) : (
                     <CRow>
                       {s.fields.map(f => (
-                        <CCol key={f.name} md={f.col || 6} className="mb-3">{renderField(s.key, f)}</CCol>
+                        <CCol key={f.name} md={{ span: f.col || 6, offset: f.offset || 0 }} className={f.type === 'heading' ? 'mb-2 mt-2' : 'mb-3'}>{renderField(s.key, f)}</CCol>
                       ))}
                     </CRow>
                   )}

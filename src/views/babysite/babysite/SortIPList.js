@@ -14,14 +14,14 @@ import { cilSearch, cilPlus } from '@coreui/icons';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../services/api';
 import { useUser } from '../../../context/AuthContext';
-import PendingDocsDot from '../../../components/sortip/PendingDocsDot';
+import IpWarningsBadge, { WarningCount } from '../../../components/sortip/IpWarningsBadge';
 import { IpCategoriaSelect, IpCategoriaBadge, IP_CATEGORIA_CSS } from '../../../components/sortip/IpCategoria';
 import CrioListTables from '../../../components/sortip/CrioListTables';
 import PdfPreviewModal from '../../../components/PdfPreviewModal';
 import PERMISSIONS from '../../../config/permissions';
 import {
-  IP_LIST_TABS, formatDate, normalizePasaporte, isValidPasaporte, PASAPORTE_FORMAT_MESSAGE, pendingDocs,
-  selecDonaStatus,
+  IP_LIST_TABS, formatDate, normalizePasaporte, isValidPasaporte, PASAPORTE_FORMAT_MESSAGE,
+  selecDonaStatus, ipWarnings, splitsWithIp, LIST_TAB_WARNING_SECTIONS,
 } from '../../../config/sortIpSections';
 
 const PINK = '#d97ea1';
@@ -121,61 +121,49 @@ const SortIPList = () => {
 
   const tabCount = (t) => (t.filter ? ips.filter(t.filter).length : ips.length);
 
+  // Occurrences / warnings of every IP → red number next to the name; each tab
+  // shows the total of its sections (LIST_TAB_WARNING_SECTIONS)
+  const warningsById = useMemo(() => {
+    const m = {};
+    ips.forEach(ip => { m[ip.id] = ipWarnings(ip.sections || {}, splitsWithIp(ip.id, ips)); });
+    return m;
+  }, [ips]);
+  const tabWarnings = (t) => {
+    const secs = LIST_TAB_WARNING_SECTIONS[t.id];
+    if (!secs) return 0;
+    return ips.filter(ip => (t.filter ? t.filter(ip) : true))
+      .reduce((n, ip) => n + (warningsById[ip.id] || []).filter(w => secs.includes(w.section)).length, 0);
+  };
+  const warningsBadge = (ip) => (
+    <IpWarningsBadge warnings={warningsById[ip.id] || []} ipName={ip.nombre_completo}
+      goLabel="Abrir registro" onGo={() => navigate(`/babysite/ips/${ip.id}`)} />
+  );
+
   // PDF opened from the Crio Embrio tables ({ ipId, docKey, title })
   const [pdfPreview, setPdfPreview] = useState(null);
 
-  // ── "Selec Dona": choose the program's egg donor from the list ────────────
-  const canEdit = canView(PERMISSIONS.EDIT_SORT_IP);
-  const [selecTarget, setSelecTarget] = useState(null);   // ip
-  const [selecValue, setSelecValue]   = useState('');
-  const [selecSaving, setSelecSaving] = useState(false);
-  const [selecError, setSelecError]   = useState('');
-
-  const openSelec = (ip) => {
-    setSelecTarget(ip);
-    setSelecValue(ip.sections?.crio?.donante_seleccionado || '');
-    setSelecError('');
-  };
-
-  const saveSelec = async () => {
-    const ip = selecTarget;
-    const original = ip.sections?.crio?.donante_seleccionado || '';
-    try {
-      setSelecSaving(true);
-      setSelecError('');
-      // Only this field: anything else in Crio embrio is left as it is
-      await api.put(`/api/sort-ip/${ip.id}/sections/crio`,
-        { changes: { donante_seleccionado: selecValue }, _original: { donante_seleccionado: original } },
-        { withCredentials: true });
-      setIps(prev => prev.map(x => (x.id !== ip.id ? x : {
-        ...x, sections: { ...x.sections, crio: { ...(x.sections?.crio || {}), donante_seleccionado: selecValue } },
-      })));
-      setSelecTarget(null);
-    } catch (err) {
-      setSelecError(err.response?.data?.message || 'No se pudo guardar la donante');
-    } finally {
-      setSelecSaving(false);
-    }
-  };
-
+  // ── "Selec Dona": the donor code selected in the IP card (Crio embrio →
+  // Estimulaciones → Donor; a received split when the IP has none of its own).
+  // Read only here: it changes in the IP card.
   const renderSelecDona = (ip) => {
-    const st = selecDonaStatus(ip.sections?.crio);
+    const st = selecDonaStatus(ip.sections?.crio, splitsWithIp(ip.id, ips));
     if (st.kind === 'sin_datos') return <span className="ip-st" style={{ color: '#a0a4a8' }}>Sin datos</span>;
-    if (st.kind === 'seleccionar') {
-      return canEdit
-        ? <CButton size="sm" color="info" variant="outline" className="py-0" onClick={(e) => { e.stopPropagation(); openSelec(ip); }}>Selec</CButton>
-        : <span className="ip-st" style={{ color: '#a0a4a8' }}>Sin seleccionar</span>;
+    if (st.kind === 'preselect') {
+      // The IP chose its options; nothing in Estimulaciones yet → opens this IP's Crio embrio
+      const codigos = st.opcionesIp.map(d => `Opción ${d.ip_opcion}: ${d.codigo}`).join(' · ');
+      return (
+        <button type="button" className="btn btn-link btn-sm p-0 fw-semibold"
+          onClick={(e) => { e.stopPropagation(); navigate(`/babysite/ips/${ip.id}`, { state: { tab: 'crio' } }); }}
+          title={`Elegidas por el IP: ${codigos}. Abrir Crio embrio para iniciar la estimulación`}
+          aria-label={`Preselect de ${ip.nombre_completo}: abrir Crio embrio`}>Preselect</button>
+      );
     }
+    // A donor was chosen in Estimulaciones Ovarias/Captura → its code
     return (
-      <span className="d-inline-flex align-items-center gap-2">
+      <span className="d-inline-flex align-items-center gap-2"
+        title={st.split ? `Split recibido de ${st.owner?.nombre_completo || 'otro IP'}` : 'Donor de Estimulaciones Ovarias/Captura'}>
         <strong>{st.id}</strong>
-        <span className="ip-st" style={{ color: st.kind === 'completado' ? '#198754' : '#2f9be0' }}>
-          {st.kind === 'completado' ? 'Completado' : 'En attende'}
-        </span>
-        {canEdit && (
-          <button type="button" className="btn btn-link btn-sm p-0" onClick={(e) => { e.stopPropagation(); openSelec(ip); }}
-            title="Cambiar donante" aria-label={`Cambiar donante de ${ip.nombre_completo}`}>cambiar</button>
-        )}
+        {st.split && <span className="ip-st" style={{ color: '#1d5fc4' }}>Split</span>}
       </span>
     );
   };
@@ -294,6 +282,7 @@ const SortIPList = () => {
             >
               <span className="sortip-icon-tab__circle">
                 <CIcon icon={t.icon} className="sortip-icon-tab__icon" />
+                <WarningCount n={tabWarnings(t)} className="sortip-icon-tab__warn" title={`${tabWarnings(t)} alerta(s) en ${t.label}`} />
               </span>
               <span className="sortip-icon-tab__label">
                 {t.label}
@@ -355,9 +344,10 @@ const SortIPList = () => {
               ? <div className="text-center py-4"><CSpinner size="sm" className="me-2" />Cargando...</div>
               : <CrioListTables
                   ips={filtered}
+                  renderName={(ip) => <>{ip.nombre_completo}{warningsBadge(ip)}</>}
                   onOpen={(ipId) => navigate(`/babysite/ips/${ipId}`)}
                   onViewDoc={(ip, docKey, title) => setPdfPreview({ ipId: ip.id, docKey, title })}
-                  ipName={(ipId) => ips.find(i => String(i.id) === String(ipId))?.nombre_completo || ''}
+                  allIps={ips}
                 />
           ) : (
           <CTable hover striped align="middle" responsive className="nowrap-table mb-0">
@@ -388,13 +378,8 @@ const SortIPList = () => {
                 >
                   <CTableDataCell>
                     <strong>{ip.nombre_completo}</strong>
-                    {/* Flight already registered but documents incomplete */}
-                    <PendingDocsDot
-                      pending={ip.sections?.alta?.sin_viaje ? [] : pendingDocs(ip.sections?.alta?.viajes, ip.sections?.docs)}
-                      ipName={ip.nombre_completo}
-                      actionLabel="Abrir registro"
-                      onAction={() => navigate(`/babysite/ips/${ip.id}`)}
-                    />
+                    {/* Number of occurrences / warnings of the IP (click → detail) */}
+                    {warningsBadge(ip)}
                   </CTableDataCell>
                   {tab.columns.map(c => (
                     <CTableDataCell key={c.label}>{c.type === 'selecDona' ? renderSelecDona(ip) : renderCell(c, ip)}</CTableDataCell>
@@ -415,29 +400,6 @@ const SortIPList = () => {
         params={pdfPreview ? { ipId: pdfPreview.ipId, docKey: pdfPreview.docKey } : {}}
         onClose={() => setPdfPreview(null)}
       />
-
-      {/* ── Selec Dona ── */}
-      <CModal visible={!!selecTarget} onClose={() => setSelecTarget(null)} alignment="center">
-        <CModalHeader><CModalTitle>Seleccionar donante{selecTarget ? ` — ${selecTarget.nombre_completo}` : ''}</CModalTitle></CModalHeader>
-        <CModalBody>
-          {selecError && <CAlert color="danger" className="py-2">{selecError}</CAlert>}
-          <CFormLabel htmlFor="selec-dona">Egg donor (capturados en Crio embrio):</CFormLabel>
-          <CFormSelect id="selec-dona" value={selecValue} onChange={e => setSelecValue(e.target.value)}>
-            <option value="">— Sin seleccionar —</option>
-            {(selecTarget?.sections?.crio?.egg_donors || []).filter(d => d.codigo).map(d => (
-              <option key={d.id || d.codigo} value={d.codigo}>
-                {d.codigo}{[d.agencia, d.catalogo].filter(Boolean).length ? ` · ${[d.agencia, d.catalogo].filter(Boolean).join(' · ')}` : ''}
-              </option>
-            ))}
-          </CFormSelect>
-        </CModalBody>
-        <CModalFooter>
-          <CButton color="secondary" variant="outline" onClick={() => setSelecTarget(null)}>Cancelar</CButton>
-          <CButton style={{ backgroundColor: PINK, borderColor: PINK, color: '#fff' }} onClick={saveSelec} disabled={selecSaving}>
-            {selecSaving ? <><CSpinner size="sm" className="me-2" />Guardando...</> : 'Guardar'}
-          </CButton>
-        </CModalFooter>
-      </CModal>
 
       {/* ── New IP ── */}
       <CModal visible={showCreate} onClose={() => setShowCreate(false)} alignment="center">
@@ -593,7 +555,9 @@ const SortIPList = () => {
           background: none; border: none; cursor: pointer; color: var(--tab-color);
         }
         .sortip-icon-tab:focus-visible { outline: 2px solid var(--tab-color); outline-offset: 2px; border-radius: 0.5rem; }
+        .sortip-icon-tab__warn { position: absolute; top: -6px; right: -8px; }
         .sortip-icon-tab__circle {
+          position: relative;
           width: 52px; height: 52px; border-radius: 50%;
           display: flex; align-items: center; justify-content: center;
           border: 2px solid color-mix(in srgb, var(--tab-color) 55%, transparent);

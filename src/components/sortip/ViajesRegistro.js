@@ -206,7 +206,14 @@ const ViajesRegistro = ({ viajes = [], onChange, disabled = false, notify, sinVi
                     />
                   ))}
                 </div>
-                <Field id={`${pid}-calle`} label="Calle/No" labelWidth={LODGING_LABEL} value={v.hospedaje_calle_no} disabled={disabled} onChange={x => update(idx, { hospedaje_calle_no: x })} />
+                <div className="d-flex gap-3 flex-wrap">
+                  <div style={{ flex: '1 1 260px' }}>
+                    <Field id={`${pid}-calle`} label="Calle/No" labelWidth={LODGING_LABEL} value={v.hospedaje_calle_no} disabled={disabled} onChange={x => update(idx, { hospedaje_calle_no: x })} />
+                  </div>
+                  <div style={{ flex: '0 1 170px' }}>
+                    <Field id={`${pid}-numero`} label="Número" labelWidth="auto" value={v.hospedaje_numero} disabled={disabled} onChange={x => update(idx, { hospedaje_numero: x })} />
+                  </div>
+                </div>
                 <div className="d-flex gap-3 flex-wrap">
                   <div style={{ flex: '0 1 200px' }}>
                     <Field id={`${pid}-cp`} label="CP" labelWidth={LODGING_LABEL} value={v.hospedaje_cp} disabled={disabled} onChange={x => update(idx, { hospedaje_cp: x })} />

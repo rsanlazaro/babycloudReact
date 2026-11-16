@@ -118,17 +118,17 @@ const _nav = [
       },
       {
         component: CNavItem,
+        name: 'Programas',
+        to: '/babysite/programas',
+        className: 'sidebar-component',
+        permission: PERMISSIONS.LIST_PROGRAMS, // access_96 — below Sort_DONA
+      },
+      {
+        component: CNavItem,
         name: 'Seguros',
         to: '/babysite/seguros',
         className: 'sidebar-component',
         permission: PERMISSIONS.VIEW_PROGRAMS, // access_40 — "Seguros" (was "Programas", then "Listado de seguros")
-      },
-      {
-        component: CNavItem,
-        name: 'Programas',
-        to: '/babysite/programas',
-        className: 'sidebar-component',
-        permission: PERMISSIONS.LIST_PROGRAMS, // access_96
       },
       {
         component: CNavItem,
